@@ -455,6 +455,8 @@ interface ParamPayload {
   max_female?: number | null;
   min_child?: number | null;
   max_child?: number | null;
+  min_newborn?: number | null;
+  max_newborn?: number | null;
 }
 
 app.post('/api/admin/tests', requireAdmin, (req, res) => {
@@ -477,8 +479,8 @@ app.post('/api/admin/tests', requireAdmin, (req, res) => {
   const insParam = db.prepare(`
     INSERT INTO test_parameters (
       test_id, name, unit, input_type, normal_text, default_value, select_options, abnormal_values,
-      min_male, max_male, min_female, max_female, min_child, max_child, sort_order
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      min_male, max_male, min_female, max_female, min_child, max_child, min_newborn, max_newborn, sort_order
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const testId = db.transaction(() => {
@@ -504,6 +506,8 @@ app.post('/api/admin/tests', requireAdmin, (req, res) => {
         p.max_female ?? null,
         p.min_child ?? null,
         p.max_child ?? null,
+        p.min_newborn ?? null,
+        p.max_newborn ?? null,
         idx + 1
       );
     });
@@ -537,8 +541,8 @@ app.put('/api/admin/tests/:id', requireAdmin, (req, res) => {
   const insParam = db.prepare(`
     INSERT INTO test_parameters (
       test_id, name, unit, input_type, normal_text, default_value, select_options, abnormal_values,
-      min_male, max_male, min_female, max_female, min_child, max_child, sort_order
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      min_male, max_male, min_female, max_female, min_child, max_child, min_newborn, max_newborn, sort_order
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   db.transaction(() => {
@@ -562,6 +566,8 @@ app.put('/api/admin/tests/:id', requireAdmin, (req, res) => {
           p.max_female ?? null,
           p.min_child ?? null,
           p.max_child ?? null,
+          p.min_newborn ?? null,
+          p.max_newborn ?? null,
           idx + 1
         );
       });
@@ -807,7 +813,15 @@ function getFullInvoice(
     .prepare(`SELECT * FROM invoice_tests WHERE invoice_id = ? ORDER BY id ASC`)
     .all(invoiceId) as Array<{ id: number; [key: string]: unknown }>;
 
-  const resultsStmt = db.prepare(`SELECT * FROM test_results WHERE invoice_test_id = ? ORDER BY sort_order ASC, id ASC`);
+  const resultsStmt = db.prepare(
+    `SELECT tr.*, tp.input_type, tp.normal_text,
+            tp.min_male, tp.max_male, tp.min_female, tp.max_female,
+            tp.min_child, tp.max_child, tp.min_newborn, tp.max_newborn
+     FROM test_results tr
+     LEFT JOIN test_parameters tp ON tp.id = tr.parameter_id
+     WHERE tr.invoice_test_id = ?
+     ORDER BY tr.sort_order ASC, tr.id ASC`
+  );
   const enrichedTests = tests.map((t) => ({
     ...t,
     results: resultsStmt.all(t.id),
@@ -1035,11 +1049,20 @@ app.post('/api/invoices', requireStaffOrAdmin, (req, res) => {
         max_female: number | null;
         min_child: number | null;
         max_child: number | null;
+        min_newborn: number | null;
+        max_newborn: number | null;
         sort_order: number;
       }>;
       for (const param of params) {
         const initialVal = param.default_value || '';
-        const evalRes = evaluateResultFlag(initialVal, param, patient.gender, Number(patient.ageYears || 0));
+        const evalRes = evaluateResultFlag(
+          initialVal,
+          param,
+          patient.gender,
+          Number(patient.ageYears || 0),
+          Number(patient.ageMonths || 0),
+          Number(patient.ageDays || 0)
+        );
         insResult.run(
           invoiceTestId,
           param.id,
@@ -1234,7 +1257,8 @@ app.put('/api/invoices/:id', requireStaffOrAdmin, (req, res) => {
     const existingResults = db
       .prepare(
         `SELECT tr.id, tr.result_value, tp.input_type, tp.abnormal_values, tp.normal_text,
-                tp.min_male, tp.max_male, tp.min_female, tp.max_female, tp.min_child, tp.max_child
+                tp.min_male, tp.max_male, tp.min_female, tp.max_female, tp.min_child, tp.max_child,
+                tp.min_newborn, tp.max_newborn
          FROM test_results tr
          JOIN invoice_tests it ON it.id = tr.invoice_test_id
          LEFT JOIN test_parameters tp ON tp.id = tr.parameter_id
@@ -1252,6 +1276,8 @@ app.put('/api/invoices/:id', requireStaffOrAdmin, (req, res) => {
       max_female: number | null;
       min_child: number | null;
       max_child: number | null;
+      min_newborn: number | null;
+      max_newborn: number | null;
     }>;
 
     const updExistingRes = db.prepare(`UPDATE test_results SET reference_range_text = ?, flag = ? WHERE id = ?`);
@@ -1269,9 +1295,13 @@ app.put('/api/invoices/:id', requireStaffOrAdmin, (req, res) => {
             max_female: er.max_female,
             min_child: er.min_child,
             max_child: er.max_child,
+            min_newborn: er.min_newborn,
+            max_newborn: er.max_newborn,
           },
           patient.gender!,
-          Number(patient.ageYears || 0)
+          Number(patient.ageYears || 0),
+          Number(patient.ageMonths || 0),
+          Number(patient.ageDays || 0)
         );
         updExistingRes.run(reEval.rangeLabel, reEval.flag, er.id);
       }
@@ -1305,6 +1335,8 @@ app.put('/api/invoices/:id', requireStaffOrAdmin, (req, res) => {
         max_female: number | null;
         min_child: number | null;
         max_child: number | null;
+        min_newborn: number | null;
+        max_newborn: number | null;
         sort_order: number;
       }>;
       for (const param of params) {
@@ -1313,7 +1345,9 @@ app.put('/api/invoices/:id', requireStaffOrAdmin, (req, res) => {
           initialVal,
           param,
           patient.gender!,
-          Number(patient.ageYears || 0)
+          Number(patient.ageYears || 0),
+          Number(patient.ageMonths || 0),
+          Number(patient.ageDays || 0)
         );
         insResult.run(
           invoiceTestId,
@@ -1494,7 +1528,8 @@ app.get('/api/lab-tests/:invoiceTestId', requireStaffOrAdmin, (req, res) => {
   const results = db
     .prepare(
       `SELECT tr.*, tp.input_type, tp.select_options, tp.abnormal_values, tp.normal_text,
-              tp.min_male, tp.max_male, tp.min_female, tp.max_female, tp.min_child, tp.max_child
+              tp.min_male, tp.max_male, tp.min_female, tp.max_female, tp.min_child, tp.max_child,
+              tp.min_newborn, tp.max_newborn
        FROM test_results tr
        LEFT JOIN test_parameters tp ON tp.id = tr.parameter_id
        WHERE tr.invoice_test_id = ?
@@ -1507,21 +1542,35 @@ app.get('/api/lab-tests/:invoiceTestId', requireStaffOrAdmin, (req, res) => {
 
 app.put('/api/lab-tests/:invoiceTestId/results', requireStaffOrAdmin, (req, res) => {
   const invoiceTestId = Number(req.params.invoiceTestId);
-  const { results, status, verifiedBy } = req.body as {
+  const { results, status, verifiedBy, consultantName, consultantTitle } = req.body as {
     results: Array<{ parameterId: number; value: string }>;
     status: 'Sample Collected' | 'Processing' | 'Verified' | 'Ready';
     verifiedBy?: string;
+    consultantName?: string;
+    consultantTitle?: string;
   };
 
   const item = db
     .prepare(
-      `SELECT it.*, p.gender, p.age_years
+      `SELECT it.*, p.gender, p.age_years, p.age_months, p.age_days
        FROM invoice_tests it
        JOIN invoices i ON i.id = it.invoice_id
        JOIN patients p ON p.id = i.patient_id
        WHERE it.id = ?`
     )
-    .get(invoiceTestId) as { id: number; gender: string; age_years: number; verified_at: string | null; ready_at: string | null } | undefined;
+    .get(invoiceTestId) as
+    | {
+        id: number;
+        gender: string;
+        age_years: number;
+        age_months: number;
+        age_days: number;
+        verified_at: string | null;
+        ready_at: string | null;
+        consultant_name: string;
+        consultant_title: string;
+      }
+    | undefined;
 
   if (!item) {
     res.status(404).json({ error: 'Lab test entry not found.' });
@@ -1624,13 +1673,22 @@ app.put('/api/lab-tests/:invoiceTestId/results', requireStaffOrAdmin, (req, res)
             max_female: number | null;
             min_child: number | null;
             max_child: number | null;
+            min_newborn: number | null;
+            max_newborn: number | null;
           }
         | undefined;
 
       let flag = 'Normal';
       let rangeLabel = '';
       if (param) {
-        const evalRes = evaluateResultFlag(String(value ?? ''), param, item.gender, item.age_years);
+        const evalRes = evaluateResultFlag(
+          String(value ?? ''),
+          param,
+          item.gender,
+          item.age_years,
+          item.age_months,
+          item.age_days
+        );
         flag = evalRes.flag;
         rangeLabel = evalRes.rangeLabel;
       }
@@ -1640,12 +1698,20 @@ app.put('/api/lab-tests/:invoiceTestId/results', requireStaffOrAdmin, (req, res)
     const verifiedAt = nextStatus === 'Verified' || nextStatus === 'Ready' ? item.verified_at || nowTs : null;
     const readyAt = nextStatus === 'Ready' ? item.ready_at || nowTs : null;
     const verifier = verifiedBy?.trim() || getSetting('technologist_name') || 'Medical Technologist';
+    const nextConsultantName =
+      consultantName !== undefined ? consultantName.trim() : item.consultant_name || '';
+    const nextConsultantTitle =
+      consultantTitle !== undefined ? consultantTitle.trim() : item.consultant_title || '';
 
-    db.prepare(`UPDATE invoice_tests SET status = ?, verified_at = ?, ready_at = ?, verified_by = ? WHERE id = ?`).run(
+    db.prepare(
+      `UPDATE invoice_tests SET status = ?, verified_at = ?, ready_at = ?, verified_by = ?, consultant_name = ?, consultant_title = ? WHERE id = ?`
+    ).run(
       nextStatus,
       verifiedAt,
       readyAt,
       nextStatus === 'Verified' || nextStatus === 'Ready' ? verifier : '',
+      nextConsultantName,
+      nextConsultantTitle,
       invoiceTestId
     );
   })();

@@ -55,6 +55,8 @@ export function initDatabase() {
       max_female REAL,
       min_child REAL,
       max_child REAL,
+      min_newborn REAL,
+      max_newborn REAL,
       sort_order INTEGER DEFAULT 0,
       FOREIGN KEY (test_id) REFERENCES tests(id) ON DELETE CASCADE
     );
@@ -120,6 +122,8 @@ export function initDatabase() {
       verified_at TEXT,
       ready_at TEXT,
       verified_by TEXT DEFAULT '',
+      consultant_name TEXT DEFAULT '',
+      consultant_title TEXT DEFAULT '',
       FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
       FOREIGN KEY (test_id) REFERENCES tests(id)
     );
@@ -163,6 +167,7 @@ export function initDatabase() {
 
   migratePatientPortalColumns();
   migrateTestParameterDefaults();
+  migrateInvoiceTestConsultantColumns();
   seedDefaultSettings();
   seedCatalogIfEmpty();
   seedInitialOperationalDataIfEmpty();
@@ -176,6 +181,23 @@ function migrateTestParameterDefaults() {
   const names = new Set(cols.map((c) => c.name));
   if (!names.has('default_value')) {
     db.exec(`ALTER TABLE test_parameters ADD COLUMN default_value TEXT DEFAULT ''`);
+  }
+  if (!names.has('min_newborn')) {
+    db.exec(`ALTER TABLE test_parameters ADD COLUMN min_newborn REAL`);
+  }
+  if (!names.has('max_newborn')) {
+    db.exec(`ALTER TABLE test_parameters ADD COLUMN max_newborn REAL`);
+  }
+}
+
+function migrateInvoiceTestConsultantColumns() {
+  const cols = db.prepare(`PRAGMA table_info(invoice_tests)`).all() as Array<{ name: string }>;
+  const names = new Set(cols.map((c) => c.name));
+  if (!names.has('consultant_name')) {
+    db.exec(`ALTER TABLE invoice_tests ADD COLUMN consultant_name TEXT DEFAULT ''`);
+  }
+  if (!names.has('consultant_title')) {
+    db.exec(`ALTER TABLE invoice_tests ADD COLUMN consultant_title TEXT DEFAULT ''`);
   }
 }
 
@@ -270,6 +292,8 @@ interface ParamSeed {
   max_female?: number | null;
   min_child?: number | null;
   max_child?: number | null;
+  min_newborn?: number | null;
+  max_newborn?: number | null;
 }
 
 interface TestSeed {
@@ -295,21 +319,22 @@ function seedCatalogIfEmpty() {
           price: 500,
           sample_type: 'Whole Blood (EDTA)',
           parameters: [
-            { name: 'Hemoglobin (Hb)', unit: 'g/dL', min_male: 13.0, max_male: 17.0, min_female: 12.0, max_female: 15.5, min_child: 11.0, max_child: 14.5, normal_text: 'M: 13.0-17.0 | F: 12.0-15.5' },
-            { name: 'PCV (Hematocrit)', unit: '%', min_male: 40, max_male: 54, min_female: 36, max_female: 48, min_child: 32, max_child: 44, normal_text: 'M: 40-54 | F: 36-48' },
-            { name: 'Total WBC Count', unit: '/cumm', min_male: 4000, max_male: 11000, min_female: 4000, max_female: 11000, min_child: 5000, max_child: 13000, normal_text: '4,000 - 11,000' },
-            { name: 'Total RBC Count', unit: 'million/cumm', min_male: 4.5, max_male: 5.9, min_female: 4.0, max_female: 5.2, min_child: 4.0, max_child: 5.3, normal_text: 'M: 4.5-5.9 | F: 4.0-5.2' },
-            { name: 'Platelet Count', unit: '/cumm', min_male: 150000, max_male: 450000, min_female: 150000, max_female: 450000, min_child: 150000, max_child: 450000, normal_text: '150,000 - 450,000' },
-            { name: 'MCV', unit: 'fL', min_male: 80, max_male: 100, min_female: 80, max_female: 100, min_child: 75, max_child: 95, normal_text: '80 - 100' },
-            { name: 'MCH', unit: 'pg', min_male: 27, max_male: 32, min_female: 27, max_female: 32, min_child: 25, max_child: 31, normal_text: '27 - 32' },
-            { name: 'MCHC', unit: 'g/dL', min_male: 32, max_male: 36, min_female: 32, max_female: 36, min_child: 32, max_child: 36, normal_text: '32 - 36' },
-            { name: 'Neutrophils', unit: '%', min_male: 40, max_male: 75, min_female: 40, max_female: 75, min_child: 35, max_child: 65, normal_text: '40 - 75' },
-            { name: 'Lymphocytes', unit: '%', min_male: 20, max_male: 45, min_female: 20, max_female: 45, min_child: 25, max_child: 55, normal_text: '20 - 45' },
-            { name: 'Monocytes', unit: '%', min_male: 2, max_male: 10, min_female: 2, max_female: 10, min_child: 2, max_child: 10, normal_text: '2 - 10' },
-            { name: 'Eosinophils', unit: '%', min_male: 1, max_male: 6, min_female: 1, max_female: 6, min_child: 1, max_child: 6, normal_text: '1 - 6' },
-            { name: 'Basophils', unit: '%', min_male: 0, max_male: 1, min_female: 0, max_female: 1, min_child: 0, max_child: 1, normal_text: '0 - 1' },
-            { name: 'Total Circulating Eosinophil Count', unit: '/cumm', min_male: 40, max_male: 440, min_female: 40, max_female: 440, min_child: 40, max_child: 440, normal_text: '40 - 440' },
-            { name: 'ESR (1st Hour)', unit: 'mm/1st hr', min_male: 0, max_male: 15, min_female: 0, max_female: 20, min_child: 0, max_child: 10, normal_text: 'M: 0-15 | F: 0-20' },
+            { name: 'Hemoglobin (Hb)', unit: 'g/dL', min_male: 13.0, max_male: 17.0, min_female: 12.0, max_female: 15.5, min_child: 11.0, max_child: 14.5, min_newborn: 14.0, max_newborn: 22.0, normal_text: 'M: 13.0–17.0 | F: 12.0–15.5\nChild: 11.0–14.5 | Newborn: 14.0–22.0' },
+            { name: 'ESR (Erythrocyte Sedimentation Rate)', unit: 'mm/1st hr', min_male: 0, max_male: 15, min_female: 0, max_female: 20, min_child: 0, max_child: 10, min_newborn: 0, max_newborn: 2, normal_text: 'M: 0–15 | F: 0–20\nChild: 0–10 | Newborn: 0–2' },
+            { name: 'Total WBC Count', unit: '/cumm', min_male: 4000, max_male: 11000, min_female: 4000, max_female: 11000, min_child: 5000, max_child: 13500, min_newborn: 9000, max_newborn: 30000, normal_text: 'Adult (M/F): 4,000–11,000\nChild: 5,000–13,500 | Newborn: 9,000–30,000' },
+            { name: 'Total RBC Count', unit: 'million/cumm', min_male: 4.5, max_male: 5.9, min_female: 4.0, max_female: 5.2, min_child: 4.0, max_child: 5.3, min_newborn: 4.8, max_newborn: 7.1, normal_text: 'M: 4.5–5.9 | F: 4.0–5.2\nChild: 4.0–5.3 | Newborn: 4.8–7.1' },
+            { name: 'Platelet Count', unit: '/cumm', min_male: 150000, max_male: 450000, min_female: 150000, max_female: 450000, min_child: 150000, max_child: 450000, min_newborn: 150000, max_newborn: 450000, normal_text: '150,000 - 450,000' },
+            { name: 'Neutrophils', unit: '%', min_male: 40, max_male: 75, min_female: 40, max_female: 75, min_child: 35, max_child: 65, min_newborn: 45, max_newborn: 80, normal_text: 'Adult (M/F): 40–75 | Child: 35–65\nNewborn: 45–80' },
+            { name: 'Lymphocytes', unit: '%', min_male: 20, max_male: 45, min_female: 20, max_female: 45, min_child: 25, max_child: 55, min_newborn: 20, max_newborn: 40, normal_text: 'Adult (M/F): 20–45 | Child: 25–55\nNewborn: 20–40' },
+            { name: 'Eosinophils', unit: '%', min_male: 1, max_male: 6, min_female: 1, max_female: 6, min_child: 1, max_child: 6, min_newborn: 1, max_newborn: 6, normal_text: '1 - 6' },
+            { name: 'Monocytes', unit: '%', min_male: 2, max_male: 10, min_female: 2, max_female: 10, min_child: 2, max_child: 10, min_newborn: 2, max_newborn: 10, normal_text: '2 - 10' },
+            { name: 'Basophils', unit: '%', min_male: 0, max_male: 1, min_female: 0, max_female: 1, min_child: 0, max_child: 1, min_newborn: 0, max_newborn: 1, normal_text: '0 - 1' },
+            { name: 'Total Circulating Eosinophil Count', unit: '/cumm', min_male: 40, max_male: 440, min_female: 40, max_female: 440, min_child: 40, max_child: 440, min_newborn: 40, max_newborn: 440, normal_text: '40 - 440' },
+            { name: 'PCV / HCT', unit: '%', min_male: 40, max_male: 54, min_female: 36, max_female: 48, min_child: 32, max_child: 44, min_newborn: 44, max_newborn: 64, normal_text: 'M: 40–54 | F: 36–48\nChild: 32–44 | Newborn: 44–64' },
+            { name: 'MCV', unit: 'fL', min_male: 80, max_male: 100, min_female: 80, max_female: 100, min_child: 75, max_child: 95, min_newborn: 95, max_newborn: 120, normal_text: 'Adult (M/F): 80–100 | Child: 75–95\nNewborn: 95–120' },
+            { name: 'MCH', unit: 'pg', min_male: 27, max_male: 32, min_female: 27, max_female: 32, min_child: 25, max_child: 31, min_newborn: 31, max_newborn: 37, normal_text: 'Adult (M/F): 27–32 | Child: 25–31\nNewborn: 31–37' },
+            { name: 'MCHC', unit: 'g/dL', min_male: 32, max_male: 36, min_female: 32, max_female: 36, min_child: 32, max_child: 36, min_newborn: 32, max_newborn: 36, normal_text: '32 - 36' },
+            { name: 'RDW', unit: '%', min_male: 11.5, max_male: 14.5, min_female: 11.5, max_female: 14.5, min_child: 11.5, max_child: 14.5, min_newborn: 14.0, max_newborn: 18.0, normal_text: 'Adult/Child: 11.5–14.5\nNewborn: 14.0–18.0' },
           ],
         },
         {
@@ -524,8 +549,8 @@ function seedCatalogIfEmpty() {
   const insParam = db.prepare(`
     INSERT INTO test_parameters (
       test_id, name, unit, input_type, normal_text, default_value, select_options, abnormal_values,
-      min_male, max_male, min_female, max_female, min_child, max_child, sort_order
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      min_male, max_male, min_female, max_female, min_child, max_child, min_newborn, max_newborn, sort_order
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const tx = db.transaction(() => {
@@ -551,6 +576,8 @@ function seedCatalogIfEmpty() {
             p.max_female ?? p.max_male ?? null,
             p.min_child ?? null,
             p.max_child ?? null,
+            p.min_newborn ?? null,
+            p.max_newborn ?? null,
             idx + 1
           );
         });
@@ -618,24 +645,25 @@ function seedInitialOperationalDataIfEmpty() {
 
     const cbc = getTestByCode('HEM-01');
     const it1 = Number(
-      insInvTest.run(inv1, cbc.id, cbc.name, cbc.category_name, cbc.sample_type, cbc.price, 'Ready', `${todayStr} 09:20:00`, `${todayStr} 10:45:00`, `${todayStr} 11:00:00`, 'Md. Tariqul Islam').lastInsertRowid
+      insInvTest.run(inv1, cbc.id, cbc.name, cbc.category_name, cbc.sample_type, cbc.price, 'Ready', `${todayStr} 09:20:00`, `${todayStr} 10:45:00`, `${todayStr} 11:00:00`, 'Md. Tariqul Islam, B.Sc (MLT)').lastInsertRowid
     );
     const cbcSampleValues: Record<string, { val: string; flag: string }> = {
       'Hemoglobin (Hb)': { val: '11.4', flag: 'Low' },
-      'PCV (Hematocrit)': { val: '35.5', flag: 'Low' },
+      'ESR (Erythrocyte Sedimentation Rate)': { val: '28', flag: 'High' },
       'Total WBC Count': { val: '13200', flag: 'High' },
       'Total RBC Count': { val: '4.6', flag: 'Normal' },
       'Platelet Count': { val: '265000', flag: 'Normal' },
+      Neutrophils: { val: '78', flag: 'High' },
+      Lymphocytes: { val: '16', flag: 'Low' },
+      Eosinophils: { val: '2', flag: 'Normal' },
+      Monocytes: { val: '4', flag: 'Normal' },
+      Basophils: { val: '0', flag: 'Normal' },
+      'Total Circulating Eosinophil Count': { val: '264', flag: 'Normal' },
+      'PCV / HCT': { val: '35.5', flag: 'Low' },
       MCV: { val: '86', flag: 'Normal' },
       MCH: { val: '28.5', flag: 'Normal' },
       MCHC: { val: '33.2', flag: 'Normal' },
-      Neutrophils: { val: '78', flag: 'High' },
-      Lymphocytes: { val: '16', flag: 'Low' },
-      Monocytes: { val: '4', flag: 'Normal' },
-      Eosinophils: { val: '2', flag: 'Normal' },
-      Basophils: { val: '0', flag: 'Normal' },
-      'Total Circulating Eosinophil Count': { val: '264', flag: 'Normal' },
-      'ESR (1st Hour)': { val: '28', flag: 'High' },
+      RDW: { val: '13.4', flag: 'Normal' },
     };
     for (const param of getParams(cbc.id)) {
       const sample = cbcSampleValues[param.name] || { val: '', flag: 'Normal' };
@@ -730,21 +758,22 @@ function migrateCbcParameters() {
   if (!cbcTest) return;
 
   const desiredParams: Array<ParamSeed & { sort_order: number }> = [
-    { name: 'Hemoglobin (Hb)', unit: 'g/dL', min_male: 13.0, max_male: 17.0, min_female: 12.0, max_female: 15.5, min_child: 11.0, max_child: 14.5, normal_text: 'M: 13.0-17.0 | F: 12.0-15.5', sort_order: 1 },
-    { name: 'PCV (Hematocrit)', unit: '%', min_male: 40, max_male: 54, min_female: 36, max_female: 48, min_child: 32, max_child: 44, normal_text: 'M: 40-54 | F: 36-48', sort_order: 2 },
-    { name: 'Total WBC Count', unit: '/cumm', min_male: 4000, max_male: 11000, min_female: 4000, max_female: 11000, min_child: 5000, max_child: 13000, normal_text: '4,000 - 11,000', sort_order: 3 },
-    { name: 'Total RBC Count', unit: 'million/cumm', min_male: 4.5, max_male: 5.9, min_female: 4.0, max_female: 5.2, min_child: 4.0, max_child: 5.3, normal_text: 'M: 4.5-5.9 | F: 4.0-5.2', sort_order: 4 },
-    { name: 'Platelet Count', unit: '/cumm', min_male: 150000, max_male: 450000, min_female: 150000, max_female: 450000, min_child: 150000, max_child: 450000, normal_text: '150,000 - 450,000', sort_order: 5 },
-    { name: 'MCV', unit: 'fL', min_male: 80, max_male: 100, min_female: 80, max_female: 100, min_child: 75, max_child: 95, normal_text: '80 - 100', sort_order: 6 },
-    { name: 'MCH', unit: 'pg', min_male: 27, max_male: 32, min_female: 27, max_female: 32, min_child: 25, max_child: 31, normal_text: '27 - 32', sort_order: 7 },
-    { name: 'MCHC', unit: 'g/dL', min_male: 32, max_male: 36, min_female: 32, max_female: 36, min_child: 32, max_child: 36, normal_text: '32 - 36', sort_order: 8 },
-    { name: 'Neutrophils', unit: '%', min_male: 40, max_male: 75, min_female: 40, max_female: 75, min_child: 35, max_child: 65, normal_text: '40 - 75', sort_order: 9 },
-    { name: 'Lymphocytes', unit: '%', min_male: 20, max_male: 45, min_female: 20, max_female: 45, min_child: 25, max_child: 55, normal_text: '20 - 45', sort_order: 10 },
-    { name: 'Monocytes', unit: '%', min_male: 2, max_male: 10, min_female: 2, max_female: 10, min_child: 2, max_child: 10, normal_text: '2 - 10', sort_order: 11 },
-    { name: 'Eosinophils', unit: '%', min_male: 1, max_male: 6, min_female: 1, max_female: 6, min_child: 1, max_child: 6, normal_text: '1 - 6', sort_order: 12 },
-    { name: 'Basophils', unit: '%', min_male: 0, max_male: 1, min_female: 0, max_female: 1, min_child: 0, max_child: 1, normal_text: '0 - 1', sort_order: 13 },
-    { name: 'Total Circulating Eosinophil Count', unit: '/cumm', min_male: 40, max_male: 440, min_female: 40, max_female: 440, min_child: 40, max_child: 440, normal_text: '40 - 440', sort_order: 14 },
-    { name: 'ESR (1st Hour)', unit: 'mm/1st hr', min_male: 0, max_male: 15, min_female: 0, max_female: 20, min_child: 0, max_child: 10, normal_text: 'M: 0-15 | F: 0-20', sort_order: 15 },
+    { name: 'Hemoglobin (Hb)', unit: 'g/dL', min_male: 13.0, max_male: 17.0, min_female: 12.0, max_female: 15.5, min_child: 11.0, max_child: 14.5, min_newborn: 14.0, max_newborn: 22.0, normal_text: 'M: 13.0–17.0 | F: 12.0–15.5\nChild: 11.0–14.5 | Newborn: 14.0–22.0', sort_order: 1 },
+    { name: 'ESR (Erythrocyte Sedimentation Rate)', unit: 'mm/1st hr', min_male: 0, max_male: 15, min_female: 0, max_female: 20, min_child: 0, max_child: 10, min_newborn: 0, max_newborn: 2, normal_text: 'M: 0–15 | F: 0–20\nChild: 0–10 | Newborn: 0–2', sort_order: 2 },
+    { name: 'Total WBC Count', unit: '/cumm', min_male: 4000, max_male: 11000, min_female: 4000, max_female: 11000, min_child: 5000, max_child: 13500, min_newborn: 9000, max_newborn: 30000, normal_text: 'Adult (M/F): 4,000–11,000\nChild: 5,000–13,500 | Newborn: 9,000–30,000', sort_order: 3 },
+    { name: 'Total RBC Count', unit: 'million/cumm', min_male: 4.5, max_male: 5.9, min_female: 4.0, max_female: 5.2, min_child: 4.0, max_child: 5.3, min_newborn: 4.8, max_newborn: 7.1, normal_text: 'M: 4.5–5.9 | F: 4.0–5.2\nChild: 4.0–5.3 | Newborn: 4.8–7.1', sort_order: 4 },
+    { name: 'Platelet Count', unit: '/cumm', min_male: 150000, max_male: 450000, min_female: 150000, max_female: 450000, min_child: 150000, max_child: 450000, min_newborn: 150000, max_newborn: 450000, normal_text: '150,000 - 450,000', sort_order: 5 },
+    { name: 'Neutrophils', unit: '%', min_male: 40, max_male: 75, min_female: 40, max_female: 75, min_child: 35, max_child: 65, min_newborn: 45, max_newborn: 80, normal_text: 'Adult (M/F): 40–75 | Child: 35–65\nNewborn: 45–80', sort_order: 6 },
+    { name: 'Lymphocytes', unit: '%', min_male: 20, max_male: 45, min_female: 20, max_female: 45, min_child: 25, max_child: 55, min_newborn: 20, max_newborn: 40, normal_text: 'Adult (M/F): 20–45 | Child: 25–55\nNewborn: 20–40', sort_order: 7 },
+    { name: 'Eosinophils', unit: '%', min_male: 1, max_male: 6, min_female: 1, max_female: 6, min_child: 1, max_child: 6, min_newborn: 1, max_newborn: 6, normal_text: '1 - 6', sort_order: 8 },
+    { name: 'Monocytes', unit: '%', min_male: 2, max_male: 10, min_female: 2, max_female: 10, min_child: 2, max_child: 10, min_newborn: 2, max_newborn: 10, normal_text: '2 - 10', sort_order: 9 },
+    { name: 'Basophils', unit: '%', min_male: 0, max_male: 1, min_female: 0, max_female: 1, min_child: 0, max_child: 1, min_newborn: 0, max_newborn: 1, normal_text: '0 - 1', sort_order: 10 },
+    { name: 'Total Circulating Eosinophil Count', unit: '/cumm', min_male: 40, max_male: 440, min_female: 40, max_female: 440, min_child: 40, max_child: 440, min_newborn: 40, max_newborn: 440, normal_text: '40 - 440', sort_order: 11 },
+    { name: 'PCV / HCT', unit: '%', min_male: 40, max_male: 54, min_female: 36, max_female: 48, min_child: 32, max_child: 44, min_newborn: 44, max_newborn: 64, normal_text: 'M: 40–54 | F: 36–48\nChild: 32–44 | Newborn: 44–64', sort_order: 12 },
+    { name: 'MCV', unit: 'fL', min_male: 80, max_male: 100, min_female: 80, max_female: 100, min_child: 75, max_child: 95, min_newborn: 95, max_newborn: 120, normal_text: 'Adult (M/F): 80–100 | Child: 75–95\nNewborn: 95–120', sort_order: 13 },
+    { name: 'MCH', unit: 'pg', min_male: 27, max_male: 32, min_female: 27, max_female: 32, min_child: 25, max_child: 31, min_newborn: 31, max_newborn: 37, normal_text: 'Adult (M/F): 27–32 | Child: 25–31\nNewborn: 31–37', sort_order: 14 },
+    { name: 'MCHC', unit: 'g/dL', min_male: 32, max_male: 36, min_female: 32, max_female: 36, min_child: 32, max_child: 36, min_newborn: 32, max_newborn: 36, normal_text: '32 - 36', sort_order: 15 },
+    { name: 'RDW', unit: '%', min_male: 11.5, max_male: 14.5, min_female: 11.5, max_female: 14.5, min_child: 11.5, max_child: 14.5, min_newborn: 14.0, max_newborn: 18.0, normal_text: 'Adult/Child: 11.5–14.5\nNewborn: 14.0–18.0', sort_order: 16 },
   ];
 
   const existingParams = db
@@ -756,9 +785,10 @@ function migrateCbcParameters() {
     return existingParams.find((p) => {
       const pn = p.name.toLowerCase();
       if (pn === lower) return true;
-      if (lower.startsWith('pcv') && (pn.includes('pcv') || pn.includes('hematocrit'))) return true;
+      if (lower.startsWith('pcv') && (pn.includes('pcv') || pn.includes('hematocrit') || pn.includes('hct'))) return true;
       if (lower.includes('circulating eosinophil') && pn.includes('circulating eosinophil')) return true;
       if (lower.startsWith('esr') && pn.startsWith('esr')) return true;
+      if (lower === 'rdw' && pn.startsWith('rdw')) return true;
       return false;
     });
   };
@@ -766,10 +796,15 @@ function migrateCbcParameters() {
   const insParam = db.prepare(`
     INSERT INTO test_parameters (
       test_id, name, unit, input_type, normal_text, select_options, abnormal_values,
-      min_male, max_male, min_female, max_female, min_child, max_child, sort_order
-    ) VALUES (?, ?, ?, ?, ?, '', '', ?, ?, ?, ?, ?, ?, ?)
+      min_male, max_male, min_female, max_female, min_child, max_child, min_newborn, max_newborn, sort_order
+    ) VALUES (?, ?, ?, ?, ?, '', '', ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const updSort = db.prepare(`UPDATE test_parameters SET sort_order = ? WHERE id = ?`);
+  const updParam = db.prepare(`
+    UPDATE test_parameters
+    SET name = ?, unit = ?, normal_text = ?, min_male = ?, max_male = ?, min_female = ?, max_female = ?,
+        min_child = ?, max_child = ?, min_newborn = ?, max_newborn = ?, sort_order = ?
+    WHERE id = ?
+  `);
 
   const tx = db.transaction(() => {
     for (const dp of desiredParams) {
@@ -787,14 +822,30 @@ function migrateCbcParameters() {
           dp.max_female ?? dp.max_male ?? null,
           dp.min_child ?? null,
           dp.max_child ?? null,
+          dp.min_newborn ?? null,
+          dp.max_newborn ?? null,
           dp.sort_order
         );
       } else {
-        updSort.run(dp.sort_order, found.id);
+        updParam.run(
+          dp.name,
+          dp.unit,
+          dp.normal_text || '',
+          dp.min_male ?? null,
+          dp.max_male ?? null,
+          dp.min_female ?? dp.min_male ?? null,
+          dp.max_female ?? dp.max_male ?? null,
+          dp.min_child ?? null,
+          dp.max_child ?? null,
+          dp.min_newborn ?? null,
+          dp.max_newborn ?? null,
+          dp.sort_order,
+          found.id
+        );
       }
     }
 
-    // Backfill any missing CBC parameters into existing invoice_tests for HEM-01
+    // Backfill any missing CBC parameters (such as RDW) & sync order/names into existing invoice_tests for HEM-01
     const cbcParams = db
       .prepare(`SELECT * FROM test_parameters WHERE test_id = ? ORDER BY sort_order ASC, id ASC`)
       .all(cbcTest.id) as Array<{
@@ -810,12 +861,14 @@ function migrateCbcParameters() {
       max_female: number | null;
       min_child: number | null;
       max_child: number | null;
+      min_newborn: number | null;
+      max_newborn: number | null;
       sort_order: number;
     }>;
 
     const cbcInvoiceTests = db
       .prepare(
-        `SELECT it.id as invoice_test_id, it.status, i.invoice_no, p.gender, p.age_years
+        `SELECT it.id as invoice_test_id, it.status, i.invoice_no, p.gender, p.age_years, p.age_months, p.age_days
          FROM invoice_tests it
          JOIN invoices i ON i.id = it.invoice_id
          JOIN patients p ON p.id = i.patient_id
@@ -827,6 +880,8 @@ function migrateCbcParameters() {
       invoice_no: string;
       gender: string;
       age_years: number;
+      age_months: number;
+      age_days: number;
     }>;
 
     const insResult = db.prepare(
@@ -834,8 +889,8 @@ function migrateCbcParameters() {
         invoice_test_id, parameter_id, parameter_name, unit, result_value, reference_range_text, flag, sort_order
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
-    const updResultSort = db.prepare(
-      `UPDATE test_results SET sort_order = ? WHERE invoice_test_id = ? AND parameter_id = ?`
+    const updResultMeta = db.prepare(
+      `UPDATE test_results SET parameter_name = ?, unit = ?, reference_range_text = ?, sort_order = ? WHERE invoice_test_id = ? AND parameter_id = ?`
     );
 
     for (const cit of cbcInvoiceTests) {
@@ -863,23 +918,32 @@ function migrateCbcParameters() {
               initialVal = String(Math.round(((wbc * eos) / 100) * 100) / 100);
             }
           } else if (cit.invoice_no === 'INV-26001' && cit.status === 'Ready') {
-            if (pLower.includes('pcv') || pLower.includes('hematocrit')) initialVal = '35.5';
+            if (pLower.includes('pcv') || pLower.includes('hematocrit') || pLower.includes('hct')) initialVal = '35.5';
             if (pLower.startsWith('esr')) initialVal = '28';
+            if (pLower === 'rdw') initialVal = '13.4';
           }
 
-          const evalRes = evaluateResultFlag(initialVal, param, cit.gender, cit.age_years);
+          const evalRes = evaluateResultFlag(initialVal, param, cit.gender, cit.age_years, cit.age_months, cit.age_days);
           insResult.run(
             cit.invoice_test_id,
             param.id,
             param.name,
             param.unit,
             initialVal,
-            evalRes.rangeLabel,
+            param.normal_text || evalRes.rangeLabel,
             evalRes.flag,
             param.sort_order
           );
         } else {
-          updResultSort.run(param.sort_order, cit.invoice_test_id, param.id);
+          const evalRes = evaluateResultFlag('', param, cit.gender, cit.age_years, cit.age_months, cit.age_days);
+          updResultMeta.run(
+            param.name,
+            param.unit,
+            param.normal_text || evalRes.rangeLabel,
+            param.sort_order,
+            cit.invoice_test_id,
+            param.id
+          );
         }
       }
     }
@@ -1068,10 +1132,14 @@ export function resolveReferenceRange(
     max_female: number | null;
     min_child: number | null;
     max_child: number | null;
+    min_newborn?: number | null;
+    max_newborn?: number | null;
     input_type: string;
   },
   gender: string,
-  ageYears: number
+  ageYears: number,
+  ageMonths = 0,
+  ageDays = 0
 ): { min: number | null; max: number | null; label: string } {
   if (param.input_type !== 'numeric') {
     return { min: null, max: null, label: param.normal_text || '-' };
@@ -1080,7 +1148,14 @@ export function resolveReferenceRange(
   let min: number | null = param.min_male;
   let max: number | null = param.max_male;
 
-  if (ageYears < 12 && (param.min_child !== null || param.max_child !== null)) {
+  const isNewborn = ageYears === 0 && ageMonths === 0 && ageDays <= 28;
+  const minNb = param.min_newborn ?? null;
+  const maxNb = param.max_newborn ?? null;
+
+  if (isNewborn && (minNb !== null || maxNb !== null)) {
+    min = minNb;
+    max = maxNb;
+  } else if (ageYears < 12 && (param.min_child !== null || param.max_child !== null)) {
     min = param.min_child;
     max = param.max_child;
   } else if (gender.toLowerCase() === 'female' && (param.min_female !== null || param.max_female !== null)) {
@@ -1089,7 +1164,12 @@ export function resolveReferenceRange(
   }
 
   let label = param.normal_text || '';
-  if (min !== null && max !== null) {
+  if (
+    param.normal_text &&
+    (param.normal_text.includes('Newborn:') || param.normal_text.includes('Child:') || param.normal_text.includes('\n'))
+  ) {
+    label = param.normal_text;
+  } else if (min !== null && max !== null) {
     label = `${min} - ${max}`;
   } else if (max !== null) {
     label = `< ${max}`;
@@ -1112,12 +1192,16 @@ export function evaluateResultFlag(
     max_female: number | null;
     min_child: number | null;
     max_child: number | null;
+    min_newborn?: number | null;
+    max_newborn?: number | null;
   },
   gender: string,
-  ageYears: number
+  ageYears: number,
+  ageMonths = 0,
+  ageDays = 0
 ): { flag: 'Normal' | 'High' | 'Low' | 'Abnormal'; rangeLabel: string } {
   const trimmed = value.trim();
-  const resolved = resolveReferenceRange(param, gender, ageYears);
+  const resolved = resolveReferenceRange(param, gender, ageYears, ageMonths, ageDays);
 
   if (!trimmed) {
     return { flag: 'Normal', rangeLabel: resolved.label };

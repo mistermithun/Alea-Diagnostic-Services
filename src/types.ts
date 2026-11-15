@@ -53,6 +53,8 @@ export interface TestParameter {
   max_female: number | null;
   min_child: number | null;
   max_child: number | null;
+  min_newborn?: number | null;
+  max_newborn?: number | null;
   sort_order: number;
 }
 
@@ -171,6 +173,8 @@ export interface TestResultRow {
   max_female?: number | null;
   min_child?: number | null;
   max_child?: number | null;
+  min_newborn?: number | null;
+  max_newborn?: number | null;
 }
 
 export interface InvoiceTestItem {
@@ -186,6 +190,8 @@ export interface InvoiceTestItem {
   verified_at: string | null;
   ready_at: string | null;
   verified_by: string;
+  consultant_name?: string;
+  consultant_title?: string;
   results?: TestResultRow[];
 }
 

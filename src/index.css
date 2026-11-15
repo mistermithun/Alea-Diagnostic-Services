@@ -100,4 +100,10 @@
     break-after: avoid;
     page-break-after: avoid;
   }
+
+  .print-pure-black,
+  .print-pure-black * {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+  }
 }

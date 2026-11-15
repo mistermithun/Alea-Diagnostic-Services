@@ -174,7 +174,9 @@ export function evaluateClientFlag(
   value: string,
   row: TestResultRow,
   gender: string,
-  ageYears: number
+  ageYears: number,
+  ageMonths = 0,
+  ageDays = 0
 ): 'Normal' | 'High' | 'Low' | 'Abnormal' {
   const trimmed = value.trim();
   if (!trimmed) return 'Normal';
@@ -184,7 +186,11 @@ export function evaluateClientFlag(
     if (!Number.isNaN(num)) {
       let min = row.min_male ?? null;
       let max = row.max_male ?? null;
-      if (ageYears < 12 && (row.min_child != null || row.max_child != null)) {
+      const isNewborn = ageYears === 0 && ageMonths === 0 && ageDays <= 28;
+      if (isNewborn && (row.min_newborn != null || row.max_newborn != null)) {
+        min = row.min_newborn ?? null;
+        max = row.max_newborn ?? null;
+      } else if (ageYears < 12 && (row.min_child != null || row.max_child != null)) {
         min = row.min_child ?? null;
         max = row.max_child ?? null;
       } else if (gender.toLowerCase() === 'female' && (row.min_female != null || row.max_female != null)) {

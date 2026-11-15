@@ -68,6 +68,8 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
   const [valuesMap, setValuesMap] = useState<Record<number, string>>({});
   const [nextStatus, setNextStatus] = useState<LabQueueItem['status']>('Processing');
   const [verifiedBy, setVerifiedBy] = useState(settings.technologist_name || 'Medical Technologist');
+  const [consultantName, setConsultantName] = useState('');
+  const [consultantTitle, setConsultantTitle] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -106,6 +108,16 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
       setValuesMap(applyCbcAutoCalculations(res.results, initialVals));
       setNextStatus(res.item.status === 'Sample Collected' ? 'Processing' : res.item.status);
       setVerifiedBy(res.item.verified_by || settings.technologist_name || 'Medical Technologist');
+      if (res.item.consultant_name === '__BLANK__') {
+        setConsultantName('__BLANK__');
+        setConsultantTitle('');
+      } else if (res.item.consultant_name) {
+        setConsultantName(res.item.consultant_name);
+        setConsultantTitle(res.item.consultant_title || '');
+      } else {
+        setConsultantName(settings.pathologist_name || '');
+        setConsultantTitle(settings.pathologist_title || '');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load test parameters.');
     }
@@ -175,6 +187,8 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
             results: payload,
             status: targetStatus,
             verifiedBy,
+            consultantName: consultantName.trim() === '' ? '__BLANK__' : consultantName.trim(),
+            consultantTitle: consultantName.trim() === '' || consultantName === '__BLANK__' ? '' : consultantTitle.trim(),
           }),
         }
       );
@@ -184,7 +198,16 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
       }
       setValuesMap((prev) => ({ ...prev, ...syncedVals }));
       setNextStatus(res.item.status);
-      setSelectedItem((prev) => (prev ? { ...prev, status: res.item.status } : null));
+      setSelectedItem((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: res.item.status,
+              consultant_name: res.item.consultant_name,
+              consultant_title: res.item.consultant_title,
+            }
+          : null
+      );
       setMessage(`Saved results (${res.item.status}).`);
       await loadQueue();
       if (openPrintAfter) {
@@ -360,7 +383,14 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
                   <tbody className="divide-y divide-slate-200">
                     {results.map((r) => {
                       const val = valuesMap[r.parameter_id] ?? '';
-                      const liveFlag = evaluateClientFlag(val, r, selectedItem.gender, selectedItem.age_years);
+                      const liveFlag = evaluateClientFlag(
+                        val,
+                        r,
+                        selectedItem.gender,
+                        selectedItem.age_years,
+                        selectedItem.age_months,
+                        selectedItem.age_days
+                      );
                       const isAbnormal = val.trim() !== '' && liveFlag !== 'Normal';
                       const isAutoCircEos = isCirculatingEosinophilParam(r.parameter_name);
                       const options = (r.select_options || '')
@@ -495,13 +525,62 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Verified By (Technologist)</label>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Prepared / Tested By (Technologist)</label>
                   <input
                     type="text"
                     value={verifiedBy}
                     onChange={(e) => setVerifiedBy(e.target.value)}
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
                   />
+                </div>
+
+                <div className="sm:col-span-2 p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="text-xs font-medium text-slate-700">
+                      Consultant / Pathologist Signature (Optional — leave blank for manual signing)
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      {settings.pathologist_name && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConsultantName(settings.pathologist_name);
+                            setConsultantTitle(settings.pathologist_title || 'Consultant Pathologist');
+                          }}
+                          className="px-2 py-1 text-[11px] font-medium text-teal-800 bg-teal-50 border border-teal-200 rounded hover:bg-teal-100"
+                        >
+                          Use Lab Pathologist
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConsultantName('__BLANK__');
+                          setConsultantTitle('');
+                        }}
+                        className="px-2 py-1 text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-100"
+                      >
+                        Leave Blank (Manual Sign)
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <input
+                      type="text"
+                      value={consultantName === '__BLANK__' ? '' : consultantName}
+                      onChange={(e) => setConsultantName(e.target.value)}
+                      placeholder="Blank (No Consultant Assigned — Manual Signature Line)"
+                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-600"
+                    />
+                    <input
+                      type="text"
+                      value={consultantName === '__BLANK__' ? '' : consultantTitle}
+                      onChange={(e) => setConsultantTitle(e.target.value)}
+                      placeholder="Full Designation (e.g. MBBS, M.Phil / FCPS)"
+                      disabled={consultantName === '__BLANK__'}
+                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-100"
+                    />
+                  </div>
                 </div>
               </div>
 

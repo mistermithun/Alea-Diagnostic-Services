@@ -58,6 +58,7 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
   const [loadedReports, setLoadedReports] = useState<Record<number, FullInvoice>>({});
   const [loadingReportId, setLoadingReportId] = useState<number | null>(null);
   const [printReportData, setPrintReportData] = useState<FullInvoice | null>(null);
+  const [printFocusTestId, setPrintFocusTestId] = useState<number | null>(null);
   const [portalError, setPortalError] = useState('');
 
   const loadProfileAndArchive = useCallback(async () => {
@@ -156,9 +157,10 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
     setExpandedInvoiceId(invoiceId);
   };
 
-  const handleOpenDigitalPdf = async (invoiceId: number) => {
+  const handleOpenDigitalPdf = async (invoiceId: number, focusTestId: number | null = null) => {
     const full = await fetchReportDetail(invoiceId);
     if (full) {
+      setPrintFocusTestId(focusTestId);
       setPrintReportData(full);
     }
   };
@@ -499,79 +501,94 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
                     {/* Inline Parameter Results Table */}
                     {isExpanded && detail && (
                       <div className="border-t border-slate-200 bg-slate-50/70 p-4 sm:p-5 space-y-5">
-                        {detail.tests.map((t) => (
-                          <div key={t.id} className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                            <div className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between gap-2">
-                              <div>
-                                <div className="text-sm font-semibold text-slate-900">{t.test_name}</div>
-                                <div className="text-[11px] text-slate-500">
-                                  {t.category_name} · {t.sample_type}
+                        {detail.tests.map((t) => {
+                          const isCbc =
+                            t.test_name.toLowerCase().includes('cbc') ||
+                            t.test_name.toLowerCase().includes('complete blood count');
+                          return (
+                            <div key={t.id} className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                              <div className="px-4 py-2.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <div className="text-sm font-semibold text-slate-900">{t.test_name}</div>
+                                  <div className="text-[11px] text-slate-500">
+                                    {t.category_name} · {t.sample_type}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2.5">
+                                  <span
+                                    className={`text-xs font-semibold ${
+                                      t.status === 'Ready'
+                                        ? 'text-emerald-700'
+                                        : t.status === 'Verified'
+                                        ? 'text-teal-700'
+                                        : 'text-amber-700'
+                                    }`}
+                                  >
+                                    {t.status}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenDigitalPdf(visit.invoice_id, t.id)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-white bg-slate-900 rounded-md hover:bg-slate-800 whitespace-nowrap"
+                                  >
+                                    <Printer className="w-3 h-3" />
+                                    Print / PDF
+                                  </button>
                                 </div>
                               </div>
-                              <span
-                                className={`text-xs font-semibold ${
-                                  t.status === 'Ready'
-                                    ? 'text-emerald-700'
-                                    : t.status === 'Verified'
-                                    ? 'text-teal-700'
-                                    : 'text-amber-700'
-                                }`}
-                              >
-                                {t.status}
-                              </span>
-                            </div>
 
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-xs border-collapse">
-                                <thead>
-                                  <tr className="border-b border-slate-200 text-left text-slate-500 bg-slate-50">
-                                    <th className="py-2 px-3 font-medium">Parameter</th>
-                                    <th className="py-2 px-3 font-medium text-right">Result</th>
-                                    <th className="py-2 px-3 font-medium">Unit</th>
-                                    <th className="py-2 px-3 font-medium">Reference Range</th>
-                                    <th className="py-2 px-3 font-medium text-center">Indicator</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-200">
-                                  {(t.results || []).map((r) => {
-                                    const isAbn =
-                                      r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
-                                    return (
-                                      <tr key={r.id}>
-                                        <td className="py-2 px-3 font-medium text-slate-900">
-                                          {r.parameter_name}
-                                        </td>
-                                        <td
-                                          className={`py-2 px-3 text-right font-mono tabular-nums ${
-                                            isAbn ? 'font-bold text-red-600' : 'font-semibold text-slate-900'
-                                          }`}
-                                        >
-                                          {r.result_value || 'Pending'}
-                                        </td>
-                                        <td className="py-2 px-3 text-slate-600">{r.unit || '—'}</td>
-                                        <td className="py-2 px-3 font-mono tabular-nums text-slate-600">
-                                          {r.reference_range_text || '—'}
-                                        </td>
-                                        <td
-                                          className={`py-2 px-3 text-center font-semibold ${
-                                            isAbn ? 'text-red-600 font-bold' : 'text-emerald-700'
-                                          }`}
-                                        >
-                                          {r.result_value ? (isAbn ? r.flag.toUpperCase() : 'Normal') : '—'}
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs border-collapse">
+                                  <thead>
+                                    <tr className="border-b border-slate-200 text-left text-slate-500 bg-slate-50">
+                                      <th className="py-2 px-3 font-medium">Parameter</th>
+                                      <th className="py-2 px-3 font-medium text-right">Result</th>
+                                      <th className="py-2 px-3 font-medium">Unit</th>
+                                      <th className="py-2 px-3 font-medium">Reference Range</th>
+                                      {!isCbc && <th className="py-2 px-3 font-medium text-center">Indicator</th>}
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-200">
+                                    {(t.results || []).map((r) => {
+                                      const isAbn =
+                                        r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
+                                      return (
+                                        <tr key={r.id}>
+                                          <td className="py-2 px-3 font-medium text-slate-900">
+                                            {r.parameter_name}
+                                          </td>
+                                          <td
+                                            className={`py-2 px-3 text-right font-mono tabular-nums ${
+                                              isAbn && !isCbc
+                                                ? 'font-bold text-slate-900'
+                                                : 'font-semibold text-slate-900'
+                                            }`}
+                                          >
+                                            {r.result_value || 'Pending'}
+                                          </td>
+                                          <td className="py-2 px-3 text-slate-600">{r.unit || '—'}</td>
+                                          <td className="py-2 px-3 font-mono tabular-nums text-slate-600 whitespace-pre-line">
+                                            {r.normal_text || r.reference_range_text || '—'}
+                                          </td>
+                                          {!isCbc && (
+                                            <td className="py-2 px-3 text-center font-semibold text-slate-800">
+                                              {r.result_value ? (isAbn ? r.flag.toUpperCase() : 'Normal') : '—'}
+                                            </td>
+                                          )}
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
 
                         <div className="flex justify-end">
                           <button
                             type="button"
-                            onClick={() => handleOpenDigitalPdf(visit.invoice_id)}
+                            onClick={() => handleOpenDigitalPdf(visit.invoice_id, null)}
                             className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800"
                           >
                             <FileText className="w-4 h-4" />
@@ -591,9 +608,13 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
       {/* Patient Portal Digital PDF Report Modal (Automatically forces Full Digital Letterhead + QR + Signatures) */}
       <ReportPrintModal
         data={printReportData}
+        focusTestId={printFocusTestId}
         settings={settings}
         portalMode={true}
-        onClose={() => setPrintReportData(null)}
+        onClose={() => {
+          setPrintReportData(null);
+          setPrintFocusTestId(null);
+        }}
       />
     </div>
   );

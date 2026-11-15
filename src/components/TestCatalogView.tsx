@@ -17,6 +17,8 @@ interface EditableParam {
   max_female: string;
   min_child: string;
   max_child: string;
+  min_newborn: string;
+  max_newborn: string;
 }
 
 const emptyParam = (): EditableParam => ({
@@ -33,6 +35,8 @@ const emptyParam = (): EditableParam => ({
   max_female: '',
   min_child: '',
   max_child: '',
+  min_newborn: '',
+  max_newborn: '',
 });
 
 export const TestCatalogView: React.FC = () => {
@@ -121,6 +125,8 @@ export const TestCatalogView: React.FC = () => {
             max_female: p.max_female !== null && p.max_female !== undefined ? String(p.max_female) : '',
             min_child: p.min_child !== null && p.min_child !== undefined ? String(p.min_child) : '',
             max_child: p.max_child !== null && p.max_child !== undefined ? String(p.max_child) : '',
+            min_newborn: p.min_newborn !== null && p.min_newborn !== undefined ? String(p.min_newborn) : '',
+            max_newborn: p.max_newborn !== null && p.max_newborn !== undefined ? String(p.max_newborn) : '',
           }))
         : [emptyParam()]
     );
@@ -157,6 +163,8 @@ export const TestCatalogView: React.FC = () => {
             max_female: toNumOrNull(p.max_female),
             min_child: toNumOrNull(p.min_child),
             max_child: toNumOrNull(p.max_child),
+            min_newborn: toNumOrNull(p.min_newborn),
+            max_newborn: toNumOrNull(p.max_newborn),
           })),
       };
 
@@ -521,7 +529,7 @@ export const TestCatalogView: React.FC = () => {
                       </div>
 
                       {p.input_type === 'numeric' ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
                           <div>
                             <label className="block text-[10px] text-slate-500 mb-0.5">Male Min</label>
                             <input
@@ -601,6 +609,34 @@ export const TestCatalogView: React.FC = () => {
                               onChange={(e) =>
                                 setFormParams((prev) =>
                                   prev.map((item, i) => (i === idx ? { ...item, max_child: e.target.value } : item))
+                                )
+                              }
+                              className="w-full px-2 py-1 text-xs font-mono border border-slate-300 rounded bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-slate-500 mb-0.5">Newborn Min</label>
+                            <input
+                              type="number"
+                              step="any"
+                              value={p.min_newborn}
+                              onChange={(e) =>
+                                setFormParams((prev) =>
+                                  prev.map((item, i) => (i === idx ? { ...item, min_newborn: e.target.value } : item))
+                                )
+                              }
+                              className="w-full px-2 py-1 text-xs font-mono border border-slate-300 rounded bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-slate-500 mb-0.5">Newborn Max</label>
+                            <input
+                              type="number"
+                              step="any"
+                              value={p.max_newborn}
+                              onChange={(e) =>
+                                setFormParams((prev) =>
+                                  prev.map((item, i) => (i === idx ? { ...item, max_newborn: e.target.value } : item))
                                 )
                               }
                               className="w-full px-2 py-1 text-xs font-mono border border-slate-300 rounded bg-white"

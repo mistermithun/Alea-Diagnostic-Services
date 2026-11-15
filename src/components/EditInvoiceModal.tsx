@@ -1,0 +1,600 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Check, Lock, Plus, Search, X } from 'lucide-react';
+import { apiFetch, formatBDT, formatDateTime } from '../lib/api.ts';
+import type {
+  DiagnosticTest,
+  Doctor,
+  FullInvoice,
+  InvoiceSummary,
+  LabSettings,
+  TestCategory,
+} from '../types.ts';
+
+interface EditInvoiceModalProps {
+  invoiceId: number;
+  isAdmin: boolean;
+  settings: LabSettings;
+  categories: TestCategory[];
+  tests: DiagnosticTest[];
+  doctors: Doctor[];
+  onClose: () => void;
+  onSaved: (updated: InvoiceSummary, printReceipt: boolean) => void;
+}
+
+export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
+  invoiceId,
+  isAdmin,
+  settings,
+  categories,
+  tests,
+  doctors,
+  onClose,
+  onSaved,
+}) => {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [fullData, setFullData] = useState<FullInvoice | null>(null);
+
+  // Editable patient & referral fields
+  const [patientName, setPatientName] = useState('');
+  const [ageYears, setAgeYears] = useState('0');
+  const [ageMonths, setAgeMonths] = useState('0');
+  const [ageDays, setAgeDays] = useState('0');
+  const [gender, setGender] = useState<'Male' | 'Female' | 'Other'>('Male');
+  const [mobile, setMobile] = useState('');
+  const [address, setAddress] = useState('');
+  const [doctorId, setDoctorId] = useState<number | null>(null);
+  const [notes, setNotes] = useState('');
+
+  // Add extra tests
+  const [addTestSearch, setAddTestSearch] = useState('');
+  const [activeCategory, setActiveCategory] = useState('All');
+  const [addedTestIds, setAddedTestIds] = useState<number[]>([]);
+
+  // Billing adjustments
+  const [discountType, setDiscountType] = useState<'flat' | 'percent'>('flat');
+  const [discountValue, setDiscountValue] = useState('0');
+  const [additionalPayment, setAdditionalPayment] = useState('0');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    apiFetch<FullInvoice>(`/api/invoices/${invoiceId}`)
+      .then((res) => {
+        if (cancelled) return;
+        setFullData(res);
+        setPatientName(res.invoice.patient_name);
+        setAgeYears(String(res.invoice.age_years ?? 0));
+        setAgeMonths(String(res.invoice.age_months ?? 0));
+        setAgeDays(String(res.invoice.age_days ?? 0));
+        setGender(res.invoice.gender);
+        setMobile(res.invoice.patient_mobile || '');
+        setAddress(res.invoice.patient_address || '');
+        setDoctorId(res.invoice.doctor_id);
+        setNotes(res.invoice.notes || '');
+        setDiscountType(res.invoice.discount_type || 'flat');
+        setDiscountValue(String(res.invoice.discount_value ?? 0));
+        setAdditionalPayment('0');
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load invoice details.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [invoiceId]);
+
+  const existingTestIdSet = useMemo(
+    () => new Set((fullData?.tests || []).map((t) => t.test_id)),
+    [fullData]
+  );
+
+  const availableTests = useMemo(() => {
+    const q = addTestSearch.trim().toLowerCase();
+    return tests.filter((t) => {
+      if (existingTestIdSet.has(t.id)) return false;
+      if (activeCategory !== 'All' && t.category_name !== activeCategory) return false;
+      if (!q) return true;
+      return t.name.toLowerCase().includes(q) || t.code.toLowerCase().includes(q);
+    });
+  }, [tests, existingTestIdSet, activeCategory, addTestSearch]);
+
+  const newlySelectedTests = useMemo(
+    () => tests.filter((t) => addedTestIds.includes(t.id)),
+    [tests, addedTestIds]
+  );
+
+  const existingSubtotal = useMemo(
+    () => (fullData?.tests || []).reduce((sum, t) => sum + Number(t.price), 0),
+    [fullData]
+  );
+  const addedSubtotal = useMemo(
+    () => newlySelectedTests.reduce((sum, t) => sum + Number(t.price), 0),
+    [newlySelectedTests]
+  );
+  const newSubtotal = existingSubtotal + addedSubtotal;
+
+  const newDiscountAmount = useMemo(() => {
+    const val = Math.max(0, Number(discountValue || 0));
+    const amt = discountType === 'percent' ? (newSubtotal * val) / 100 : val;
+    return Math.min(newSubtotal, Math.round(amt * 100) / 100);
+  }, [newSubtotal, discountType, discountValue]);
+
+  const newNetTotal = Math.max(0, Math.round((newSubtotal - newDiscountAmount) * 100) / 100);
+  const alreadyPaid = Number(fullData?.invoice.paid_amount || 0);
+  const maxExtraPay = Math.max(0, Math.round((newNetTotal - alreadyPaid) * 100) / 100);
+  const appliedExtraPay = Math.min(maxExtraPay, Math.max(0, Number(additionalPayment || 0)));
+  const newPaidTotal = Math.round((alreadyPaid + appliedExtraPay) * 100) / 100;
+  const newDue = Math.max(0, Math.round((newNetTotal - newPaidTotal) * 100) / 100);
+
+  const maxStaffPct = Number(settings.max_staff_discount_pct || 15);
+  const discountChanged =
+    fullData !== null &&
+    (discountType !== fullData.invoice.discount_type ||
+      Number(discountValue || 0) !== Number(fullData.invoice.discount_value || 0));
+  const effectivePct = newSubtotal > 0 ? (newDiscountAmount / newSubtotal) * 100 : 0;
+  const exceedsStaffCap = !isAdmin && discountChanged && effectivePct > maxStaffPct + 0.01;
+
+  const toggleAddedTest = (testId: number) => {
+    setAddedTestIds((prev) =>
+      prev.includes(testId) ? prev.filter((id) => id !== testId) : [...prev, testId]
+    );
+  };
+
+  const handleSave = async (printAfter: boolean) => {
+    if (!patientName.trim()) {
+      setError('Patient full name is required.');
+      return;
+    }
+    if (exceedsStaffCap) {
+      setError(`Staff discount limit is ${maxStaffPct}%. Switch to Admin mode to authorize higher discounts.`);
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const updated = await apiFetch<FullInvoice>(`/api/invoices/${invoiceId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          patient: {
+            name: patientName.trim(),
+            ageYears: Number(ageYears || 0),
+            ageMonths: Number(ageMonths || 0),
+            ageDays: Number(ageDays || 0),
+            gender,
+            mobile: mobile.trim(),
+            address: address.trim(),
+          },
+          doctorId,
+          addTestIds: addedTestIds,
+          discountType,
+          discountValue: Number(discountValue || 0),
+          additionalPayment: appliedExtraPay,
+          notes: notes.trim(),
+        }),
+      });
+      onSaved(updated.invoice, printAfter);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update patient entry.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 overflow-y-auto p-4 flex items-start justify-center">
+      <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-xl shadow-xl my-6 overflow-hidden">
+        {/* Modal Header */}
+        <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-base font-semibold">
+              Edit Today&apos;s Patient Entry &amp; Add Tests
+            </h2>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Update name, age, mobile, or add more tests. Patient ID &amp; Portal Login remain unchanged.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-slate-400 hover:text-white p-1"
+            aria-label="Close modal"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {loading || !fullData ? (
+          <div className="p-10 text-center text-sm text-slate-500">
+            {error ? (
+              <div className="text-red-700 font-medium">{error}</div>
+            ) : (
+              'Loading patient & invoice record...'
+            )}
+          </div>
+        ) : (
+          <div className="p-6 space-y-6">
+            {/* Preserved Identity Strip */}
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3.5 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div>
+                <div className="text-slate-500">Invoice Number</div>
+                <div className="font-mono font-bold text-slate-900 text-sm mt-0.5">
+                  {fullData.invoice.invoice_no}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  {formatDateTime(fullData.invoice.created_at)}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-500 flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-teal-700" />
+                  <span>Patient ID (Fixed)</span>
+                </div>
+                <div className="font-mono font-bold text-teal-800 text-sm mt-0.5">
+                  {fullData.invoice.patient_uid}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Same ID kept on edit</div>
+              </div>
+              <div>
+                <div className="text-slate-500 flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-teal-700" />
+                  <span>Patient Portal Password</span>
+                </div>
+                <div className="font-mono font-bold text-slate-900 text-sm mt-0.5">
+                  {fullData.invoice.patient_portal_password || '—'}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Same portal login kept</div>
+              </div>
+            </div>
+
+            {/* Patient Demographics Editor */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-slate-900">01. Patient Details</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Patient Full Name <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={patientName}
+                    onChange={(e) => setPatientName(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Gender</label>
+                  <select
+                    value={gender}
+                    onChange={(e) => setGender(e.target.value as 'Male' | 'Female' | 'Other')}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-600"
+                  >
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Age (Y / M / D)</label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      max={130}
+                      value={ageYears}
+                      onChange={(e) => setAgeYears(e.target.value)}
+                      title="Years"
+                      className="w-full px-2 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={11}
+                      value={ageMonths}
+                      onChange={(e) => setAgeMonths(e.target.value)}
+                      title="Months"
+                      className="w-full px-2 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={30}
+                      value={ageDays}
+                      onChange={(e) => setAgeDays(e.target.value)}
+                      title="Days"
+                      className="w-full px-2 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Mobile Number</label>
+                  <input
+                    type="text"
+                    value={mobile}
+                    onChange={(e) => setMobile(e.target.value)}
+                    placeholder="017XX-XXXXXX"
+                    className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Address / Village</label>
+                  <input
+                    type="text"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Referring Doctor</label>
+                  <select
+                    value={doctorId ?? ''}
+                    onChange={(e) => setDoctorId(e.target.value ? Number(e.target.value) : null)}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-600"
+                  >
+                    <option value="">Self / Walk-in Patient</option>
+                    {doctors.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name} {d.degree ? `(${d.degree})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
+                  <input
+                    type="text"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Optional note"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Existing Tests on Invoice */}
+            <div className="space-y-2 pt-3 border-t border-slate-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-900">
+                  02. Already Billed Tests ({fullData.tests.length})
+                </h3>
+                <span className="text-xs font-mono tabular-nums font-semibold text-slate-700">
+                  {formatBDT(existingSubtotal)}
+                </span>
+              </div>
+              <div className="divide-y divide-slate-200 border border-slate-200 rounded-lg">
+                {fullData.tests.map((t) => (
+                  <div key={t.id} className="px-3.5 py-2 flex items-center justify-between gap-3 text-xs">
+                    <div className="min-w-0">
+                      <span className="font-semibold text-slate-900">{t.test_name}</span>
+                      <span className="text-slate-500 ml-2">
+                        ({t.category_name} · {t.status})
+                      </span>
+                    </div>
+                    <span className="font-mono tabular-nums font-semibold text-slate-800 shrink-0">
+                      {formatBDT(t.price)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Add Additional Tests */}
+            <div className="space-y-3 pt-3 border-t border-slate-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    03. Add More Tests ({addedTestIds.length} new selected)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Select any additional diagnostic test to append to this invoice.
+                  </p>
+                </div>
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={addTestSearch}
+                    onChange={(e) => setAddTestSearch(e.target.value)}
+                    placeholder="Search test to add..."
+                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveCategory('All')}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap shrink-0 ${
+                    activeCategory === 'All'
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  All
+                </button>
+                {categories.map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setActiveCategory(cat.name)}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap shrink-0 ${
+                      activeCategory === cat.name
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    {cat.name}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1">
+                {availableTests.length === 0 ? (
+                  <div className="col-span-full py-6 text-center text-xs text-slate-500 border border-dashed border-slate-200 rounded-lg">
+                    No remaining catalog tests match your filter.
+                  </div>
+                ) : (
+                  availableTests.map((t) => {
+                    const selected = addedTestIds.includes(t.id);
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => toggleAddedTest(t.id)}
+                        className={`text-left px-3 py-2 rounded-lg border transition-colors flex items-center justify-between gap-2 ${
+                          selected
+                            ? 'bg-teal-50 border-teal-600 ring-1 ring-teal-600'
+                            : 'bg-white border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-slate-900 truncate">{t.name}</div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            <span className="font-mono">{t.code}</span> · {t.category_name}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0 flex items-center gap-2">
+                          <span className="text-xs font-mono tabular-nums font-bold text-slate-900">
+                            {formatBDT(t.price)}
+                          </span>
+                          {selected ? (
+                            <Check className="w-4 h-4 text-teal-700" />
+                          ) : (
+                            <Plus className="w-3.5 h-3.5 text-teal-700" />
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Updated Billing & Payment Summary */}
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-slate-900">04. Updated Billing Summary</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Less / Discount</label>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={discountType}
+                      onChange={(e) => setDiscountType(e.target.value as 'flat' | 'percent')}
+                      className="px-2 py-1.5 text-xs border border-slate-300 rounded-md bg-white"
+                    >
+                      <option value="flat">৳ Flat</option>
+                      <option value="percent">% Pct</option>
+                    </select>
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={discountValue}
+                      onChange={(e) => setDiscountValue(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs font-mono tabular-nums border border-slate-300 rounded-md bg-white"
+                    />
+                  </div>
+                  {exceedsStaffCap && (
+                    <p className="text-[11px] text-red-600 mt-1 font-medium">
+                      Exceeds Staff cap ({maxStaffPct}%).
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">
+                    Additional Cash Received (BDT)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={maxExtraPay}
+                    step="any"
+                    value={additionalPayment}
+                    onChange={(e) => setAdditionalPayment(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs font-mono tabular-nums border border-slate-300 rounded-md bg-white"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Already paid: <span className="font-mono">{formatBDT(alreadyPaid)}</span>
+                  </p>
+                </div>
+
+                <div className="space-y-1 bg-white border border-slate-200 rounded-md p-2.5">
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">New Subtotal:</span>
+                    <span className="font-mono tabular-nums font-semibold text-slate-900">
+                      {formatBDT(newSubtotal)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">New Net Bill:</span>
+                    <span className="font-mono tabular-nums font-bold text-teal-700">
+                      {formatBDT(newNetTotal)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-slate-200">
+                    <span className="text-slate-600">Updated Due:</span>
+                    <span
+                      className={`font-mono tabular-nums font-bold ${
+                        newDue > 0 ? 'text-red-600' : 'text-emerald-700'
+                      }`}
+                    >
+                      {formatBDT(newDue)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {error && (
+              <div className="p-3 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                {error}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => handleSave(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-900 bg-slate-100 border border-slate-300 rounded-lg hover:bg-slate-200 disabled:opacity-50 whitespace-nowrap shrink-0"
+              >
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => handleSave(true)}
+                className="px-5 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 whitespace-nowrap shrink-0"
+              >
+                {saving ? 'Saving...' : 'Save & Print Updated Receipt'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

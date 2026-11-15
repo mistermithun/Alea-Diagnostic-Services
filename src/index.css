@@ -79,6 +79,9 @@
     max-width: 210mm !important;
     min-height: 295.5mm !important;
     height: auto !important;
+    overflow: visible !important;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
     box-sizing: border-box !important;
   }
 
@@ -93,6 +96,9 @@
   .print-report-body {
     width: 100% !important;
     flex: 1 0 auto !important;
+    overflow: visible !important;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
   }
 
   .print-report-footer {
@@ -106,10 +112,20 @@
   .print-layout-table {
     width: 100% !important;
     border-collapse: collapse !important;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
   }
 
+  .print-layout-table thead,
   .print-spacer-head {
     display: table-header-group !important;
+  }
+
+  .print-layout-table tbody {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+    orphans: 3;
+    widows: 3;
   }
 
   .print-spacer-foot {
@@ -125,14 +141,17 @@
   }
 
   .page-break-avoid,
-  .print-row-avoid {
-    break-inside: avoid;
-    page-break-inside: avoid;
+  .print-row-avoid,
+  .print-layout-table tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   .print-keep-with-next {
-    break-after: avoid;
-    page-break-after: avoid;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    break-after: avoid !important;
+    page-break-after: avoid !important;
   }
 
   .print-pure-black,

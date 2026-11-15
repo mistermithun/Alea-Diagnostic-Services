@@ -213,23 +213,32 @@ export function evaluateClientFlag(
   return 'Normal';
 }
 
+export const DEFAULT_PUBLIC_BASE_URL = 'https://alea-diagnostic-services.onrender.com';
+
+export function resolvePublicBaseUrl(serverBaseUrl?: string | null): string {
+  const configured =
+    (serverBaseUrl || '').trim() ||
+    (import.meta.env.VITE_BASE_URL || '').trim() ||
+    DEFAULT_PUBLIC_BASE_URL;
+  return configured.replace(/\/+$/, '');
+}
+
 export function buildPatientReportQrUrl(
   patientQrToken?: string | null,
+  patientUid?: string | null,
   invoiceId?: number | null,
-  testId?: number | null
+  testId?: number | null,
+  baseUrlOverride?: string | null
 ): string {
-  if (!patientQrToken || typeof window === 'undefined') return '';
-  const origin = window.location.origin;
+  if (!patientQrToken) return '';
+  const baseUrl = resolvePublicBaseUrl(baseUrlOverride);
   const params = new URLSearchParams();
-  params.set('qr', patientQrToken);
+  if (patientUid) params.set('id', patientUid);
+  params.set('token', patientQrToken);
   if (invoiceId && invoiceId > 0) params.set('inv', String(invoiceId));
   if (testId && testId > 0) params.set('test', String(testId));
 
-  const isHash =
-    window.location.hostname.endsWith('github.io') || window.location.protocol === 'file:';
-  if (isHash) {
-    return `${origin}${window.location.pathname}#/report?${params.toString()}`;
-  }
-  return `${origin}/report?${params.toString()}`;
+  return `${baseUrl}/view-report?${params.toString()}`;
 }
+
 

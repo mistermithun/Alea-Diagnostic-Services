@@ -36,6 +36,7 @@ import {
   getLabToken,
   getPatientToken,
   patientApiFetch,
+  resolvePublicBaseUrl,
   setPatientToken,
 } from './lib/api.ts';
 import type { FullInvoice, LabSettings, NavTab, SystemInfo } from './types.ts';
@@ -94,21 +95,23 @@ function parseRouteSegment(segment: string): AppRoute {
   if (s === 'admin' || s.startsWith('admin/')) return 'admin-dashboard';
   if (s === 'staff' || s.startsWith('staff/')) return 'staff-dashboard';
   if (s === 'patient-dashboard' || s.startsWith('patient-dashboard/')) return 'patient-dashboard';
-  if (s === 'report' || s === 'r') return 'qr-report';
+  if (s === 'view-report' || s === 'report' || s === 'r') return 'qr-report';
   return 'landing';
 }
 
-function getQrParamsFromLocation(): { qr: string; inv?: number; test?: number } {
+function getQrParamsFromLocation(): { id?: string; qr: string; inv?: number; test?: number } {
   if (typeof window === 'undefined') return { qr: '' };
   let search = window.location.search;
   if (!search && window.location.hash.includes('?')) {
     search = '?' + window.location.hash.split('?')[1];
   }
   const params = new URLSearchParams(search);
-  const qr = (params.get('qr') || '').trim();
+  const id = (params.get('id') || '').trim() || undefined;
+  const qr = (params.get('token') || params.get('qr') || '').trim();
   const invRaw = Number(params.get('inv') || 0);
   const testRaw = Number(params.get('test') || 0);
   return {
+    id,
     qr,
     inv: Number.isFinite(invRaw) && invRaw > 0 ? invRaw : undefined,
     test: Number.isFinite(testRaw) && testRaw > 0 ? testRaw : undefined,
@@ -138,7 +141,7 @@ function resolveRouteFromLocation(): AppRoute {
   const direct = parseRouteSegment(p);
   if (direct !== 'landing') return direct;
   const suffixMatch = p.match(
-    /\/(admin-login|staff-login|patient-login|portal|patient-portal|admin|staff|patient-dashboard|report)$/
+    /\/(admin-login|staff-login|patient-login|portal|patient-portal|admin|staff|patient-dashboard|view-report|report)$/
   );
   if (suffixMatch) return parseRouteSegment(suffixMatch[1]);
   return 'landing';
@@ -159,7 +162,7 @@ function pathForRoute(route: AppRoute): string {
     case 'patient-dashboard':
       return '/patient-dashboard';
     case 'qr-report':
-      return '/report';
+      return '/view-report';
     default:
       return '/';
   }
@@ -183,6 +186,7 @@ export default function App() {
     port: 3000,
     lanUrls: [],
     serverDate: '',
+    publicBaseUrl: resolvePublicBaseUrl(),
   });
 
   const [receiptModalData, setReceiptModalData] = useState<FullInvoice | null>(null);
@@ -481,6 +485,7 @@ export default function App() {
     return (
       <PatientPortalView
         settings={settings}
+        publicBaseUrl={systemInfo.publicBaseUrl}
         mode="login"
         onAuthenticated={handlePatientAuthenticated}
         onSignedOut={handlePatientSignedOut}
@@ -489,12 +494,14 @@ export default function App() {
     );
   }
 
-  // 2.5. Direct Passwordless QR Report Access (/report?qr=...)
+  // 2.5. Direct Passwordless QR Report Access (/view-report?id=...&token=...)
   if (route === 'qr-report') {
     const qrParams = getQrParamsFromLocation();
     return (
       <QrDirectReportView
         settings={settings}
+        publicBaseUrl={systemInfo.publicBaseUrl}
+        patientIdParam={qrParams.id}
         qrToken={qrParams.qr}
         invoiceId={qrParams.inv}
         testId={qrParams.test}
@@ -528,6 +535,7 @@ export default function App() {
     return (
       <PatientPortalView
         settings={settings}
+        publicBaseUrl={systemInfo.publicBaseUrl}
         mode="dashboard"
         onAuthenticated={handlePatientAuthenticated}
         onSignedOut={handlePatientSignedOut}
@@ -800,6 +808,7 @@ export default function App() {
       <ReceiptPrintModal
         data={receiptModalData}
         settings={settings}
+        publicBaseUrl={systemInfo.publicBaseUrl}
         onClose={() => setReceiptModalData(null)}
       />
 
@@ -808,6 +817,7 @@ export default function App() {
         data={reportModalData?.data || null}
         focusTestId={reportModalData?.focusTestId}
         settings={settings}
+        publicBaseUrl={systemInfo.publicBaseUrl}
         portalMode={false}
         onClose={() => setReportModalData(null)}
       />

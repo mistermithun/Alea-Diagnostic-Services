@@ -37,6 +37,14 @@ function getLanUrls(port: number): string[] {
   return urls;
 }
 
+function resolvePublicBaseUrl(): string {
+  const raw =
+    process.env.BASE_URL?.trim() ||
+    process.env.VITE_BASE_URL?.trim() ||
+    'https://alea-diagnostic-services.onrender.com';
+  return raw.replace(/\/+$/, '');
+}
+
 const asyncHandler =
   (fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) =>
   (req: Request, res: Response, next: NextFunction) => {
@@ -88,6 +96,7 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         port,
         lanUrls: getLanUrls(port),
         serverDate: getTodayDateStr(),
+        publicBaseUrl: resolvePublicBaseUrl(),
         storageMode: store.mode,
         storageLabel: store.label,
         storageWarning: store.warning || '',
@@ -680,7 +689,9 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
   app.get(
     '/api/patient-auth/qr-access',
     asyncHandler(async (req, res) => {
-      const qrParam = typeof req.query.qr === 'string' ? req.query.qr.trim() : '';
+      const tokenParam = typeof req.query.token === 'string' ? req.query.token.trim() : '';
+      const qrLegacyParam = typeof req.query.qr === 'string' ? req.query.qr.trim() : '';
+      const qrParam = tokenParam || qrLegacyParam;
       if (!qrParam) {
         res.status(400).json({ error: 'Encrypted QR report token is required.' });
         return;
@@ -702,6 +713,16 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
       const patientId = Number(patient.id);
       const patientUid = String(patient.patient_uid || '');
       const patientName = String(patient.name || '');
+
+      const idParam = typeof req.query.id === 'string' ? req.query.id.trim() : '';
+      if (
+        idParam &&
+        idParam.toUpperCase() !== patientUid.toUpperCase() &&
+        idParam !== String(patientId)
+      ) {
+        res.status(401).json({ error: 'Patient ID does not match the encrypted report token.' });
+        return;
+      }
 
       const profile = await store.getPatientPortalProfile(patientId);
       if (!profile) {
@@ -805,6 +826,7 @@ async function startServer() {
     app.use('/staff', express.static(distDir));
     app.use('/patient-dashboard', express.static(distDir));
     app.use('/report', express.static(distDir));
+    app.use('/view-report', express.static(distDir));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
     });

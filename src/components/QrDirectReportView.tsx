@@ -6,6 +6,8 @@ import { ReportPrintModal } from './ReportPrintModal.tsx';
 
 interface QrDirectReportViewProps {
   settings: LabSettings;
+  publicBaseUrl?: string;
+  patientIdParam?: string;
   qrToken: string;
   invoiceId?: number;
   testId?: number;
@@ -17,6 +19,8 @@ interface QrDirectReportViewProps {
 
 export const QrDirectReportView: React.FC<QrDirectReportViewProps> = ({
   settings,
+  publicBaseUrl,
+  patientIdParam,
   qrToken,
   invoiceId,
   testId,
@@ -45,7 +49,8 @@ export const QrDirectReportView: React.FC<QrDirectReportViewProps> = ({
       setError('');
       try {
         const params = new URLSearchParams();
-        params.set('qr', qrToken);
+        if (patientIdParam) params.set('id', patientIdParam);
+        params.set('token', qrToken);
         if (invoiceId && invoiceId > 0) params.set('inv', String(invoiceId));
         if (testId && testId > 0) params.set('test', String(testId));
 
@@ -81,7 +86,7 @@ export const QrDirectReportView: React.FC<QrDirectReportViewProps> = ({
     return () => {
       active = false;
     };
-  }, [qrToken, invoiceId, testId]);
+  }, [patientIdParam, qrToken, invoiceId, testId]);
 
   if (loading) {
     return (
@@ -176,6 +181,7 @@ export const QrDirectReportView: React.FC<QrDirectReportViewProps> = ({
           data={report}
           focusTestId={focusTestId}
           settings={settings}
+          publicBaseUrl={publicBaseUrl}
           portalMode={true}
           inlinePageMode={true}
           onViewAllArchive={onOpenFullArchive}

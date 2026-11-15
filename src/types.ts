@@ -29,6 +29,7 @@ export interface SystemInfo {
   port: number;
   lanUrls: string[];
   serverDate: string;
+  publicBaseUrl?: string;
   storageMode?: 'mongodb' | 'sqlite';
   storageLabel?: string;
   storageWarning?: string;

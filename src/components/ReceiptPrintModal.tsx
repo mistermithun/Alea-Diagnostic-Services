@@ -1,27 +1,41 @@
 import React, { useEffect, useState } from 'react';
 import { Printer, X } from 'lucide-react';
 import QRCode from 'qrcode';
-import { buildPatientReportQrUrl, formatAge, formatBDT, formatDateTime } from '../lib/api.ts';
+import {
+  buildPatientReportQrUrl,
+  formatAge,
+  formatBDT,
+  formatDateTime,
+  resolvePublicBaseUrl,
+} from '../lib/api.ts';
 import type { FullInvoice, LabSettings } from '../types.ts';
 
 interface ReceiptPrintModalProps {
   data: FullInvoice | null;
   settings: LabSettings;
+  publicBaseUrl?: string;
   onClose: () => void;
 }
 
-export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({ data, settings, onClose }) => {
+export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
+  data,
+  settings,
+  publicBaseUrl,
+  onClose,
+}) => {
   const [format, setFormat] = useState<'a4' | 'thermal'>('a4');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const portalWebsiteUrl = resolvePublicBaseUrl(publicBaseUrl);
 
   useEffect(() => {
     const token = data?.invoice?.patient_qr_token;
+    const uid = data?.invoice?.patient_uid;
     const invId = data?.invoice?.id;
     if (!token || !invId) {
       setQrDataUrl('');
       return;
     }
-    const url = buildPatientReportQrUrl(token, invId);
+    const url = buildPatientReportQrUrl(token, uid, invId, null, publicBaseUrl);
     QRCode.toDataURL(url, {
       width: 160,
       margin: 1,
@@ -30,7 +44,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({ data, sett
     })
       .then((res) => setQrDataUrl(res))
       .catch(() => setQrDataUrl(''));
-  }, [data?.invoice?.id, data?.invoice?.patient_qr_token]);
+  }, [data?.invoice?.id, data?.invoice?.patient_qr_token, data?.invoice?.patient_uid, publicBaseUrl]);
 
   if (!data) return null;
 
@@ -177,6 +191,12 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({ data, sett
                 <div className="p-3 bg-slate-50 border border-slate-300 rounded-lg flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <p className="font-semibold text-slate-900">Online Report &amp; QR Access</p>
+                    <div className="mt-1 text-[11px] text-slate-800 break-all">
+                      Website:{' '}
+                      <span className="font-mono font-semibold text-teal-800 print:text-black">
+                        {portalWebsiteUrl}
+                      </span>
+                    </div>
                     {invoice.patient_portal_password && (
                       <div className="mt-1 font-mono tabular-nums text-slate-800 space-y-0.5">
                         <div>Patient ID: <span className="font-bold">{invoice.patient_uid}</span></div>
@@ -184,7 +204,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({ data, sett
                       </div>
                     )}
                     <p className="text-[11px] text-slate-600 mt-1.5 leading-snug">
-                      Scan the QR code for instant digital PDF report access, or sign in at the Patient Portal with your ID &amp; password.
+                      Scan the QR code for instant digital PDF report access, or visit the website above to log in with your ID &amp; password.
                     </p>
                   </div>
                   {qrDataUrl && (
@@ -313,8 +333,9 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({ data, sett
           <div className="pt-3 text-center text-[10px] text-slate-600 space-y-1">
             <div className="font-bold uppercase">Status: {invoice.payment_status}</div>
             {(invoice.patient_portal_password || qrDataUrl) && (
-              <div className="border-t border-b border-dashed border-slate-300 py-2 my-1 text-slate-900 space-y-1.5">
+              <div className="border-t border-b border-dashed border-slate-300 py-2 my-1 text-slate-900 space-y-1">
                 <div className="font-bold">ONLINE REPORT PORTAL</div>
+                <div className="text-[9px] break-all">{portalWebsiteUrl}</div>
                 {invoice.patient_portal_password && (
                   <div>ID: {invoice.patient_uid} | PW: {invoice.patient_portal_password}</div>
                 )}

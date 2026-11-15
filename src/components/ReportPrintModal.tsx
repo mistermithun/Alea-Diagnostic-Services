@@ -1,12 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download, FolderOpen, Printer, ShieldCheck, X } from 'lucide-react';
 import QRCode from 'qrcode';
-import { buildPatientReportQrUrl, formatAge, formatDateTime } from '../lib/api.ts';
+import {
+  buildPatientReportQrUrl,
+  formatAge,
+  formatDateTime,
+  resolvePublicBaseUrl,
+} from '../lib/api.ts';
 import type { FullInvoice, InvoiceTestItem, LabSettings, TestResultRow } from '../types.ts';
 
 interface ReportPrintModalProps {
   data: FullInvoice | null;
   settings: LabSettings;
+  publicBaseUrl?: string;
   focusTestId?: number | null;
   portalMode?: boolean;
   inlinePageMode?: boolean;
@@ -181,6 +187,7 @@ const VerificationBarcode: React.FC<{ code: string }> = ({ code }) => {
 export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
   data,
   settings,
+  publicBaseUrl,
   focusTestId,
   portalMode = false,
   inlinePageMode = false,
@@ -190,6 +197,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
   const [activeTestId, setActiveTestId] = useState<number | null>(focusTestId ?? null);
   const [blankConsultantOverride, setBlankConsultantOverride] = useState<boolean>(false);
   const [qrSvgDataUrl, setQrSvgDataUrl] = useState<string>('');
+  const portalWebsiteUrl = resolvePublicBaseUrl(publicBaseUrl);
 
   const topMarginIn = Math.max(0, Number(settings.pad_header_margin_in || 1.5) || 1.5);
   const bottomMarginIn = Math.max(0, Number(settings.pad_footer_margin_in || 0.4) || 0.4);
@@ -215,6 +223,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
 
   useEffect(() => {
     const qrToken = data?.invoice?.patient_qr_token;
+    const uid = data?.invoice?.patient_uid;
     const invId = data?.invoice?.id;
     const testId = resolvedTestForQr?.id;
     if (!data || !qrToken || !invId) {
@@ -222,7 +231,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
       return;
     }
 
-    const reportUrl = buildPatientReportQrUrl(qrToken, invId, testId);
+    const reportUrl = buildPatientReportQrUrl(qrToken, uid, invId, testId, publicBaseUrl);
     QRCode.toDataURL(reportUrl, {
       width: 160,
       margin: 1,
@@ -231,7 +240,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     })
       .then((url) => setQrSvgDataUrl(url))
       .catch(() => setQrSvgDataUrl(''));
-  }, [data, resolvedTestForQr?.id]);
+  }, [data, resolvedTestForQr?.id, publicBaseUrl]);
 
   if (!data) return null;
 
@@ -858,14 +867,23 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
             </div>
           </footer>
 
-          {portalMode && (
-            <div className="mt-2 pt-1.5 border-t border-black flex flex-col sm:flex-row items-center justify-between gap-2 text-[9.5px] text-black">
+          {portalMode ? (
+            <div className="mt-2 pt-1.5 border-t border-black flex flex-col sm:flex-row items-center justify-between gap-2 text-[9px] text-black">
               <span>
-                Digitally verified report · {settings.lab_name}, {settings.lab_address}
+                Online Report Portal:{' '}
+                <span className="font-mono font-semibold">{portalWebsiteUrl}</span>
               </span>
               <span className="font-mono tabular-nums">
                 Verification ID: {invoice.invoice_no}-{invoice.patient_uid}
               </span>
+            </div>
+          ) : (
+            <div className="mt-1.5 pt-1 border-t border-black/30 flex items-center justify-between gap-2 text-[9px] text-black">
+              <span>
+                Online Report Portal:{' '}
+                <span className="font-mono font-semibold">{portalWebsiteUrl}</span>
+              </span>
+              <span>Scan QR code above for instant PDF report</span>
             </div>
           )}
 
@@ -873,7 +891,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
           {!portalMode && (
             <div
               style={{ height: `${bottomMarginIn}in` }}
-              className="mt-2 border-t border-dashed border-slate-300 print:border-none flex items-center justify-center text-[11px] text-slate-400"
+              className="mt-1.5 border-t border-dashed border-slate-300 print:border-none flex items-center justify-center text-[11px] text-slate-400"
             >
               <span className="no-print">
                 Blank Footer Area ({bottomMarginIn} inch — Reserved for Pre-Printed Offset Pad)

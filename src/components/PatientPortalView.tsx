@@ -29,6 +29,7 @@ import { ReportPrintModal } from './ReportPrintModal.tsx';
 
 interface PatientPortalViewProps {
   settings: LabSettings;
+  publicBaseUrl?: string;
   mode: 'login' | 'dashboard';
   onAuthenticated: () => void;
   onSignedOut: () => void;
@@ -37,6 +38,7 @@ interface PatientPortalViewProps {
 
 export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
   settings,
+  publicBaseUrl,
   mode,
   onAuthenticated,
   onSignedOut,
@@ -610,6 +612,7 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
         data={printReportData}
         focusTestId={printFocusTestId}
         settings={settings}
+        publicBaseUrl={publicBaseUrl}
         portalMode={true}
         onClose={() => {
           setPrintReportData(null);

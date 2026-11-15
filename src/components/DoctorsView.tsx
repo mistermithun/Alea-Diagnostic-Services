@@ -307,7 +307,7 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings }) => {
 
       {/* Printable Doctor Commission Statement */}
       {statement && statementDocId && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 overflow-y-auto p-4 sm:p-6 flex flex-col items-center">
+        <div className="fixed inset-0 z-50 bg-slate-900/70 overflow-y-auto p-4 sm:p-6 flex flex-col items-center print:block print:static print:inset-auto print:h-auto print:min-h-0 print:overflow-visible print:p-0 print:bg-white">
           <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-xl px-4 py-3 mb-4 flex flex-wrap items-center justify-between gap-3 no-print">
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="font-medium text-slate-700">Date Range:</span>

@@ -18,19 +18,22 @@
 }
 
 /* Print optimization for A4 Clinical Reports, A4 Cash Memos, Doctor Statements, and 80mm Thermal POS */
+@page {
+  size: A4 portrait;
+  margin: 0;
+}
+
 @media print {
-  @page {
-    margin: 10mm;
-  }
-
-  @page report-pad {
-    size: A4 portrait;
-    margin: 1.5in 12mm 0.4in 12mm;
-  }
-
+  html,
   body {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
     background: #ffffff !important;
     color: #000000 !important;
+    overflow: visible !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
@@ -46,46 +49,55 @@
   .print-sheet {
     box-shadow: none !important;
     border: none !important;
+    border-radius: 0 !important;
     margin: 0 !important;
-    padding: 0 !important;
+    padding: 10mm 12mm !important;
     width: 100% !important;
     max-width: 100% !important;
+    height: auto !important;
   }
 
-  @page digital-report {
-    size: A4 portrait;
-    margin: 10mm 12mm 10mm 12mm;
-  }
-
-  .print-report-pad {
-    page: report-pad;
-    box-shadow: none !important;
-    border: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
-  }
-
+  .print-report-pad,
   .print-digital-report {
-    page: digital-report;
     box-shadow: none !important;
     border: none !important;
+    border-radius: 0 !important;
     margin: 0 !important;
-    padding: 0 !important;
+    padding: 0 12mm !important;
     width: 100% !important;
     max-width: 100% !important;
+    height: auto !important;
+  }
+
+  .print-layout-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  .print-spacer-head {
+    display: table-header-group !important;
+  }
+
+  .print-spacer-foot {
+    display: table-footer-group !important;
   }
 
   .print-thermal {
     width: 76mm !important;
     max-width: 76mm !important;
     margin: 0 auto !important;
+    padding: 3mm 2mm !important;
     font-size: 11px !important;
   }
 
-  .page-break-avoid {
+  .page-break-avoid,
+  .print-row-avoid {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  .print-keep-with-next {
+    break-after: avoid;
+    page-break-after: avoid;
   }
 }

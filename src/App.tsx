@@ -528,7 +528,7 @@ export default function App() {
   const resolvedTab = activeNavMeta.id;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col lg:flex-row">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col lg:flex-row print:block print:min-h-0 print:h-auto print:bg-white">
       {/* Mobile Drawer Backdrop */}
       {mobileMenuOpen && (
         <div
@@ -648,7 +648,7 @@ export default function App() {
       </aside>
 
       {/* Main Content Shell */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className={`flex-1 flex flex-col min-w-0 ${receiptModalData || reportModalData ? 'no-print' : ''}`}>
         {/* Top Bar Contract */}
         <header className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-4 no-print">
           <div className="flex items-center gap-3 min-w-0">

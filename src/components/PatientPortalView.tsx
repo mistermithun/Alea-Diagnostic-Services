@@ -318,7 +318,7 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
   // AUTHENTICATED PATIENT MEDICAL ARCHIVE & DIGITAL REPORT DOWNLOADS
   // ============================================================================
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col print:block print:min-h-0 print:h-auto print:bg-white">
       {/* Patient Portal Top Bar */}
       <header className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 no-print">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">

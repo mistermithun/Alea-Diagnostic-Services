@@ -111,12 +111,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     new Date().toISOString();
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/75 overflow-y-auto p-4 sm:p-6 flex flex-col items-center print:static print:overflow-visible print:p-0 print:bg-white">
-      {/* Dynamic configurable pad margins for Lab Internal Print Mode */}
-      {!portalMode && (
-        <style>{`@media print { @page report-pad { size: A4 portrait; margin: ${topMarginIn}in 12mm ${bottomMarginIn}in 12mm; } }`}</style>
-      )}
-
+    <div className="fixed inset-0 z-50 bg-slate-900/75 overflow-y-auto p-4 sm:p-6 flex flex-col items-center print:block print:static print:inset-auto print:h-auto print:min-h-0 print:overflow-visible print:p-0 print:bg-white">
       {/* Print Controls Toolbar */}
       <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-xl px-4 py-3 mb-4 flex flex-wrap items-center justify-between gap-3 no-print shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
@@ -183,208 +178,271 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
           portalMode ? 'p-8 sm:p-10 print-digital-report' : 'px-8 sm:px-10 py-0 print-report-pad'
         }`}
       >
-        {/* TOP HEADER: Blank spacer on Lab Pad vs Full Official Letterhead on Patient Portal */}
-        {!portalMode ? (
-          <div
-            style={{ height: `${topMarginIn}in` }}
-            className="border-b border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-400 no-print"
-          >
-            Blank Header Area ({topMarginIn} inch — Reserved for Pre-Printed Offset Pad)
-          </div>
-        ) : (
-          <header className="border-b-2 border-teal-700 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3.5">
-              {/* Crisp Geometric Medical Diagnostic Emblem */}
-              <svg
-                width="46"
-                height="46"
-                viewBox="0 0 46 46"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                className="shrink-0"
-                aria-hidden="true"
-              >
-                <rect width="46" height="46" rx="10" fill="#0F172A" />
-                <path d="M20 11H26V20H35V26H26V35H20V26H11V20H20V11Z" fill="#0D9488" />
-                <circle cx="23" cy="23" r="3.5" fill="#FFFFFF" />
-              </svg>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{settings.lab_name}</h1>
-                <p className="text-sm text-slate-700">{settings.lab_address}</p>
-                <p className="text-xs font-medium text-teal-800 mt-0.5">
-                  Department of Pathology &amp; Clinical Diagnostics · Digital Verified Report
-                </p>
-              </div>
-            </div>
+        <table className="w-full border-collapse print-layout-table">
+          <colgroup>
+            <col />
+            <col className="w-28" />
+            <col className="w-24" />
+            <col className="w-40" />
+            <col className="w-20" />
+          </colgroup>
 
-            <div className="flex items-center gap-4 sm:justify-end">
-              <div className="text-right">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                  Official Test Report
-                </div>
-                <div className="text-xs font-mono font-bold tabular-nums text-slate-900 mt-0.5">
-                  {invoice.invoice_no}
-                </div>
-                <div className="mt-1">
-                  <VerificationBarcode code={`${invoice.invoice_no}`} />
-                </div>
-              </div>
-              {qrSvgDataUrl && (
-                <div className="p-1 border border-slate-200 rounded bg-white shrink-0">
-                  <img
-                    src={qrSvgDataUrl}
-                    alt={`Verification QR code for ${invoice.invoice_no}`}
-                    className="w-16 h-16 block"
-                  />
-                </div>
-              )}
-            </div>
-          </header>
-        )}
+          {/* Repeating top & bottom blank margins across every printed page (keeps @page margin: 0 so browser URL/date/title never print) */}
+          <thead className="hidden print:table-header-group print-spacer-head">
+            <tr>
+              <td
+                colSpan={5}
+                style={{ height: portalMode ? '10mm' : `${topMarginIn}in` }}
+                className="p-0 border-0"
+              />
+            </tr>
+          </thead>
 
-        {/* Patient Demographics & Specimen Timeline (Shown in Both Modes) */}
-        <section
-          className={`${
-            portalMode ? 'my-5' : 'mt-3 mb-5'
-          } p-4 bg-slate-50 border border-slate-200 rounded-lg grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5 text-xs`}
-        >
-          <div className="flex gap-2">
-            <span className="text-slate-500 w-28 shrink-0">Patient Name</span>
-            <span className="font-bold text-slate-900 text-sm">{invoice.patient_name}</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-slate-500 w-28 shrink-0">Invoice / ID</span>
-            <span className="font-mono font-semibold tabular-nums text-slate-900">
-              {invoice.invoice_no} · {invoice.patient_uid}
-            </span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-slate-500 w-28 shrink-0">Age / Gender</span>
-            <span className="font-medium text-slate-800 tabular-nums">
-              {formatAge(invoice.age_years, invoice.age_months, invoice.age_days)} / {invoice.gender}
-            </span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-slate-500 w-28 shrink-0">Sample Collected</span>
-            <span className="font-mono tabular-nums text-slate-800">{formatDateTime(primaryCollectedAt)}</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-slate-500 w-28 shrink-0">Referred By</span>
-            <span className="font-medium text-slate-800">
-              {invoice.doctor_name
-                ? `${invoice.doctor_name}${invoice.doctor_degree ? ` (${invoice.doctor_degree})` : ''}`
-                : 'Self'}
-            </span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-slate-500 w-28 shrink-0">Reporting Time</span>
-            <span className="font-mono tabular-nums text-slate-800">{formatDateTime(primaryReportedAt)}</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-slate-500 w-28 shrink-0">Contact</span>
-            <span className="font-mono tabular-nums text-slate-800">{invoice.patient_mobile || '—'}</span>
-          </div>
-        </section>
+          <tfoot className="hidden print:table-footer-group print-spacer-foot">
+            <tr>
+              <td
+                colSpan={5}
+                style={{ height: portalMode ? '10mm' : `${bottomMarginIn}in` }}
+                className="p-0 border-0"
+              />
+            </tr>
+          </tfoot>
 
-        {/* Departmental Test Results */}
-        <div className="space-y-6">
-          {Array.from(byDepartment.entries()).map(([dept, deptTests]) => (
-            <section key={dept} className="space-y-3.5">
-              <div className="border-b border-slate-300 pb-1 flex items-center justify-between">
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900">{dept}</h2>
-                <span className="text-xs text-slate-500">
-                  Specimen: {Array.from(new Set(deptTests.map((t) => t.sample_type))).join(', ')}
-                </span>
-              </div>
-
-              {deptTests.map((t) => (
-                <div key={t.id} className="page-break-avoid">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <h3 className="text-sm font-semibold text-slate-900">{t.test_name}</h3>
-                    <span className="text-xs text-slate-500">Status: {t.status}</span>
+          {/* Header & Patient Demographics */}
+          <tbody>
+            <tr>
+              <td colSpan={5} className="p-0 border-0 align-top">
+                {!portalMode ? (
+                  <div
+                    style={{ height: `${topMarginIn}in` }}
+                    className="border-b border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-400 no-print"
+                  >
+                    Blank Header Area ({topMarginIn} inch — Reserved for Pre-Printed Offset Pad)
                   </div>
+                ) : (
+                  <header className="border-b-2 border-teal-700 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <svg
+                        width="46"
+                        height="46"
+                        viewBox="0 0 46 46"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="shrink-0"
+                        aria-hidden="true"
+                      >
+                        <rect width="46" height="46" rx="10" fill="#0F172A" />
+                        <path d="M20 11H26V20H35V26H26V35H20V26H11V20H20V11Z" fill="#0D9488" />
+                        <circle cx="23" cy="23" r="3.5" fill="#FFFFFF" />
+                      </svg>
+                      <div>
+                        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{settings.lab_name}</h1>
+                        <p className="text-sm text-slate-700">{settings.lab_address}</p>
+                        <p className="text-xs font-medium text-teal-800 mt-0.5">
+                          Department of Pathology &amp; Clinical Diagnostics · Digital Verified Report
+                        </p>
+                      </div>
+                    </div>
 
-                  <table className="w-full text-xs border-collapse border border-slate-200">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-left text-slate-600">
-                        <th className="py-2 px-3 font-semibold">Parameter / Investigation</th>
-                        <th className="py-2 px-3 font-semibold text-right w-36">Result</th>
-                        <th className="py-2 px-3 font-semibold w-28">Unit</th>
-                        <th className="py-2 px-3 font-semibold">Reference Range</th>
-                        <th className="py-2 px-3 font-semibold w-20 text-center">Flag</th>
+                    <div className="flex items-center gap-4 sm:justify-end">
+                      <div className="text-right">
+                        <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                          Official Test Report
+                        </div>
+                        <div className="text-xs font-mono font-bold tabular-nums text-slate-900 mt-0.5">
+                          {invoice.invoice_no}
+                        </div>
+                        <div className="mt-1">
+                          <VerificationBarcode code={`${invoice.invoice_no}`} />
+                        </div>
+                      </div>
+                      {qrSvgDataUrl && (
+                        <div className="p-1 border border-slate-200 rounded bg-white shrink-0">
+                          <img
+                            src={qrSvgDataUrl}
+                            alt={`Verification QR code for ${invoice.invoice_no}`}
+                            className="w-16 h-16 block"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </header>
+                )}
+              </td>
+            </tr>
+
+            <tr>
+              <td colSpan={5} className="p-0 border-0">
+                <section
+                  className={`${
+                    portalMode ? 'my-4 print:my-3' : 'mt-3 mb-4 print:mt-0 print:mb-3'
+                  } p-3.5 bg-slate-50 border border-slate-200 rounded-lg grid grid-cols-2 gap-x-8 gap-y-1.5 text-xs page-break-avoid`}
+                >
+                  <div className="flex gap-2">
+                    <span className="text-slate-500 w-28 shrink-0">Patient Name</span>
+                    <span className="font-bold text-slate-900 text-sm">{invoice.patient_name}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="text-slate-500 w-28 shrink-0">Invoice / ID</span>
+                    <span className="font-mono font-semibold tabular-nums text-slate-900">
+                      {invoice.invoice_no} · {invoice.patient_uid}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="text-slate-500 w-28 shrink-0">Age / Gender</span>
+                    <span className="font-medium text-slate-800 tabular-nums">
+                      {formatAge(invoice.age_years, invoice.age_months, invoice.age_days)} / {invoice.gender}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="text-slate-500 w-28 shrink-0">Sample Collected</span>
+                    <span className="font-mono tabular-nums text-slate-800">{formatDateTime(primaryCollectedAt)}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="text-slate-500 w-28 shrink-0">Referred By</span>
+                    <span className="font-medium text-slate-800">
+                      {invoice.doctor_name
+                        ? `${invoice.doctor_name}${invoice.doctor_degree ? ` (${invoice.doctor_degree})` : ''}`
+                        : 'Self'}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="text-slate-500 w-28 shrink-0">Reporting Time</span>
+                    <span className="font-mono tabular-nums text-slate-800">{formatDateTime(primaryReportedAt)}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="text-slate-500 w-28 shrink-0">Contact</span>
+                    <span className="font-mono tabular-nums text-slate-800">{invoice.patient_mobile || '—'}</span>
+                  </div>
+                </section>
+              </td>
+            </tr>
+          </tbody>
+
+          {/* Departmental Test Results — Individual rows flow seamlessly across pages without blank gaps */}
+          {(() => {
+            const deptEntries = Array.from(byDepartment.entries());
+            return deptEntries.map(([dept, deptTests], deptIdx) =>
+              deptTests.map((t, testIdx) => {
+                const isLastTestOverall =
+                  deptIdx === deptEntries.length - 1 && testIdx === deptTests.length - 1;
+                return (
+                  <tbody key={t.id} className="text-xs">
+                    {testIdx === 0 && (
+                      <tr className="print-keep-with-next">
+                        <td colSpan={5} className="pt-2 pb-1.5 px-0 border-b border-slate-300">
+                          <div className="flex items-center justify-between gap-4">
+                            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900">{dept}</h2>
+                            <span className="text-xs text-slate-500">
+                              Specimen: {Array.from(new Set(deptTests.map((dt) => dt.sample_type))).join(', ')}
+                            </span>
+                          </div>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200">
-                      {(t.results || []).map((r) => {
-                        const isAbnormal = r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
-                        return (
-                          <tr key={r.id}>
-                            <td className="py-2 px-3 font-medium text-slate-900">{r.parameter_name}</td>
-                            <td
-                              className={`py-2 px-3 text-right font-mono tabular-nums ${
-                                isAbnormal ? 'font-bold text-red-600' : 'font-semibold text-slate-900'
-                              }`}
-                            >
-                              {r.result_value || 'Pending'}
-                            </td>
-                            <td className="py-2 px-3 text-slate-600">{r.unit || '—'}</td>
-                            <td className="py-2 px-3 font-mono tabular-nums text-slate-600">
-                              {r.reference_range_text || '—'}
-                            </td>
-                            <td
-                              className={`py-2 px-3 text-center font-semibold ${
-                                isAbnormal ? 'text-red-600 font-bold' : 'text-slate-500'
-                              }`}
-                            >
-                              {r.result_value ? (isAbnormal ? r.flag.toUpperCase() : 'Normal') : '—'}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
-            </section>
-          ))}
-        </div>
+                    )}
 
-        {/* BOTTOM FOOTER & SIGNATURES: Hidden in Lab Internal Pad Mode; Full Signatures + Footer in Patient Portal Digital PDF Mode */}
-        {!portalMode ? (
-          <div
-            style={{ height: `${bottomMarginIn}in` }}
-            className="mt-8 border-t border-dashed border-slate-300 flex items-center justify-center text-[11px] text-slate-400 no-print"
-          >
-            Blank Footer &amp; Signatures Area ({bottomMarginIn} inch — Reserved for Pre-Printed Offset Pad)
-          </div>
-        ) : (
-          <>
-            <footer className="mt-14 pt-6 border-t border-slate-200 grid grid-cols-2 gap-12 page-break-avoid">
-              <div>
-                <div className="h-10" />
-                <div className="border-t border-slate-400 pt-1.5">
-                  <p className="text-xs font-bold text-slate-900">{settings.technologist_name}</p>
-                  <p className="text-[11px] text-slate-600">{settings.technologist_title}</p>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="h-10" />
-                <div className="border-t border-slate-400 pt-1.5 inline-block min-w-[220px] text-left">
-                  <p className="text-xs font-bold text-slate-900">{settings.pathologist_name}</p>
-                  <p className="text-[11px] text-slate-600">{settings.pathologist_title}</p>
-                </div>
-              </div>
-            </footer>
-            <div className="mt-6 pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2 text-[10px] text-slate-500">
-              <span>
-                Digitally verified report · {settings.lab_name}, {settings.lab_address}
-              </span>
-              <span className="font-mono tabular-nums">
-                Verification ID: {invoice.invoice_no}-{invoice.patient_uid}
-              </span>
-            </div>
-          </>
-        )}
+                    <tr className="print-keep-with-next">
+                      <td colSpan={5} className="pt-3 pb-1.5 px-0 border-0">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-semibold text-slate-900">{t.test_name}</h3>
+                          <span className="text-xs text-slate-500">Status: {t.status}</span>
+                        </div>
+                      </td>
+                    </tr>
+
+                    <tr className="bg-slate-50 border border-slate-200 text-left text-slate-600 print-keep-with-next print-row-avoid">
+                      <th className="py-1.5 px-3 font-semibold border-y border-l border-slate-200">
+                        Parameter / Investigation
+                      </th>
+                      <th className="py-1.5 px-3 font-semibold text-right border-y border-slate-200">Result</th>
+                      <th className="py-1.5 px-3 font-semibold border-y border-slate-200">Unit</th>
+                      <th className="py-1.5 px-3 font-semibold border-y border-slate-200">Reference Range</th>
+                      <th className="py-1.5 px-3 font-semibold text-center border-y border-r border-slate-200">Flag</th>
+                    </tr>
+
+                    {(t.results || []).map((r) => {
+                      const isAbnormal = r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
+                      return (
+                        <tr key={r.id} className="border-b border-x border-slate-200 print-row-avoid">
+                          <td className="py-1.5 px-3 font-medium text-slate-900 border-b border-l border-slate-200">
+                            {r.parameter_name}
+                          </td>
+                          <td
+                            className={`py-1.5 px-3 text-right font-mono tabular-nums border-b border-slate-200 ${
+                              isAbnormal ? 'font-bold text-red-600' : 'font-semibold text-slate-900'
+                            }`}
+                          >
+                            {r.result_value || 'Pending'}
+                          </td>
+                          <td className="py-1.5 px-3 text-slate-600 border-b border-slate-200">{r.unit || '—'}</td>
+                          <td className="py-1.5 px-3 font-mono tabular-nums text-slate-600 border-b border-slate-200">
+                            {r.reference_range_text || '—'}
+                          </td>
+                          <td
+                            className={`py-1.5 px-3 text-center font-semibold border-b border-r border-slate-200 ${
+                              isAbnormal ? 'text-red-600 font-bold' : 'text-slate-500'
+                            }`}
+                          >
+                            {r.result_value ? (isAbnormal ? r.flag.toUpperCase() : 'Normal') : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {!isLastTestOverall && (
+                      <tr>
+                        <td colSpan={5} className="h-3 p-0 border-0" />
+                      </tr>
+                    )}
+                  </tbody>
+                );
+              })
+            );
+          })()}
+
+          {/* Bottom Footer & Signatures */}
+          <tbody className={portalMode ? 'page-break-avoid' : 'no-print'}>
+            <tr>
+              <td colSpan={5} className="p-0 border-0">
+                {!portalMode ? (
+                  <div
+                    style={{ height: `${bottomMarginIn}in` }}
+                    className="mt-4 border-t border-dashed border-slate-300 flex items-center justify-center text-[11px] text-slate-400 no-print"
+                  >
+                    Blank Footer &amp; Signatures Area ({bottomMarginIn} inch — Reserved for Pre-Printed Offset Pad)
+                  </div>
+                ) : (
+                  <div className="page-break-avoid">
+                    <footer className="mt-8 pt-5 border-t border-slate-200 grid grid-cols-2 gap-12">
+                      <div>
+                        <div className="h-10" />
+                        <div className="border-t border-slate-400 pt-1.5">
+                          <p className="text-xs font-bold text-slate-900">{settings.technologist_name}</p>
+                          <p className="text-[11px] text-slate-600">{settings.technologist_title}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="h-10" />
+                        <div className="border-t border-slate-400 pt-1.5 inline-block min-w-[220px] text-left">
+                          <p className="text-xs font-bold text-slate-900">{settings.pathologist_name}</p>
+                          <p className="text-[11px] text-slate-600">{settings.pathologist_title}</p>
+                        </div>
+                      </div>
+                    </footer>
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2 text-[10px] text-slate-500">
+                      <span>
+                        Digitally verified report · {settings.lab_name}, {settings.lab_address}
+                      </span>
+                      <span className="font-mono tabular-nums">
+                        Verification ID: {invoice.invoice_no}-{invoice.patient_uid}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   );

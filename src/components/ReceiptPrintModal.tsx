@@ -17,7 +17,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({ data, sett
   const { invoice, tests, duePayments } = data;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 overflow-y-auto p-4 sm:p-6 flex flex-col items-center print:static print:overflow-visible print:p-0 print:bg-white">
+    <div className="fixed inset-0 z-50 bg-slate-900/70 overflow-y-auto p-4 sm:p-6 flex flex-col items-center print:block print:static print:inset-auto print:h-auto print:min-h-0 print:overflow-visible print:p-0 print:bg-white">
       {/* Toolbar - hidden during print */}
       <div className="w-full max-w-3xl bg-white border border-slate-200 rounded-xl px-4 py-3 mb-4 flex flex-wrap items-center justify-between gap-3 no-print shadow-sm">
         <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">

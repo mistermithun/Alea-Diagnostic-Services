@@ -1881,6 +1881,9 @@ async function startServer() {
   } else {
     const distDir = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distDir));
+    app.use('/admin', express.static(distDir));
+    app.use('/staff', express.static(distDir));
+    app.use('/patient-dashboard', express.static(distDir));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
     });

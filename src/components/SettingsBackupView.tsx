@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Database, Download, KeyRound, Network, Save } from 'lucide-react';
-import { apiFetch, getAdminToken } from '../lib/api.ts';
+import { apiFetch, getAdminToken, resolveApiUrl } from '../lib/api.ts';
 import type { LabSettings, SystemInfo } from '../types.ts';
 
 interface SettingsBackupViewProps {
@@ -101,7 +101,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   const handleDownloadBackup = () => {
     const token = getAdminToken();
     if (!token) return;
-    const url = `/api/admin/backup?token=${encodeURIComponent(token)}`;
+    const url = resolveApiUrl(`/api/admin/backup?token=${encodeURIComponent(token)}`);
     const link = document.createElement('a');
     link.href = url;
     link.download = '';

@@ -75,6 +75,30 @@ export function setPatientToken(token: string | null) {
   }
 }
 
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+
+export function resolveApiUrl(url: string): string {
+  if (!API_BASE || /^https?:\/\//i.test(url)) return url;
+  return `${API_BASE}${url.startsWith('/') ? url : `/${url}`}`;
+}
+
+async function parseApiResponse<T>(res: Response): Promise<T> {
+  const contentType = res.headers.get('content-type') || '';
+  if (!res.ok && !contentType.includes('application/json')) {
+    if (res.status === 404 || res.status === 405) {
+      throw new Error(
+        'Backend API server is not connected on this static host. Start the Node.js LIMS server or configure VITE_API_BASE_URL.'
+      );
+    }
+    throw new Error(`Request failed (${res.status})`);
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error || `Request failed (${res.status})`);
+  }
+  return data as T;
+}
+
 export async function apiFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
   const token = getLabToken();
   const headers = new Headers(options.headers || {});
@@ -85,12 +109,8 @@ export async function apiFetch<T>(url: string, options: RequestInit = {}): Promi
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const res = await fetch(url, { ...options, headers });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error((data as { error?: string }).error || `Request failed (${res.status})`);
-  }
-  return data as T;
+  const res = await fetch(resolveApiUrl(url), { ...options, headers });
+  return parseApiResponse<T>(res);
 }
 
 export async function patientApiFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
@@ -103,12 +123,8 @@ export async function patientApiFetch<T>(url: string, options: RequestInit = {})
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const res = await fetch(url, { ...options, headers });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error((data as { error?: string }).error || `Request failed (${res.status})`);
-  }
-  return data as T;
+  const res = await fetch(resolveApiUrl(url), { ...options, headers });
+  return parseApiResponse<T>(res);
 }
 
 export function formatBDT(amount: number | undefined | null): string {

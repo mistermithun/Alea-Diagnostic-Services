@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alea Diagnostic Services — LIMS</title>
+    <script>
+      (function () {
+        var path = window.location.pathname;
+        var match = path.match(/^(.*?)\/(admin-login|staff-login|patient-login|portal|patient-portal|admin|staff|patient-dashboard)\/?$/i);
+        if (match) {
+          var base = (match[1] || '') + '/';
+          window.location.replace(base + '#/' + match[2].toLowerCase() + window.location.search);
+        }
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>

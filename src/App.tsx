@@ -83,21 +83,40 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'settings', label: 'Settings & Backup', adminOnly: true, icon: Settings },
 ];
 
+function parseRouteSegment(segment: string): AppRoute {
+  const s = segment.toLowerCase().replace(/^\/+|\/+$/g, '');
+  if (s === 'admin-login') return 'admin-login';
+  if (s === 'staff-login') return 'staff-login';
+  if (s === 'patient-login' || s === 'portal' || s === 'patient-portal') return 'patient-login';
+  if (s === 'admin' || s.startsWith('admin/')) return 'admin-dashboard';
+  if (s === 'staff' || s.startsWith('staff/')) return 'staff-dashboard';
+  if (s === 'patient-dashboard' || s.startsWith('patient-dashboard/')) return 'patient-dashboard';
+  return 'landing';
+}
+
+function isHashRoutingMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.location.hostname.endsWith('github.io') || window.location.protocol === 'file:') {
+    return true;
+  }
+  const cleanPath = window.location.pathname.toLowerCase().replace(/\/+$/, '') || '/';
+  if (cleanPath === '/' || parseRouteSegment(cleanPath) !== 'landing') {
+    return false;
+  }
+  return true;
+}
+
 function resolveRouteFromLocation(): AppRoute {
   if (typeof window === 'undefined') return 'landing';
+  const hashClean = window.location.hash.replace(/^#/, '').trim();
+  if (hashClean) {
+    return parseRouteSegment(hashClean);
+  }
   const p = window.location.pathname.toLowerCase().replace(/\/+$/, '') || '/';
-  const h = window.location.hash.toLowerCase();
-
-  if (p === '/admin-login') return 'admin-login';
-  if (p === '/staff-login') return 'staff-login';
-  if (p === '/patient-login' || p === '/portal' || p === '/patient-portal' || h === '#portal') {
-    return 'patient-login';
-  }
-  if (p === '/admin' || p.startsWith('/admin/')) return 'admin-dashboard';
-  if (p === '/staff' || p.startsWith('/staff/')) return 'staff-dashboard';
-  if (p === '/patient-dashboard' || p.startsWith('/patient-dashboard/')) {
-    return 'patient-dashboard';
-  }
+  const direct = parseRouteSegment(p);
+  if (direct !== 'landing') return direct;
+  const suffixMatch = p.match(/\/(admin-login|staff-login|patient-login|portal|patient-portal|admin|staff|patient-dashboard)$/);
+  if (suffixMatch) return parseRouteSegment(suffixMatch[1]);
   return 'landing';
 }
 
@@ -145,11 +164,23 @@ export default function App() {
 
   const navigateTo = useCallback((nextRoute: AppRoute, replace = false) => {
     const targetPath = pathForRoute(nextRoute);
-    if (typeof window !== 'undefined' && window.location.pathname !== targetPath) {
-      if (replace) {
-        window.history.replaceState({}, '', targetPath);
-      } else {
-        window.history.pushState({}, '', targetPath);
+    if (typeof window !== 'undefined') {
+      if (isHashRoutingMode()) {
+        const targetHash = nextRoute === 'landing' ? '#/' : `#${targetPath}`;
+        const nextUrl = `${window.location.pathname}${window.location.search}${targetHash}`;
+        if (window.location.hash !== targetHash) {
+          if (replace) {
+            window.history.replaceState({}, '', nextUrl);
+          } else {
+            window.history.pushState({}, '', nextUrl);
+          }
+        }
+      } else if (window.location.pathname !== targetPath) {
+        if (replace) {
+          window.history.replaceState({}, '', targetPath);
+        } else {
+          window.history.pushState({}, '', targetPath);
+        }
       }
     }
     setRoute(nextRoute);
@@ -214,18 +245,23 @@ export default function App() {
   }, [bootstrap]);
 
   useEffect(() => {
-    const onPopState = () => {
+    const onLocationChange = () => {
       setRoute(resolveRouteFromLocation());
     };
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
+    window.addEventListener('popstate', onLocationChange);
+    window.addEventListener('hashchange', onLocationChange);
+    return () => {
+      window.removeEventListener('popstate', onLocationChange);
+      window.removeEventListener('hashchange', onLocationChange);
+    };
   }, []);
 
   // Strict Role-Based Route Guards (Instant force-redirect to Landing / on unauthorized URL access)
   useEffect(() => {
-    // Unknown URL normalization
+    // Unknown URL normalization (preserve subpath/GitHub Pages prefix)
     if (
       typeof window !== 'undefined' &&
+      !isHashRoutingMode() &&
       route === 'landing' &&
       window.location.pathname !== '/'
     ) {

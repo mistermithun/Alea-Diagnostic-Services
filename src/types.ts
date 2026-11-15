@@ -110,6 +110,7 @@ export interface InvoiceSummary {
   patient_mobile: string;
   patient_address?: string;
   patient_portal_password?: string;
+  patient_qr_token?: string;
   doctor_name?: string;
   doctor_degree?: string;
   doctor_hospital?: string;

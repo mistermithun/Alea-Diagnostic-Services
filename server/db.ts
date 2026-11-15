@@ -2,7 +2,13 @@ import Database from 'better-sqlite3';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { encryptPortalPassword, generatePortalPassword, hashPassword } from './auth.ts';
+import {
+  createEncryptedPatientQrToken,
+  encryptPortalPassword,
+  generatePatientQrSecret,
+  generatePortalPassword,
+  hashPassword,
+} from './auth.ts';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 if (!fs.existsSync(DATA_DIR)) {
@@ -84,6 +90,8 @@ export function initDatabase() {
       address TEXT DEFAULT '',
       portal_password_hash TEXT DEFAULT '',
       portal_password_enc TEXT DEFAULT '',
+      qr_secret TEXT DEFAULT '',
+      qr_token TEXT DEFAULT '',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -210,21 +218,50 @@ function migratePatientPortalColumns() {
   if (!names.has('portal_password_enc')) {
     db.exec(`ALTER TABLE patients ADD COLUMN portal_password_enc TEXT DEFAULT ''`);
   }
+  if (!names.has('qr_secret')) {
+    db.exec(`ALTER TABLE patients ADD COLUMN qr_secret TEXT DEFAULT ''`);
+  }
+  if (!names.has('qr_token')) {
+    db.exec(`ALTER TABLE patients ADD COLUMN qr_token TEXT DEFAULT ''`);
+  }
 }
 
 function ensurePatientPortalCredentials() {
-  const secret = getSetting('auth_secret');
+  const secret = process.env.AUTH_SECRET?.trim() || getSetting('auth_secret');
   if (!secret) return;
   const rows = db
-    .prepare(`SELECT id, patient_uid FROM patients WHERE portal_password_hash = '' OR portal_password_hash IS NULL`)
-    .all() as Array<{ id: number; patient_uid: string }>;
+    .prepare(
+      `SELECT id, patient_uid, portal_password_hash, portal_password_enc, qr_secret, qr_token
+       FROM patients
+       WHERE portal_password_hash = '' OR portal_password_hash IS NULL
+          OR qr_secret = '' OR qr_secret IS NULL
+          OR qr_token = '' OR qr_token IS NULL`
+    )
+    .all() as Array<{
+    id: number;
+    patient_uid: string;
+    portal_password_hash: string;
+    portal_password_enc: string;
+    qr_secret: string;
+    qr_token: string;
+  }>;
   if (rows.length === 0) return;
 
-  const upd = db.prepare(`UPDATE patients SET portal_password_hash = ?, portal_password_enc = ? WHERE id = ?`);
+  const upd = db.prepare(
+    `UPDATE patients SET portal_password_hash = ?, portal_password_enc = ?, qr_secret = ?, qr_token = ? WHERE id = ?`
+  );
   const tx = db.transaction(() => {
     for (const r of rows) {
-      const plain = r.patient_uid === 'ALEA-2601' ? 'ALEA61' : generatePortalPassword();
-      upd.run(hashPassword(plain), encryptPortalPassword(plain, secret), r.id);
+      let pwHash = r.portal_password_hash;
+      let pwEnc = r.portal_password_enc;
+      if (!pwHash) {
+        const plain = r.patient_uid === 'ALEA-2601' ? 'ALEA61' : generatePortalPassword();
+        pwHash = hashPassword(plain);
+        pwEnc = encryptPortalPassword(plain, secret);
+      }
+      const qrSecret = r.qr_secret || generatePatientQrSecret();
+      const qrToken = r.qr_token || createEncryptedPatientQrToken(r.id, qrSecret, secret);
+      upd.run(pwHash, pwEnc, qrSecret, qrToken, r.id);
     }
   });
   tx();

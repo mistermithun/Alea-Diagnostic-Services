@@ -1,10 +1,13 @@
 import crypto from 'node:crypto';
 import { type Collection, type Db, MongoClient } from 'mongodb';
 import {
+  createEncryptedPatientQrToken,
   decryptPortalPassword,
   encryptPortalPassword,
+  generatePatientQrSecret,
   generatePortalPassword,
   hashPassword,
+  verifyQrSecretMatch,
 } from './auth.ts';
 import {
   CBC_DESIRED_PARAMS,
@@ -94,6 +97,8 @@ interface PatientDoc {
   address: string;
   portal_password_hash: string;
   portal_password_enc: string;
+  qr_secret?: string;
+  qr_token?: string;
   created_at: string;
 }
 
@@ -479,6 +484,8 @@ export class MongoLimsStore implements LimsStore {
     ) => {
       const id = await this.nextSeq('patients');
       const pw = plainPw || generatePortalPassword();
+      const qrSecret = generatePatientQrSecret();
+      const qrToken = createEncryptedPatientQrToken(id, qrSecret, secret);
       await this.patientsCol.insertOne({
         id,
         patient_uid: uid,
@@ -491,6 +498,8 @@ export class MongoLimsStore implements LimsStore {
         address,
         portal_password_hash: hashPassword(pw),
         portal_password_enc: encryptPortalPassword(pw, secret),
+        qr_secret: qrSecret,
+        qr_token: qrToken,
         created_at: createdAt,
       });
       return id;
@@ -868,19 +877,30 @@ export class MongoLimsStore implements LimsStore {
     const secret = process.env.AUTH_SECRET?.trim() || (await this.getSetting('auth_secret'));
     if (!secret) return;
     const missing = await this.patientsCol
-      .find({ $or: [{ portal_password_hash: '' }, { portal_password_hash: { $exists: false } }] })
+      .find({
+        $or: [
+          { portal_password_hash: '' },
+          { portal_password_hash: { $exists: false } },
+          { qr_secret: '' },
+          { qr_secret: { $exists: false } },
+          { qr_token: '' },
+          { qr_token: { $exists: false } },
+        ],
+      })
       .toArray();
     for (const p of missing) {
-      const plain = p.patient_uid === 'ALEA-2601' ? 'ALEA61' : generatePortalPassword();
-      await this.patientsCol.updateOne(
-        { id: p.id },
-        {
-          $set: {
-            portal_password_hash: hashPassword(plain),
-            portal_password_enc: encryptPortalPassword(plain, secret),
-          },
-        }
-      );
+      const updates: Partial<PatientDoc> = {};
+      if (!p.portal_password_hash) {
+        const plain = p.patient_uid === 'ALEA-2601' ? 'ALEA61' : generatePortalPassword();
+        updates.portal_password_hash = hashPassword(plain);
+        updates.portal_password_enc = encryptPortalPassword(plain, secret);
+      }
+      const qrSecret = p.qr_secret || generatePatientQrSecret();
+      if (!p.qr_secret) updates.qr_secret = qrSecret;
+      if (!p.qr_token) updates.qr_token = createEncryptedPatientQrToken(p.id, qrSecret, secret);
+      if (Object.keys(updates).length > 0) {
+        await this.patientsCol.updateOne({ id: p.id }, { $set: updates });
+      }
     }
   }
 
@@ -1709,6 +1729,19 @@ export class MongoLimsStore implements LimsStore {
       doctor_hospital: doctor?.hospital,
     };
 
+    if (patient) {
+      let qrToken = patient.qr_token || '';
+      if (!qrToken) {
+        const qrSecret = patient.qr_secret || generatePatientQrSecret();
+        qrToken = createEncryptedPatientQrToken(patient.id, qrSecret, this.getAuthSecret());
+        await this.patientsCol.updateOne(
+          { id: patient.id },
+          { $set: { qr_secret: qrSecret, qr_token: qrToken } }
+        );
+      }
+      invoiceOut.patient_qr_token = qrToken;
+    }
+
     if (includeCommission) {
       invoiceOut.commission_pct = inv.commission_pct;
       invoiceOut.commission_amount = inv.commission_amount;
@@ -1797,6 +1830,8 @@ export class MongoLimsStore implements LimsStore {
       const patientUid = `ALEA-${2600 + patientId}`;
       const plainPortalPw = generatePortalPassword();
       const secret = this.getAuthSecret();
+      const qrSecret = generatePatientQrSecret();
+      const qrToken = createEncryptedPatientQrToken(patientId, qrSecret, secret);
       await this.patientsCol.insertOne({
         id: patientId,
         patient_uid: patientUid,
@@ -1809,6 +1844,8 @@ export class MongoLimsStore implements LimsStore {
         address: payload.patient.address?.trim() || '',
         portal_password_hash: hashPassword(plainPortalPw),
         portal_password_enc: encryptPortalPassword(plainPortalPw, secret),
+        qr_secret: qrSecret,
+        qr_token: qrToken,
         created_at: nowTs,
       });
     }
@@ -2496,6 +2533,33 @@ export class MongoLimsStore implements LimsStore {
     return p || null;
   }
 
+  async findPatientByQrSecret(patientId: number, qrSecret: string): Promise<Record<string, unknown> | null> {
+    const p = await this.patientsCol.findOne(
+      { id: patientId },
+      {
+        projection: {
+          _id: 0,
+          id: 1,
+          patient_uid: 1,
+          name: 1,
+          age_years: 1,
+          age_months: 1,
+          age_days: 1,
+          gender: 1,
+          mobile: 1,
+          address: 1,
+          qr_secret: 1,
+          created_at: 1,
+        },
+      }
+    );
+    if (!p || !verifyQrSecretMatch(p.qr_secret, qrSecret)) {
+      return null;
+    }
+    const { qr_secret: _removed, ...publicPatient } = p;
+    return publicPatient;
+  }
+
   async getPatientPortalProfile(patientId: number): Promise<{
     patient: Record<string, unknown>;
     archive: unknown[];
@@ -2594,7 +2658,7 @@ export class MongoLimsStore implements LimsStore {
       this.paramsCol.find({}, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
       this.doctorsCol.find({}, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
       this.patientsCol
-        .find({}, { projection: { _id: 0, portal_password_hash: 0, portal_password_enc: 0 } })
+        .find({}, { projection: { _id: 0, portal_password_hash: 0, portal_password_enc: 0, qr_secret: 0 } })
         .sort({ id: 1 })
         .toArray(),
       this.invoicesCol.find({}, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),

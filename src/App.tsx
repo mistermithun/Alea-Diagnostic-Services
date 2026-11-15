@@ -23,6 +23,7 @@ import { LabResultsView } from './components/LabResultsView.tsx';
 import { LandingPortalView } from './components/LandingPortalView.tsx';
 import { PatientBillingView } from './components/PatientBillingView.tsx';
 import { PatientPortalView } from './components/PatientPortalView.tsx';
+import { QrDirectReportView } from './components/QrDirectReportView.tsx';
 import { ReceiptPrintModal } from './components/ReceiptPrintModal.tsx';
 import { ReportPrintModal } from './components/ReportPrintModal.tsx';
 import { AdminLoginView, StaffLoginView } from './components/RoleLoginViews.tsx';
@@ -46,7 +47,8 @@ type AppRoute =
   | 'patient-login'
   | 'admin-dashboard'
   | 'staff-dashboard'
-  | 'patient-dashboard';
+  | 'patient-dashboard'
+  | 'qr-report';
 
 type LabAuthStatus = 'checking' | 'unauthenticated' | 'admin' | 'staff';
 type PatientAuthStatus = 'checking' | 'unauthenticated' | 'authenticated';
@@ -84,14 +86,33 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 function parseRouteSegment(segment: string): AppRoute {
-  const s = segment.toLowerCase().replace(/^\/+|\/+$/g, '');
+  const cleanSegment = segment.split('?')[0];
+  const s = cleanSegment.toLowerCase().replace(/^\/+|\/+$/g, '');
   if (s === 'admin-login') return 'admin-login';
   if (s === 'staff-login') return 'staff-login';
   if (s === 'patient-login' || s === 'portal' || s === 'patient-portal') return 'patient-login';
   if (s === 'admin' || s.startsWith('admin/')) return 'admin-dashboard';
   if (s === 'staff' || s.startsWith('staff/')) return 'staff-dashboard';
   if (s === 'patient-dashboard' || s.startsWith('patient-dashboard/')) return 'patient-dashboard';
+  if (s === 'report' || s === 'r') return 'qr-report';
   return 'landing';
+}
+
+function getQrParamsFromLocation(): { qr: string; inv?: number; test?: number } {
+  if (typeof window === 'undefined') return { qr: '' };
+  let search = window.location.search;
+  if (!search && window.location.hash.includes('?')) {
+    search = '?' + window.location.hash.split('?')[1];
+  }
+  const params = new URLSearchParams(search);
+  const qr = (params.get('qr') || '').trim();
+  const invRaw = Number(params.get('inv') || 0);
+  const testRaw = Number(params.get('test') || 0);
+  return {
+    qr,
+    inv: Number.isFinite(invRaw) && invRaw > 0 ? invRaw : undefined,
+    test: Number.isFinite(testRaw) && testRaw > 0 ? testRaw : undefined,
+  };
 }
 
 function isHashRoutingMode(): boolean {
@@ -108,6 +129,7 @@ function isHashRoutingMode(): boolean {
 
 function resolveRouteFromLocation(): AppRoute {
   if (typeof window === 'undefined') return 'landing';
+  if (getQrParamsFromLocation().qr) return 'qr-report';
   const hashClean = window.location.hash.replace(/^#/, '').trim();
   if (hashClean) {
     return parseRouteSegment(hashClean);
@@ -115,7 +137,9 @@ function resolveRouteFromLocation(): AppRoute {
   const p = window.location.pathname.toLowerCase().replace(/\/+$/, '') || '/';
   const direct = parseRouteSegment(p);
   if (direct !== 'landing') return direct;
-  const suffixMatch = p.match(/\/(admin-login|staff-login|patient-login|portal|patient-portal|admin|staff|patient-dashboard)$/);
+  const suffixMatch = p.match(
+    /\/(admin-login|staff-login|patient-login|portal|patient-portal|admin|staff|patient-dashboard|report)$/
+  );
   if (suffixMatch) return parseRouteSegment(suffixMatch[1]);
   return 'landing';
 }
@@ -134,6 +158,8 @@ function pathForRoute(route: AppRoute): string {
       return '/staff';
     case 'patient-dashboard':
       return '/patient-dashboard';
+    case 'qr-report':
+      return '/report';
     default:
       return '/';
   }
@@ -258,6 +284,10 @@ export default function App() {
 
   // Strict Role-Based Route Guards (Instant force-redirect to Landing / on unauthorized URL access)
   useEffect(() => {
+    if (route === 'qr-report') {
+      return;
+    }
+
     // Unknown URL normalization (preserve subpath/GitHub Pages prefix)
     if (
       typeof window !== 'undefined' &&
@@ -454,6 +484,23 @@ export default function App() {
         mode="login"
         onAuthenticated={handlePatientAuthenticated}
         onSignedOut={handlePatientSignedOut}
+        onBackToHome={() => navigateTo('landing')}
+      />
+    );
+  }
+
+  // 2.5. Direct Passwordless QR Report Access (/report?qr=...)
+  if (route === 'qr-report') {
+    const qrParams = getQrParamsFromLocation();
+    return (
+      <QrDirectReportView
+        settings={settings}
+        qrToken={qrParams.qr}
+        invoiceId={qrParams.inv}
+        testId={qrParams.test}
+        onQrAuthenticated={() => setPatientAuthStatus('authenticated')}
+        onOpenFullArchive={() => navigateTo('patient-dashboard')}
+        onGoToManualLogin={() => navigateTo('patient-login')}
         onBackToHome={() => navigateTo('landing')}
       />
     );

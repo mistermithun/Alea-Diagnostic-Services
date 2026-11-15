@@ -8,6 +8,7 @@ import {
   createAdminToken,
   createPatientToken,
   createStaffToken,
+  decryptPatientQrToken,
   extractTokenFromRequest,
   hashPassword,
   makeRequireAdmin,
@@ -677,6 +678,77 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
   );
 
   app.get(
+    '/api/patient-auth/qr-access',
+    asyncHandler(async (req, res) => {
+      const qrParam = typeof req.query.qr === 'string' ? req.query.qr.trim() : '';
+      if (!qrParam) {
+        res.status(400).json({ error: 'Encrypted QR report token is required.' });
+        return;
+      }
+
+      const secret = getSecret();
+      const decoded = decryptPatientQrToken(qrParam, secret);
+      if (!decoded) {
+        res.status(401).json({ error: 'Invalid or tampered report QR code.' });
+        return;
+      }
+
+      const patient = await store.findPatientByQrSecret(decoded.patientId, decoded.qrSecret);
+      if (!patient) {
+        res.status(401).json({ error: 'Report QR code could not be verified for this patient.' });
+        return;
+      }
+
+      const patientId = Number(patient.id);
+      const patientUid = String(patient.patient_uid || '');
+      const patientName = String(patient.name || '');
+
+      const profile = await store.getPatientPortalProfile(patientId);
+      if (!profile) {
+        res.status(404).json({ error: 'Patient record not found.' });
+        return;
+      }
+
+      const invRaw = typeof req.query.inv === 'string' ? Number(req.query.inv) : 0;
+      const testRaw = typeof req.query.test === 'string' ? Number(req.query.test) : 0;
+      let targetInvoiceId = Number.isFinite(invRaw) && invRaw > 0 ? invRaw : 0;
+
+      if (!targetInvoiceId && profile.archive.length > 0) {
+        const latest = profile.archive[0] as { invoice_id?: number };
+        targetInvoiceId = Number(latest?.invoice_id || 0);
+      }
+
+      let activeReport: Record<string, unknown> | null = null;
+      if (targetInvoiceId > 0) {
+        activeReport = await store.getPatientReportIfOwned(targetInvoiceId, patientId);
+        if (!activeReport) {
+          res.status(403).json({ error: 'Requested report does not belong to this patient QR code.' });
+          return;
+        }
+      }
+
+      let focusTestId: number | null = null;
+      if (activeReport && Number.isFinite(testRaw) && testRaw > 0) {
+        const tests = Array.isArray(activeReport.tests)
+          ? (activeReport.tests as Array<{ id?: number }>)
+          : [];
+        if (tests.some((t) => Number(t.id) === testRaw)) {
+          focusTestId = testRaw;
+        }
+      }
+
+      const token = createPatientToken(secret, patientId, patientUid, patientName, 12);
+      res.json({
+        token,
+        patient: profile.patient,
+        archive: profile.archive,
+        report: activeReport,
+        focusTestId,
+      });
+    })
+  );
+
+  app.get(
     '/api/patient/reports/:invoiceId',
     requirePatient,
     asyncHandler(async (req, res) => {
@@ -732,6 +804,7 @@ async function startServer() {
     app.use('/admin', express.static(distDir));
     app.use('/staff', express.static(distDir));
     app.use('/patient-dashboard', express.static(distDir));
+    app.use('/report', express.static(distDir));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
     });

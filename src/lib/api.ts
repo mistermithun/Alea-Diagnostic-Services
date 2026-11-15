@@ -212,3 +212,24 @@ export function evaluateClientFlag(
   }
   return 'Normal';
 }
+
+export function buildPatientReportQrUrl(
+  patientQrToken?: string | null,
+  invoiceId?: number | null,
+  testId?: number | null
+): string {
+  if (!patientQrToken || typeof window === 'undefined') return '';
+  const origin = window.location.origin;
+  const params = new URLSearchParams();
+  params.set('qr', patientQrToken);
+  if (invoiceId && invoiceId > 0) params.set('inv', String(invoiceId));
+  if (testId && testId > 0) params.set('test', String(testId));
+
+  const isHash =
+    window.location.hostname.endsWith('github.io') || window.location.protocol === 'file:';
+  if (isHash) {
+    return `${origin}${window.location.pathname}#/report?${params.toString()}`;
+  }
+  return `${origin}/report?${params.toString()}`;
+}
+

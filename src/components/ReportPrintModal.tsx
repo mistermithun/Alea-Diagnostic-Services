@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Printer, ShieldCheck, X } from 'lucide-react';
+import { Download, FolderOpen, Printer, ShieldCheck, X } from 'lucide-react';
 import QRCode from 'qrcode';
-import { formatAge, formatDateTime } from '../lib/api.ts';
+import { buildPatientReportQrUrl, formatAge, formatDateTime } from '../lib/api.ts';
 import type { FullInvoice, InvoiceTestItem, LabSettings, TestResultRow } from '../types.ts';
 
 interface ReportPrintModalProps {
@@ -9,6 +9,8 @@ interface ReportPrintModalProps {
   settings: LabSettings;
   focusTestId?: number | null;
   portalMode?: boolean;
+  inlinePageMode?: boolean;
+  onViewAllArchive?: () => void;
   onClose: () => void;
 }
 
@@ -181,6 +183,8 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
   settings,
   focusTestId,
   portalMode = false,
+  inlinePageMode = false,
+  onViewAllArchive,
   onClose,
 }) => {
   const [activeTestId, setActiveTestId] = useState<number | null>(focusTestId ?? null);
@@ -204,37 +208,37 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     setBlankConsultantOverride(false);
   }, [data, focusTestId]);
 
+  const resolvedTestForQr =
+    (data && focusTestId ? data.tests.find((t) => t.id === focusTestId) : undefined) ||
+    data?.tests.find((t) => t.id === activeTestId) ||
+    data?.tests[0];
+
   useEffect(() => {
-    if (!data || !portalMode) {
+    const qrToken = data?.invoice?.patient_qr_token;
+    const invId = data?.invoice?.id;
+    const testId = resolvedTestForQr?.id;
+    if (!data || !qrToken || !invId) {
       setQrSvgDataUrl('');
       return;
     }
-    const payload = [
-      `LAB:${settings.lab_name}`,
-      `INV:${data.invoice.invoice_no}`,
-      `PID:${data.invoice.patient_uid}`,
-      `NAME:${data.invoice.patient_name}`,
-      `DATE:${data.invoice.created_at}`,
-    ].join('|');
 
-    QRCode.toDataURL(payload, {
-      width: 80,
+    const reportUrl = buildPatientReportQrUrl(qrToken, invId, testId);
+    QRCode.toDataURL(reportUrl, {
+      width: 160,
       margin: 1,
+      errorCorrectionLevel: 'M',
       color: { dark: '#000000', light: '#ffffff' },
     })
       .then((url) => setQrSvgDataUrl(url))
       .catch(() => setQrSvgDataUrl(''));
-  }, [data, portalMode, settings.lab_name]);
+  }, [data, resolvedTestForQr?.id]);
 
   if (!data) return null;
 
   const { invoice, tests } = data;
 
   // Strict Single-Test Isolation
-  const isolatedTest: InvoiceTestItem | undefined =
-    (focusTestId ? tests.find((t) => t.id === focusTestId) : undefined) ||
-    tests.find((t) => t.id === activeTestId) ||
-    tests[0];
+  const isolatedTest: InvoiceTestItem | undefined = resolvedTestForQr;
 
   const activeIsCbc = isolatedTest ? isCbcTest(isolatedTest) : false;
   const activeIsUrine = isolatedTest ? isUrineReTest(isolatedTest) : false;
@@ -356,8 +360,24 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     };
   })();
 
+  const handlePrintReport = () => {
+    const prevTitle = document.title;
+    const safeName = (invoice.patient_name || 'Patient').replace(/[^a-zA-Z0-9_-]+/g, '_');
+    document.title = `${invoice.invoice_no}_${safeName}_Report`;
+    window.print();
+    setTimeout(() => {
+      document.title = prevTitle;
+    }, 1000);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/75 overflow-y-auto p-4 sm:p-6 flex flex-col items-center print:block print:static print:inset-auto print:h-auto print:min-h-0 print:overflow-visible print:p-0 print:bg-white">
+    <div
+      className={
+        inlinePageMode
+          ? 'w-full flex flex-col items-center px-3 py-4 sm:p-6 print:block print:p-0 print:bg-white'
+          : 'fixed inset-0 z-50 bg-slate-900/75 overflow-y-auto p-4 sm:p-6 flex flex-col items-center print:block print:static print:inset-auto print:h-auto print:min-h-0 print:overflow-visible print:p-0 print:bg-white'
+      }
+    >
       {/* Print Controls Toolbar (Hidden on Paper) */}
       <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-xl px-4 py-3 mb-4 space-y-2.5 no-print shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -365,7 +385,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
             {portalMode ? (
               <span className="inline-flex items-center gap-1.5 text-teal-800">
                 <ShieldCheck className="w-4 h-4 text-teal-600" />
-                Digital PDF Report · Single-Page Compact Format · Pure Black Ink
+                Verified Digital Pathology Report · Soft Copy &amp; A4 PDF Ready
               </span>
             ) : (
               <span>
@@ -388,22 +408,34 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                 {blankConsultantOverride ? 'Doctor Sign: Blank Line' : 'Doctor Sign: Assigned / Auto'}
               </button>
             )}
+            {inlinePageMode && onViewAllArchive && (
+              <button
+                type="button"
+                onClick={onViewAllArchive}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
+              >
+                <FolderOpen className="w-4 h-4 text-teal-700" />
+                All Reports Archive
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors whitespace-nowrap shrink-0"
+              onClick={handlePrintReport}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors whitespace-nowrap shrink-0"
             >
-              <Printer className="w-4 h-4" />
-              {portalMode ? 'Download / Print Digital PDF' : 'Print Isolated Test Report'}
+              {portalMode ? <Download className="w-4 h-4" /> : <Printer className="w-4 h-4" />}
+              {portalMode ? 'Download PDF' : 'Print Isolated Test Report'}
             </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
-            >
-              <X className="w-4 h-4" />
-              Close
-            </button>
+            {!inlinePageMode && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
+              >
+                <X className="w-4 h-4" />
+                Close
+              </button>
+            )}
           </div>
         </div>
 
@@ -411,7 +443,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
         {!focusTestId && tests.length > 1 && (
           <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] font-semibold text-slate-500 mr-1">
-              Select Isolated Report to Print:
+              {portalMode ? 'Select Test Report:' : 'Select Isolated Report to Print:'}
             </span>
             {tests.map((t) => {
               const active = isolatedTest?.id === t.id;
@@ -437,7 +469,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
       {/* A4 Report Sheet — Compact Sample-Inspired Layout, Sticky Bottom Signatures, Pure Black Ink */}
       <div
         className={`w-full max-w-[210mm] min-h-[295.5mm] flex flex-col justify-between bg-white border border-slate-300 rounded-xl shadow-lg text-black print-pure-black print-a4-page ${
-          portalMode ? 'p-6 sm:p-8 print-digital-report' : 'px-8 sm:px-10 py-0 print-report-pad'
+          portalMode ? 'p-5 sm:p-8 print-digital-report' : 'px-6 sm:px-10 py-0 print-report-pad'
         }`}
       >
         {/* TOP + BODY SECTION */}
@@ -454,7 +486,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
             </div>
           )}
 
-          {/* Full Official Digital Letterhead (Patient Portal Digital PDF Mode only) */}
+          {/* Full Official Digital Letterhead (Patient Portal / Direct QR Digital PDF Mode only) */}
           {portalMode && (
             <header className="border-b-2 border-black pb-2.5 mb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -492,71 +524,82 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                   </div>
                   <VerificationBarcode code={`${invoice.invoice_no}`} />
                 </div>
-                {qrSvgDataUrl && (
-                  <div className="p-0.5 border border-black rounded bg-white shrink-0">
-                    <img
-                      src={qrSvgDataUrl}
-                      alt={`Verification QR code for ${invoice.invoice_no}`}
-                      className="w-14 h-14 block"
-                    />
-                  </div>
-                )}
               </div>
             </header>
           )}
 
-          {/* Compact Rectangular Bordered Patient Information Box (Fixed Standard Size) */}
-          <section className="print-row-avoid mt-1 mb-2 border border-black px-3 py-1.5 text-[11px] leading-[1.35] text-black bg-white">
-            <div className="grid grid-cols-12 gap-x-3 gap-y-0.5">
-              <div className="col-span-5 flex">
-                <span className="w-24 shrink-0">ID / Inv No</span>
-                <span className="font-mono font-bold tabular-nums">
-                  : {invoice.patient_uid} / {invoice.invoice_no}
-                </span>
-              </div>
-              <div className="col-span-4 flex">
-                <span className="w-16 shrink-0">Date</span>
-                <span className="font-mono tabular-nums">: {formatDateTime(primaryCollectedAt)}</span>
-              </div>
-              <div className="col-span-3 flex">
-                <span className="w-14 shrink-0">Contact</span>
-                <span className="font-mono tabular-nums">: {invoice.patient_mobile || '—'}</span>
-              </div>
+          {/* Compact Rectangular Bordered Patient Info Header + Patient-Specific QR Code (Fixed Standard Size) */}
+          <section className="print-row-avoid mt-1 mb-2 border border-black bg-white text-black flex flex-col sm:flex-row print:flex-row items-stretch">
+            {/* Left / Main Area: Patient Details */}
+            <div className="flex-1 min-w-0 px-3 py-1.5 text-[11px] leading-[1.35]">
+              <div className="grid grid-cols-1 sm:grid-cols-12 print:grid-cols-12 gap-x-2.5 gap-y-0.5">
+                <div className="sm:col-span-6 print:col-span-6 flex min-w-0">
+                  <span className="w-[78px] shrink-0">ID / Inv No</span>
+                  <span className="font-mono font-bold tabular-nums truncate">
+                    : {invoice.patient_uid} / {invoice.invoice_no}
+                  </span>
+                </div>
+                <div className="sm:col-span-6 print:col-span-6 flex min-w-0">
+                  <span className="w-[62px] shrink-0">Date</span>
+                  <span className="font-mono tabular-nums truncate">
+                    : {formatDateTime(primaryCollectedAt)}
+                  </span>
+                </div>
 
-              <div className="col-span-5 flex">
-                <span className="w-24 shrink-0">Patient Name</span>
-                <span className="font-bold">: {invoice.patient_name}</span>
-              </div>
-              <div className="col-span-4 flex">
-                <span className="w-16 shrink-0">Age</span>
-                <span className="tabular-nums">
-                  : {formatAge(invoice.age_years, invoice.age_months, invoice.age_days)}
-                </span>
-              </div>
-              <div className="col-span-3 flex">
-                <span className="w-14 shrink-0">Sex</span>
-                <span>: {invoice.gender}</span>
-              </div>
+                <div className="sm:col-span-6 print:col-span-6 flex min-w-0">
+                  <span className="w-[78px] shrink-0">Patient Name</span>
+                  <span className="font-bold truncate">: {invoice.patient_name}</span>
+                </div>
+                <div className="sm:col-span-6 print:col-span-6 flex min-w-0">
+                  <span className="w-[62px] shrink-0">Age / Sex</span>
+                  <span className="tabular-nums whitespace-nowrap">
+                    : {formatAge(invoice.age_years, invoice.age_months, invoice.age_days)} /{' '}
+                    {invoice.gender}
+                  </span>
+                </div>
 
-              <div className="col-span-5 flex">
-                <span className="w-24 shrink-0">Specimen</span>
-                <span>: {isolatedTest?.sample_type || '—'}</span>
-              </div>
-              <div className="col-span-7 flex">
-                <span className="w-16 shrink-0">Reported</span>
-                <span className="font-mono tabular-nums">: {formatDateTime(primaryReportedAt)}</span>
-              </div>
+                <div className="sm:col-span-6 print:col-span-6 flex min-w-0">
+                  <span className="w-[78px] shrink-0">Specimen</span>
+                  <span className="truncate">: {isolatedTest?.sample_type || '—'}</span>
+                </div>
+                <div className="sm:col-span-6 print:col-span-6 flex min-w-0">
+                  <span className="w-[62px] shrink-0">Reported</span>
+                  <span className="font-mono tabular-nums truncate">
+                    : {formatDateTime(primaryReportedAt)}
+                  </span>
+                </div>
 
-              <div className="col-span-12 flex">
-                <span className="w-24 shrink-0">Referred By</span>
-                <span className="font-medium">
-                  :{' '}
-                  {invoice.doctor_name
-                    ? `${invoice.doctor_name}${invoice.doctor_degree ? `, ${invoice.doctor_degree}` : ''}`
-                    : 'Self'}
-                </span>
+                <div className="sm:col-span-8 print:col-span-8 flex min-w-0">
+                  <span className="w-[78px] shrink-0">Referred By</span>
+                  <span className="font-medium truncate">
+                    :{' '}
+                    {invoice.doctor_name
+                      ? `${invoice.doctor_name}${invoice.doctor_degree ? `, ${invoice.doctor_degree}` : ''}`
+                      : 'Self'}
+                  </span>
+                </div>
+                <div className="sm:col-span-4 print:col-span-4 flex min-w-0">
+                  <span className="w-[50px] shrink-0">Contact</span>
+                  <span className="font-mono tabular-nums truncate">
+                    : {invoice.patient_mobile || '—'}
+                  </span>
+                </div>
               </div>
             </div>
+
+            {/* Right Area: Unique Patient-Specific Scannable QR Code */}
+            {qrSvgDataUrl && (
+              <div className="shrink-0 border-t sm:border-t-0 sm:border-l print:border-t-0 print:border-l border-black px-2 py-1 flex flex-row sm:flex-col print:flex-col items-center justify-center gap-1.5 sm:gap-0.5 print:gap-0.5 bg-white">
+                <img
+                  src={qrSvgDataUrl}
+                  alt={`Verification QR code for ${invoice.patient_uid}`}
+                  className="w-[60px] h-[60px] block"
+                />
+                <span className="text-[7.5px] font-bold uppercase tracking-tight text-black leading-none text-center whitespace-nowrap">
+                  Scan for Report
+                </span>
+              </div>
+            )}
           </section>
 
           {/* Centered Boxed Department Report Title (Fixed Standard Size) */}

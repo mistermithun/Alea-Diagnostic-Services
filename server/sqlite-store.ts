@@ -1,10 +1,13 @@
 import os from 'node:os';
 import path from 'node:path';
 import {
+  createEncryptedPatientQrToken,
   decryptPortalPassword,
   encryptPortalPassword,
+  generatePatientQrSecret,
   generatePortalPassword,
   hashPassword,
+  verifyQrSecretMatch,
 } from './auth.ts';
 import { getLocalTimestampStr, getTodayDateStr } from './clinical-rules.ts';
 import {
@@ -565,7 +568,7 @@ export class SqliteLimsStore implements LimsStore {
                 i.notes, i.created_by, i.created_at,
                 CASE WHEN substr(i.created_at, 1, 10) = ? THEN 1 ELSE 0 END as is_today,
                 p.patient_uid, p.name as patient_name, p.age_years, p.age_months, p.age_days, p.gender,
-                p.mobile as patient_mobile, p.address as patient_address,
+                p.mobile as patient_mobile, p.address as patient_address, p.qr_token as patient_qr_token, p.qr_secret as _qr_secret,
                 ${includePortalPassword ? 'p.portal_password_enc,' : ''}
                 d.name as doctor_name, d.degree as doctor_degree, d.hospital as doctor_hospital
          FROM invoices i
@@ -576,6 +579,20 @@ export class SqliteLimsStore implements LimsStore {
       .get(todayStr, invoiceId) as Record<string, unknown> | undefined;
 
     if (!invoice) return null;
+
+    if (!invoice.patient_qr_token) {
+      const pid = Number(invoice.patient_id);
+      const qrSecret =
+        (typeof invoice._qr_secret === 'string' && invoice._qr_secret) || generatePatientQrSecret();
+      const qrToken = createEncryptedPatientQrToken(pid, qrSecret, this.getAuthSecret());
+      db.prepare(`UPDATE patients SET qr_secret = ?, qr_token = ? WHERE id = ?`).run(
+        qrSecret,
+        qrToken,
+        pid
+      );
+      invoice.patient_qr_token = qrToken;
+    }
+    delete invoice._qr_secret;
 
     if (includePortalPassword) {
       const enc = typeof invoice.portal_password_enc === 'string' ? invoice.portal_password_enc : '';
@@ -702,6 +719,13 @@ export class SqliteLimsStore implements LimsStore {
             nowTs
           );
         patientId = Number(pRes.lastInsertRowid);
+        const qrSecret = generatePatientQrSecret();
+        const qrToken = createEncryptedPatientQrToken(patientId, qrSecret, this.getAuthSecret());
+        db.prepare(`UPDATE patients SET qr_secret = ?, qr_token = ? WHERE id = ?`).run(
+          qrSecret,
+          qrToken,
+          patientId
+        );
       }
 
       const nextInvSeq = (db.prepare('SELECT COALESCE(MAX(id), 0) + 1 as n FROM invoices').get() as { n: number }).n;
@@ -1394,6 +1418,20 @@ export class SqliteLimsStore implements LimsStore {
       )
       .get(patientId) as Record<string, unknown> | undefined;
     return row || null;
+  }
+
+  async findPatientByQrSecret(patientId: number, qrSecret: string): Promise<Record<string, unknown> | null> {
+    const row = db
+      .prepare(
+        `SELECT id, patient_uid, name, age_years, age_months, age_days, gender, mobile, address, qr_secret, created_at
+         FROM patients WHERE id = ?`
+      )
+      .get(patientId) as (Record<string, unknown> & { qr_secret?: string }) | undefined;
+    if (!row || !verifyQrSecretMatch(row.qr_secret, qrSecret)) {
+      return null;
+    }
+    const { qr_secret: _removed, ...publicPatient } = row;
+    return publicPatient;
   }
 
   async getPatientPortalProfile(patientId: number): Promise<{

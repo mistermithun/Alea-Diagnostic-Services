@@ -195,6 +195,7 @@ export interface LimsStore {
     created_at: string;
   } | null>;
   findPatientPublicById(patientId: number): Promise<Record<string, unknown> | null>;
+  findPatientByQrSecret(patientId: number, qrSecret: string): Promise<Record<string, unknown> | null>;
   getPatientPortalProfile(patientId: number): Promise<{
     patient: Record<string, unknown>;
     archive: unknown[];

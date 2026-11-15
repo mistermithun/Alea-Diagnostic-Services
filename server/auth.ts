@@ -244,3 +244,65 @@ export function decryptPortalPassword(stored: string, secret: string): string {
     return '';
   }
 }
+
+export function generatePatientQrSecret(): string {
+  return crypto.randomBytes(12).toString('hex');
+}
+
+function normalizeQrSecretBytes(qrSecret: string): Buffer {
+  if (/^[0-9a-f]{24}$/i.test(qrSecret)) {
+    return Buffer.from(qrSecret, 'hex');
+  }
+  return crypto.createHash('sha256').update(qrSecret).digest().subarray(0, 12);
+}
+
+export function createEncryptedPatientQrToken(
+  patientId: number,
+  qrSecret: string,
+  authSecret: string
+): string {
+  const key = deriveAesKey(authSecret);
+  const iv = crypto.randomBytes(12);
+  const payload = Buffer.alloc(16);
+  payload.writeUInt32BE(patientId >>> 0, 0);
+  normalizeQrSecretBytes(qrSecret).copy(payload, 4, 0, 12);
+
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const enc = Buffer.concat([cipher.update(payload), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, enc]).toString('base64url');
+}
+
+export function decryptPatientQrToken(
+  token: string | undefined | null,
+  authSecret: string
+): { patientId: number; qrSecret: string } | null {
+  if (!token || typeof token !== 'string') return null;
+  try {
+    const raw = Buffer.from(token.trim(), 'base64url');
+    if (raw.length !== 44) return null;
+    const iv = raw.subarray(0, 12);
+    const tag = raw.subarray(12, 28);
+    const enc = raw.subarray(28, 44);
+    const key = deriveAesKey(authSecret);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    const plain = Buffer.concat([decipher.update(enc), decipher.final()]);
+    if (plain.length !== 16) return null;
+    const patientId = plain.readUInt32BE(0);
+    const qrSecret = plain.subarray(4, 16).toString('hex');
+    if (!patientId || !qrSecret) return null;
+    return { patientId, qrSecret };
+  } catch {
+    return null;
+  }
+}
+
+export function verifyQrSecretMatch(storedSecret: string | undefined | null, tokenSecret: string): boolean {
+  if (!storedSecret || !tokenSecret) return false;
+  const a = normalizeQrSecretBytes(storedSecret);
+  const b = normalizeQrSecretBytes(tokenSecret);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+

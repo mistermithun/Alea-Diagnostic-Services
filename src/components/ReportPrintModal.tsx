@@ -538,44 +538,44 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
           )}
 
           {/* Modern Borderless Two-Column Patient Info Header + Far-Right Dynamic QR Code */}
-          <section className="print-row-avoid mt-1 mb-2.5 pb-2.5 border-b border-slate-300 print:border-black/35 bg-white text-black flex flex-col sm:flex-row print:flex-row items-start sm:items-center print:items-center justify-between gap-3 sm:gap-5 print:gap-4">
+          <section className="print-row-avoid mt-1 mb-2 pb-2 border-b border-slate-300 print:border-black/35 bg-white text-black flex flex-col sm:flex-row print:flex-row items-start sm:items-center print:items-center justify-between gap-3 sm:gap-4 print:gap-3.5">
             {/* Clean Borderless Two-Column Patient Details Grid */}
-            <div className="flex-1 min-w-0 w-full grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-x-6 gap-y-1.5 text-[11px] leading-[1.35]">
+            <div className="flex-1 min-w-0 w-full grid grid-cols-1 sm:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] print:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] gap-x-5 print:gap-x-4 gap-y-1.5 text-[11px] leading-[1.35]">
               {/* Left Column: Patient Name, Age/Sex, ID/Invoice No, Specimen */}
               <div className="space-y-1 min-w-0">
-                <div className="flex items-baseline gap-2 min-w-0">
-                  <span className="w-[70px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                <div className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
                     Patient
                   </span>
-                  <span className="text-[13.5px] font-bold tracking-tight text-black leading-tight truncate">
+                  <span className="min-w-0 flex-1 text-[13.5px] font-bold tracking-tight text-black leading-[1.2] whitespace-normal break-words">
                     {invoice.patient_name}
                   </span>
                 </div>
 
-                <div className="flex items-baseline gap-2 min-w-0">
-                  <span className="w-[70px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                <div className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
                     Age / Sex
                   </span>
-                  <span className="font-semibold tabular-nums text-black whitespace-nowrap">
+                  <span className="min-w-0 flex-1 font-semibold tabular-nums text-black whitespace-normal">
                     {formatAge(invoice.age_years, invoice.age_months, invoice.age_days)} /{' '}
                     {invoice.gender}
                   </span>
                 </div>
 
-                <div className="flex items-baseline gap-2 min-w-0">
-                  <span className="w-[70px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                <div className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
                     ID / Inv No
                   </span>
-                  <span className="font-mono font-bold tabular-nums text-black truncate">
+                  <span className="min-w-0 flex-1 font-mono font-bold tabular-nums text-black whitespace-normal break-all">
                     {invoice.patient_uid} / {invoice.invoice_no}
                   </span>
                 </div>
 
-                <div className="flex items-baseline gap-2 min-w-0">
-                  <span className="w-[70px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                <div className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
                     Specimen
                   </span>
-                  <span className="font-medium text-black truncate">
+                  <span className="min-w-0 flex-1 font-medium text-black whitespace-normal break-words">
                     {isolatedTest?.sample_type || '—'}
                   </span>
                 </div>
@@ -583,40 +583,40 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
 
               {/* Right Column: Registration/Report Date, Referring Doctor, Contact */}
               <div className="space-y-1 min-w-0">
-                <div className="flex items-baseline gap-2 min-w-0">
-                  <span className="w-[76px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                <div className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
                     Reg. Date
                   </span>
-                  <span className="font-mono font-medium tabular-nums text-black truncate">
+                  <span className="min-w-0 flex-1 font-mono font-medium tabular-nums text-black whitespace-nowrap">
                     {formatDateTime(primaryCollectedAt)}
                   </span>
                 </div>
 
-                <div className="flex items-baseline gap-2 min-w-0">
-                  <span className="w-[76px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                <div className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
                     Report Date
                   </span>
-                  <span className="font-mono font-medium tabular-nums text-black truncate">
+                  <span className="min-w-0 flex-1 font-mono font-medium tabular-nums text-black whitespace-nowrap">
                     {formatDateTime(primaryReportedAt)}
                   </span>
                 </div>
 
-                <div className="flex items-baseline gap-2 min-w-0">
-                  <span className="w-[76px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                <div className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
                     Referred By
                   </span>
-                  <span className="font-medium text-black truncate">
+                  <span className="min-w-0 flex-1 font-medium text-black whitespace-normal break-words leading-[1.3]">
                     {invoice.doctor_name
                       ? `${invoice.doctor_name}${invoice.doctor_degree ? `, ${invoice.doctor_degree}` : ''}`
                       : 'Self'}
                   </span>
                 </div>
 
-                <div className="flex items-baseline gap-2 min-w-0">
-                  <span className="w-[76px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                <div className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
                     Contact
                   </span>
-                  <span className="font-mono font-medium tabular-nums text-black truncate">
+                  <span className="min-w-0 flex-1 font-mono font-medium tabular-nums text-black whitespace-normal break-words">
                     {invoice.patient_mobile || '—'}
                   </span>
                 </div>
@@ -625,7 +625,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
 
             {/* Far Right Area: Cleanly Padded Patient-Specific Scannable QR Code */}
             {qrSvgDataUrl && (
-              <div className="shrink-0 pt-1 sm:pt-0 sm:pl-3 print:pt-0 print:pl-3 flex flex-row sm:flex-col print:flex-col items-center justify-center gap-2 sm:gap-1 print:gap-1">
+              <div className="shrink-0 pt-1 sm:pt-0 sm:pl-2 print:pt-0 print:pl-2 flex flex-row sm:flex-col print:flex-col items-center justify-center gap-2 sm:gap-1 print:gap-1">
                 <div className="p-1.5 rounded-md border border-slate-200 print:border-black/25 bg-white">
                   <img
                     src={qrSvgDataUrl}

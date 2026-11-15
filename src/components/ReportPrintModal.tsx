@@ -299,21 +299,21 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
   const tableTypography = (() => {
     if (activeIsCbc) {
       return {
-        theadClass: 'text-[11.5px]',
-        tbodyClass: 'text-[12px] leading-[1.3]',
+        theadClass: 'text-[10.5px]',
+        tbodyClass: 'text-[12px] leading-[1.32]',
         unitClass: 'text-[11px]',
-        normalClass: 'text-[11px] leading-[1.24]',
-        rowPadClass: 'py-[2.5px]',
+        normalClass: 'text-[11px] leading-[1.26]',
+        rowPadClass: 'py-[3px]',
         sectionPadClass: 'pt-2 pb-0.5',
       };
     }
     if (activeIsUrine) {
       return {
-        theadClass: 'text-[11.5px]',
+        theadClass: 'text-[10.5px]',
         tbodyClass: 'text-[12px] leading-[1.28]',
         unitClass: 'text-[11px]',
-        normalClass: 'text-[11px] leading-[1.22]',
-        rowPadClass: 'py-[2px]',
+        normalClass: 'text-[11px] leading-[1.24]',
+        rowPadClass: 'py-[2.5px]',
         sectionPadClass: 'pt-1.5 pb-0.5',
       };
     }
@@ -331,7 +331,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
 
     if (effectiveUnits <= 5) {
       return {
-        theadClass: 'text-[12.5px]',
+        theadClass: 'text-[11px]',
         tbodyClass: 'text-[13.5px] leading-[1.45]',
         unitClass: 'text-[12.5px]',
         normalClass: 'text-[12.5px] leading-[1.38]',
@@ -341,7 +341,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     }
     if (effectiveUnits <= 11) {
       return {
-        theadClass: 'text-[12px]',
+        theadClass: 'text-[11px]',
         tbodyClass: 'text-[12.5px] leading-[1.38]',
         unitClass: 'text-[11.5px]',
         normalClass: 'text-[11.5px] leading-[1.32]',
@@ -351,7 +351,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     }
     if (effectiveUnits <= 17) {
       return {
-        theadClass: 'text-[11.5px]',
+        theadClass: 'text-[10.5px]',
         tbodyClass: 'text-[12px] leading-[1.32]',
         unitClass: 'text-[11px]',
         normalClass: 'text-[11px] leading-[1.26]',
@@ -360,7 +360,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
       };
     }
     return {
-      theadClass: 'text-[11.5px]',
+      theadClass: 'text-[10.5px]',
       tbodyClass: 'text-[12px] leading-[1.34]',
       unitClass: 'text-[11px]',
       normalClass: 'text-[11px] leading-[1.28]',
@@ -656,8 +656,8 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
             </div>
           )}
 
-          {/* Parameter Table (Test-Specific & Dynamic Typography) */}
-          <table className="w-full border-collapse print-layout-table text-black">
+          {/* Parameter Table (Test-Specific & Dynamic Typography with Modern Soft Styling) */}
+          <table className="w-full border-collapse print-layout-table font-sans text-black">
             <colgroup>
               <col className={isThreeColumnLayout ? 'w-[34%]' : 'w-[32%]'} />
               <col className={isThreeColumnLayout ? 'w-[22%]' : 'w-[20%]'} />
@@ -667,25 +667,27 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
 
             <thead className="print-spacer-head">
               <tr
-                className={`border border-black text-left ${tableTypography.theadClass} italic font-bold text-black bg-white`}
+                className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
               >
-                <th className="py-1 px-2 border-y border-l border-black">Parameter Name</th>
-                <th className="py-1 px-2 border-y border-black">Result</th>
+                <th className="py-1.5 px-2.5 border-y border-l border-[#e0e0e0]">Parameter Name</th>
+                <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">Result</th>
                 <th
-                  className={`py-1 px-2 border-y border-black ${
+                  className={`py-1.5 px-2.5 border-y border-[#e0e0e0] ${
                     isThreeColumnLayout ? 'border-r' : ''
                   }`}
                 >
                   Normal Value
                 </th>
                 {!isThreeColumnLayout && (
-                  <th className="py-1 px-2 border-y border-r border-black text-center">Remark</th>
+                  <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0] text-center">
+                    Remark
+                  </th>
                 )}
               </tr>
             </thead>
 
             {isolatedTest && (
-              <tbody className={`${tableTypography.tbodyClass} text-black`}>
+              <tbody className={`${tableTypography.tbodyClass} font-sans text-black`}>
                 {activeIsCbc &&
                   (() => {
                     let lastSection: string | undefined;
@@ -700,39 +702,43 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                       return (
                         <React.Fragment key={r.id}>
                           {showSection && (
-                            <tr className="print-keep-with-next">
+                            <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
                               <td
                                 colSpan={tableColCount}
-                                className={`${tableTypography.sectionPadClass} px-2 font-bold italic underline text-black`}
+                                className={`${tableTypography.sectionPadClass} px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-600`}
                               >
                                 {section}
                               </td>
                             </tr>
                           )}
-                          <tr className="print-row-avoid">
+                          <tr className="print-row-avoid border-b border-[#e8ecf0]">
                             <td
-                              className={`${tableTypography.rowPadClass} px-2 align-top text-black ${
-                                isHb ? 'font-bold pt-1.5' : 'font-normal'
+                              className={`${tableTypography.rowPadClass} px-2.5 align-top text-black ${
+                                isHb ? 'font-bold pt-1.5' : 'font-medium'
                               }`}
                             >
                               {r.parameter_name}
                             </td>
                             <td
-                              className={`${tableTypography.rowPadClass} px-2 align-top text-black whitespace-nowrap`}
+                              className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
                             >
                               <span
-                                className={`font-mono tabular-nums ${
+                                className={`tabular-nums ${
                                   isHb || isEsr ? 'font-bold' : 'font-semibold'
                                 }`}
                               >
                                 {formatNumericResultDisplay(r.result_value, r.parameter_name)}
                               </span>
                               {r.result_value && r.unit && (
-                                <span className={`ml-1.5 ${tableTypography.unitClass}`}>{r.unit}</span>
+                                <span
+                                  className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
+                                >
+                                  {r.unit}
+                                </span>
                               )}
                             </td>
                             <td
-                              className={`${tableTypography.rowPadClass} px-2 align-top font-mono tabular-nums ${tableTypography.normalClass} text-black whitespace-pre-line`}
+                              className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
                             >
                               {r.normal_text || r.reference_range_text || '—'}
                             </td>
@@ -755,37 +761,41 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                       return (
                         <React.Fragment key={r.id}>
                           {showSection && (
-                            <tr className="print-keep-with-next">
+                            <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
                               <td
                                 colSpan={tableColCount}
-                                className={`${tableTypography.sectionPadClass} px-2 font-bold italic underline text-black`}
+                                className={`${tableTypography.sectionPadClass} px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-600`}
                               >
                                 {sec}
                               </td>
                             </tr>
                           )}
-                          <tr className="print-row-avoid">
+                          <tr className="print-row-avoid border-b border-[#e8ecf0]">
                             <td
-                              className={`${tableTypography.rowPadClass} px-2 align-top font-medium text-black`}
+                              className={`${tableTypography.rowPadClass} px-2.5 align-top font-medium text-black`}
                             >
                               {r.parameter_name}
                             </td>
                             <td
-                              className={`${tableTypography.rowPadClass} px-2 align-top text-black whitespace-nowrap`}
+                              className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
                             >
                               <span
-                                className={`font-mono tabular-nums ${
+                                className={`tabular-nums ${
                                   isAbn ? 'font-bold' : 'font-semibold'
                                 }`}
                               >
                                 {r.result_value || 'Pending'}
                               </span>
                               {r.result_value && r.unit && (
-                                <span className={`ml-1.5 ${tableTypography.unitClass}`}>{r.unit}</span>
+                                <span
+                                  className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
+                                >
+                                  {r.unit}
+                                </span>
                               )}
                             </td>
                             <td
-                              className={`${tableTypography.rowPadClass} px-2 align-top font-mono tabular-nums ${tableTypography.normalClass} text-black whitespace-pre-line`}
+                              className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
                             >
                               {r.normal_text || r.reference_range_text || '—'}
                             </td>
@@ -800,36 +810,43 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                   (isolatedTest.results || []).map((r) => {
                     const isAbnormal = r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
                     return (
-                      <tr key={r.id} className="print-row-avoid border-b border-slate-200">
+                      <tr
+                        key={r.id}
+                        className="print-row-avoid border-b border-[#e8ecf0]"
+                      >
                         <td
-                          className={`${tableTypography.rowPadClass} px-2 align-top font-semibold text-black`}
+                          className={`${tableTypography.rowPadClass} px-2.5 align-top font-medium text-black`}
                         >
                           {r.parameter_name}
                         </td>
                         <td
-                          className={`${tableTypography.rowPadClass} px-2 align-top text-black whitespace-nowrap`}
+                          className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
                         >
                           <span
-                            className={`font-mono tabular-nums ${
+                            className={`tabular-nums ${
                               isAbnormal
                                 ? 'font-bold underline decoration-1 underline-offset-2'
-                                : 'font-bold'
+                                : 'font-semibold'
                             }`}
                           >
                             {r.result_value || 'Pending'}
                           </span>
                           {r.result_value && r.unit && (
-                            <span className={`ml-1.5 ${tableTypography.unitClass}`}>{r.unit}</span>
+                            <span
+                              className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
+                            >
+                              {r.unit}
+                            </span>
                           )}
                         </td>
                         <td
-                          className={`${tableTypography.rowPadClass} px-2 align-top font-mono tabular-nums ${tableTypography.normalClass} text-black whitespace-pre-line`}
+                          className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
                         >
                           {r.reference_range_text || r.normal_text || '—'}
                         </td>
                         <td
-                          className={`${tableTypography.rowPadClass} px-2 align-top text-center text-black ${
-                            isAbnormal ? 'font-bold' : 'font-normal'
+                          className={`${tableTypography.rowPadClass} px-2.5 align-top text-center ${
+                            isAbnormal ? 'font-bold text-black' : 'font-medium text-slate-700'
                           }`}
                         >
                           {r.result_value ? (isAbnormal ? r.flag.toUpperCase() : 'Normal') : '—'}

@@ -23,6 +23,10 @@
   margin: 0;
 }
 
+.print-only-row {
+  display: none;
+}
+
 @media print {
   html,
   body {
@@ -44,6 +48,10 @@
 
   .print-only {
     display: block !important;
+  }
+
+  .print-only-row {
+    display: table-row !important;
   }
 
   .print-sheet {

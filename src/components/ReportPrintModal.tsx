@@ -537,74 +537,103 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
             </header>
           )}
 
-          {/* Compact Rectangular Bordered Patient Info Header + Patient-Specific QR Code (Fixed Standard Size) */}
-          <section className="print-row-avoid mt-1 mb-2 border border-black bg-white text-black flex flex-col sm:flex-row print:flex-row items-stretch">
-            {/* Left / Main Area: Patient Details */}
-            <div className="flex-1 min-w-0 px-3 py-1.5 text-[11px] leading-[1.35]">
-              <div className="grid grid-cols-1 sm:grid-cols-12 print:grid-cols-12 gap-x-2.5 gap-y-0.5">
-                <div className="sm:col-span-6 print:col-span-6 flex min-w-0">
-                  <span className="w-[78px] shrink-0">ID / Inv No</span>
-                  <span className="font-mono font-bold tabular-nums truncate">
-                    : {invoice.patient_uid} / {invoice.invoice_no}
+          {/* Modern Borderless Two-Column Patient Info Header + Far-Right Dynamic QR Code */}
+          <section className="print-row-avoid mt-1 mb-2.5 pb-2.5 border-b border-slate-300 print:border-black/35 bg-white text-black flex flex-col sm:flex-row print:flex-row items-start sm:items-center print:items-center justify-between gap-3 sm:gap-5 print:gap-4">
+            {/* Clean Borderless Two-Column Patient Details Grid */}
+            <div className="flex-1 min-w-0 w-full grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-x-6 gap-y-1.5 text-[11px] leading-[1.35]">
+              {/* Left Column: Patient Name, Age/Sex, ID/Invoice No, Specimen */}
+              <div className="space-y-1 min-w-0">
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className="w-[70px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                    Patient
                   </span>
-                </div>
-                <div className="sm:col-span-6 print:col-span-6 flex min-w-0">
-                  <span className="w-[62px] shrink-0">Date</span>
-                  <span className="font-mono tabular-nums truncate">
-                    : {formatDateTime(primaryCollectedAt)}
+                  <span className="text-[13.5px] font-bold tracking-tight text-black leading-tight truncate">
+                    {invoice.patient_name}
                   </span>
                 </div>
 
-                <div className="sm:col-span-6 print:col-span-6 flex min-w-0">
-                  <span className="w-[78px] shrink-0">Patient Name</span>
-                  <span className="font-bold truncate">: {invoice.patient_name}</span>
-                </div>
-                <div className="sm:col-span-6 print:col-span-6 flex min-w-0">
-                  <span className="w-[62px] shrink-0">Age / Sex</span>
-                  <span className="tabular-nums whitespace-nowrap">
-                    : {formatAge(invoice.age_years, invoice.age_months, invoice.age_days)} /{' '}
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className="w-[70px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                    Age / Sex
+                  </span>
+                  <span className="font-semibold tabular-nums text-black whitespace-nowrap">
+                    {formatAge(invoice.age_years, invoice.age_months, invoice.age_days)} /{' '}
                     {invoice.gender}
                   </span>
                 </div>
 
-                <div className="sm:col-span-6 print:col-span-6 flex min-w-0">
-                  <span className="w-[78px] shrink-0">Specimen</span>
-                  <span className="truncate">: {isolatedTest?.sample_type || '—'}</span>
-                </div>
-                <div className="sm:col-span-6 print:col-span-6 flex min-w-0">
-                  <span className="w-[62px] shrink-0">Reported</span>
-                  <span className="font-mono tabular-nums truncate">
-                    : {formatDateTime(primaryReportedAt)}
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className="w-[70px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                    ID / Inv No
+                  </span>
+                  <span className="font-mono font-bold tabular-nums text-black truncate">
+                    {invoice.patient_uid} / {invoice.invoice_no}
                   </span>
                 </div>
 
-                <div className="sm:col-span-8 print:col-span-8 flex min-w-0">
-                  <span className="w-[78px] shrink-0">Referred By</span>
-                  <span className="font-medium truncate">
-                    :{' '}
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className="w-[70px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                    Specimen
+                  </span>
+                  <span className="font-medium text-black truncate">
+                    {isolatedTest?.sample_type || '—'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Right Column: Registration/Report Date, Referring Doctor, Contact */}
+              <div className="space-y-1 min-w-0">
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className="w-[76px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                    Reg. Date
+                  </span>
+                  <span className="font-mono font-medium tabular-nums text-black truncate">
+                    {formatDateTime(primaryCollectedAt)}
+                  </span>
+                </div>
+
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className="w-[76px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                    Report Date
+                  </span>
+                  <span className="font-mono font-medium tabular-nums text-black truncate">
+                    {formatDateTime(primaryReportedAt)}
+                  </span>
+                </div>
+
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className="w-[76px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                    Referred By
+                  </span>
+                  <span className="font-medium text-black truncate">
                     {invoice.doctor_name
                       ? `${invoice.doctor_name}${invoice.doctor_degree ? `, ${invoice.doctor_degree}` : ''}`
                       : 'Self'}
                   </span>
                 </div>
-                <div className="sm:col-span-4 print:col-span-4 flex min-w-0">
-                  <span className="w-[50px] shrink-0">Contact</span>
-                  <span className="font-mono tabular-nums truncate">
-                    : {invoice.patient_mobile || '—'}
+
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className="w-[76px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                    Contact
+                  </span>
+                  <span className="font-mono font-medium tabular-nums text-black truncate">
+                    {invoice.patient_mobile || '—'}
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Right Area: Unique Patient-Specific Scannable QR Code */}
+            {/* Far Right Area: Cleanly Padded Patient-Specific Scannable QR Code */}
             {qrSvgDataUrl && (
-              <div className="shrink-0 border-t sm:border-t-0 sm:border-l print:border-t-0 print:border-l border-black px-2 py-1 flex flex-row sm:flex-col print:flex-col items-center justify-center gap-1.5 sm:gap-0.5 print:gap-0.5 bg-white">
-                <img
-                  src={qrSvgDataUrl}
-                  alt={`Verification QR code for ${invoice.patient_uid}`}
-                  className="w-[60px] h-[60px] block"
-                />
-                <span className="text-[7.5px] font-bold uppercase tracking-tight text-black leading-none text-center whitespace-nowrap">
+              <div className="shrink-0 pt-1 sm:pt-0 sm:pl-3 print:pt-0 print:pl-3 flex flex-row sm:flex-col print:flex-col items-center justify-center gap-2 sm:gap-1 print:gap-1">
+                <div className="p-1.5 rounded-md border border-slate-200 print:border-black/25 bg-white">
+                  <img
+                    src={qrSvgDataUrl}
+                    alt={`Verification QR code for ${invoice.patient_uid}`}
+                    className="w-[62px] h-[62px] block"
+                  />
+                </div>
+                <span className="text-[7.5px] font-bold uppercase tracking-wider text-slate-600 leading-none text-center whitespace-nowrap">
                   Scan for Report
                 </span>
               </div>

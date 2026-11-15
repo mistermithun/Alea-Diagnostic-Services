@@ -360,408 +360,380 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
         )}
       </div>
 
-      {/* A4 Report Sheet — Compact Sample-Inspired Layout, Pure Black Ink */}
+      {/* A4 Report Sheet — Compact Sample-Inspired Layout, Sticky Bottom Signatures, Pure Black Ink */}
       <div
-        className={`w-full max-w-4xl bg-white border border-slate-300 rounded-xl shadow-lg text-black print-pure-black ${
+        className={`w-full max-w-[210mm] min-h-[295.5mm] flex flex-col justify-between bg-white border border-slate-300 rounded-xl shadow-lg text-black print-pure-black print-a4-page ${
           portalMode ? 'p-6 sm:p-8 print-digital-report' : 'px-8 sm:px-10 py-0 print-report-pad'
         }`}
       >
-        <table className="w-full border-collapse print-layout-table text-black">
-          <colgroup>
-            <col className={isThreeColumnLayout ? 'w-[34%]' : 'w-[32%]'} />
-            <col className={isThreeColumnLayout ? 'w-[22%]' : 'w-[20%]'} />
-            <col className={isThreeColumnLayout ? 'w-[44%]' : 'w-[34%]'} />
-            {!isThreeColumnLayout && <col className="w-[14%]" />}
-          </colgroup>
+        {/* TOP + BODY SECTION */}
+        <div className="print-report-body">
+          {/* Exact blank top clearance for pre-printed offset pad (preserved in print; dashed guide hidden on paper) */}
+          {!portalMode && (
+            <div
+              style={{ height: `${topMarginIn}in` }}
+              className="border-b border-dashed border-slate-300 print:border-none flex items-center justify-center text-xs text-slate-400"
+            >
+              <span className="no-print">
+                Blank Header Area ({topMarginIn} inch — Reserved for Pre-Printed Offset Pad)
+              </span>
+            </div>
+          )}
 
-          {/* Repeating Header Group (Top Pad Clearance + Digital Header + Patient Box + Report Title + Column Headers on EVERY printed A4 page) */}
-          <thead className="print-spacer-head">
-            {/* Exact blank top clearance for pre-printed offset pad (or clean 8mm top margin in digital PDF) */}
-            <tr className="print-only-row">
-              <td
-                colSpan={tableColCount}
-                style={{ height: portalMode ? '8mm' : `${topMarginIn}in` }}
-                className="p-0 border-0"
-              />
-            </tr>
+          {/* Full Official Digital Letterhead (Patient Portal Digital PDF Mode only) */}
+          {portalMode && (
+            <header className="border-b-2 border-black pb-2.5 mb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <svg
+                  width="40"
+                  height="40"
+                  viewBox="0 0 46 46"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="shrink-0"
+                  aria-hidden="true"
+                >
+                  <rect width="46" height="46" rx="10" fill="#000000" />
+                  <path d="M20 11H26V20H35V26H26V35H20V26H11V20H20V11Z" fill="#FFFFFF" />
+                  <circle cx="23" cy="23" r="3.5" fill="#000000" />
+                </svg>
+                <div>
+                  <h1 className="text-xl font-bold text-black tracking-tight leading-tight">
+                    {settings.lab_name}
+                  </h1>
+                  <p className="text-xs text-black">{settings.lab_address}</p>
+                  <p className="text-[11px] font-semibold text-black">
+                    Department of Pathology &amp; Clinical Diagnostics · Digital Verified Report
+                  </p>
+                </div>
+              </div>
 
-            {/* Screen-only preview bar for pre-printed pad top clearance */}
-            {!portalMode && (
-              <tr className="no-print">
-                <td colSpan={tableColCount} className="p-0 border-0">
-                  <div
-                    style={{ height: `${topMarginIn}in` }}
-                    className="border-b border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-400"
-                  >
-                    Blank Header Area ({topMarginIn} inch — Reserved for Pre-Printed Offset Pad)
+              <div className="flex items-center gap-3 sm:justify-end">
+                <div className="text-right">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-black">
+                    Official Test Report
                   </div>
-                </td>
-              </tr>
-            )}
-
-            {/* Full Official Digital Letterhead (Patient Portal Digital PDF Mode only) */}
-            {portalMode && (
-              <tr>
-                <td colSpan={tableColCount} className="p-0 pb-2.5 border-0">
-                  <header className="border-b-2 border-black pb-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <svg
-                        width="40"
-                        height="40"
-                        viewBox="0 0 46 46"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="shrink-0"
-                        aria-hidden="true"
-                      >
-                        <rect width="46" height="46" rx="10" fill="#000000" />
-                        <path d="M20 11H26V20H35V26H26V35H20V26H11V20H20V11Z" fill="#FFFFFF" />
-                        <circle cx="23" cy="23" r="3.5" fill="#000000" />
-                      </svg>
-                      <div>
-                        <h1 className="text-xl font-bold text-black tracking-tight leading-tight">
-                          {settings.lab_name}
-                        </h1>
-                        <p className="text-xs text-black">{settings.lab_address}</p>
-                        <p className="text-[11px] font-semibold text-black">
-                          Department of Pathology &amp; Clinical Diagnostics · Digital Verified Report
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 sm:justify-end">
-                      <div className="text-right">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-black">
-                          Official Test Report
-                        </div>
-                        <div className="text-[11px] font-mono font-bold tabular-nums text-black">
-                          {invoice.invoice_no}
-                        </div>
-                        <VerificationBarcode code={`${invoice.invoice_no}`} />
-                      </div>
-                      {qrSvgDataUrl && (
-                        <div className="p-0.5 border border-black rounded bg-white shrink-0">
-                          <img
-                            src={qrSvgDataUrl}
-                            alt={`Verification QR code for ${invoice.invoice_no}`}
-                            className="w-14 h-14 block"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </header>
-                </td>
-              </tr>
-            )}
-
-            {/* Compact Rectangular Bordered Patient Information Box (Repeats on every page) */}
-            <tr>
-              <td colSpan={tableColCount} className="p-0 pt-1 pb-2 border-0">
-                <section className="border border-black px-3 py-1.5 text-[11px] leading-[1.35] text-black bg-white">
-                  <div className="grid grid-cols-12 gap-x-3 gap-y-0.5">
-                    <div className="col-span-5 flex">
-                      <span className="w-24 shrink-0">ID / Inv No</span>
-                      <span className="font-mono font-bold tabular-nums">
-                        : {invoice.patient_uid} / {invoice.invoice_no}
-                      </span>
-                    </div>
-                    <div className="col-span-4 flex">
-                      <span className="w-16 shrink-0">Date</span>
-                      <span className="font-mono tabular-nums">: {formatDateTime(primaryCollectedAt)}</span>
-                    </div>
-                    <div className="col-span-3 flex">
-                      <span className="w-14 shrink-0">Contact</span>
-                      <span className="font-mono tabular-nums">: {invoice.patient_mobile || '—'}</span>
-                    </div>
-
-                    <div className="col-span-5 flex">
-                      <span className="w-24 shrink-0">Patient Name</span>
-                      <span className="font-bold">: {invoice.patient_name}</span>
-                    </div>
-                    <div className="col-span-4 flex">
-                      <span className="w-16 shrink-0">Age</span>
-                      <span className="tabular-nums">
-                        : {formatAge(invoice.age_years, invoice.age_months, invoice.age_days)}
-                      </span>
-                    </div>
-                    <div className="col-span-3 flex">
-                      <span className="w-14 shrink-0">Sex</span>
-                      <span>: {invoice.gender}</span>
-                    </div>
-
-                    <div className="col-span-5 flex">
-                      <span className="w-24 shrink-0">Specimen</span>
-                      <span>: {isolatedTest?.sample_type || '—'}</span>
-                    </div>
-                    <div className="col-span-7 flex">
-                      <span className="w-16 shrink-0">Reported</span>
-                      <span className="font-mono tabular-nums">: {formatDateTime(primaryReportedAt)}</span>
-                    </div>
-
-                    <div className="col-span-12 flex">
-                      <span className="w-24 shrink-0">Referred By</span>
-                      <span className="font-medium">
-                        :{' '}
-                        {invoice.doctor_name
-                          ? `${invoice.doctor_name}${invoice.doctor_degree ? `, ${invoice.doctor_degree}` : ''}`
-                          : 'Self'}
-                      </span>
-                    </div>
+                  <div className="text-[11px] font-mono font-bold tabular-nums text-black">
+                    {invoice.invoice_no}
                   </div>
-                </section>
-
-                {/* Centered Boxed Department Report Title */}
-                {isolatedTest && (
-                  <div className="mt-2 flex flex-col items-center">
-                    <div className="border border-black px-7 py-0.5 bg-white shadow-[2px_2px_0_#000000]">
-                      <h2 className="text-sm font-bold tracking-wide text-black">
-                        {formatDepartmentHeading(isolatedTest.category_name)}
-                      </h2>
-                    </div>
-                    {!activeIsCbc && (
-                      <div className="mt-1 text-[11px] font-bold text-black">
-                        {isolatedTest.test_name}
-                      </div>
-                    )}
+                  <VerificationBarcode code={`${invoice.invoice_no}`} />
+                </div>
+                {qrSvgDataUrl && (
+                  <div className="p-0.5 border border-black rounded bg-white shrink-0">
+                    <img
+                      src={qrSvgDataUrl}
+                      alt={`Verification QR code for ${invoice.invoice_no}`}
+                      className="w-14 h-14 block"
+                    />
                   </div>
                 )}
-              </td>
-            </tr>
+              </div>
+            </header>
+          )}
 
-            {/* Bordered Table Column Header Bar (Clean sample-inspired layout) */}
-            <tr className="border border-black text-left text-[11px] italic font-bold text-black bg-white">
-              <th className="py-1 px-2 border-y border-l border-black">Parameter Name</th>
-              <th className="py-1 px-2 border-y border-black">Result</th>
-              <th
-                className={`py-1 px-2 border-y border-black ${
-                  isThreeColumnLayout ? 'border-r' : ''
-                }`}
-              >
-                Normal Value
-              </th>
-              {!isThreeColumnLayout && (
-                <th className="py-1 px-2 border-y border-r border-black text-center">Remark</th>
-              )}
-            </tr>
-          </thead>
+          {/* Compact Rectangular Bordered Patient Information Box */}
+          <section className="mt-1 mb-2 border border-black px-3 py-1.5 text-[11px] leading-[1.35] text-black bg-white">
+            <div className="grid grid-cols-12 gap-x-3 gap-y-0.5">
+              <div className="col-span-5 flex">
+                <span className="w-24 shrink-0">ID / Inv No</span>
+                <span className="font-mono font-bold tabular-nums">
+                  : {invoice.patient_uid} / {invoice.invoice_no}
+                </span>
+              </div>
+              <div className="col-span-4 flex">
+                <span className="w-16 shrink-0">Date</span>
+                <span className="font-mono tabular-nums">: {formatDateTime(primaryCollectedAt)}</span>
+              </div>
+              <div className="col-span-3 flex">
+                <span className="w-14 shrink-0">Contact</span>
+                <span className="font-mono tabular-nums">: {invoice.patient_mobile || '—'}</span>
+              </div>
 
-          {/* Repeating Footer Group (Technologist + Checked By + Consultant/Pathologist Signatures + Bottom Pad Clearance on EVERY printed A4 page) */}
-          <tfoot className="print-spacer-foot">
-            <tr>
-              <td colSpan={tableColCount} className="p-0 pt-5 border-0">
-                <footer className="grid grid-cols-3 gap-6 items-end text-black">
-                  {/* 1. Prepared / Tested By */}
-                  <div className="text-left">
-                    <div className="h-7" />
-                    <div className="border-t border-black pt-1">
-                      <div className="text-[9.5px] font-semibold uppercase tracking-wide text-black">
-                        Prepared / Tested By
-                      </div>
-                      {resolvedTechName && (
-                        <p className="text-[11px] font-bold text-black leading-tight mt-0.5">
-                          {resolvedTechName}
-                        </p>
-                      )}
-                      {resolvedTechTitle && (
-                        <p className="text-[10px] text-black leading-tight">{resolvedTechTitle}</p>
-                      )}
-                    </div>
-                  </div>
+              <div className="col-span-5 flex">
+                <span className="w-24 shrink-0">Patient Name</span>
+                <span className="font-bold">: {invoice.patient_name}</span>
+              </div>
+              <div className="col-span-4 flex">
+                <span className="w-16 shrink-0">Age</span>
+                <span className="tabular-nums">
+                  : {formatAge(invoice.age_years, invoice.age_months, invoice.age_days)}
+                </span>
+              </div>
+              <div className="col-span-3 flex">
+                <span className="w-14 shrink-0">Sex</span>
+                <span>: {invoice.gender}</span>
+              </div>
 
-                  {/* 2. Checked By */}
-                  <div className="text-center">
-                    <div className="h-7" />
-                    <div className="border-t border-black pt-1">
-                      <div className="text-[10.5px] font-bold text-black">Checked by</div>
-                    </div>
-                  </div>
+              <div className="col-span-5 flex">
+                <span className="w-24 shrink-0">Specimen</span>
+                <span>: {isolatedTest?.sample_type || '—'}</span>
+              </div>
+              <div className="col-span-7 flex">
+                <span className="w-16 shrink-0">Reported</span>
+                <span className="font-mono tabular-nums">: {formatDateTime(primaryReportedAt)}</span>
+              </div>
 
-                  {/* 3. Consultant / Pathologist (Blank signature line when unassigned) */}
-                  <div className="text-right">
-                    <div className="h-7" />
-                    <div className="border-t border-black pt-1 text-left">
-                      {resolvedConsultantName ? (
-                        <>
-                          <div className="text-[9.5px] font-semibold uppercase tracking-wide text-black">
-                            Consultant / Pathologist
-                          </div>
-                          <p className="text-[11px] font-bold text-black leading-tight mt-0.5">
-                            {resolvedConsultantName}
-                          </p>
-                          {resolvedConsultantTitle && (
-                            <p className="text-[10px] text-black leading-tight">
-                              {resolvedConsultantTitle}
-                            </p>
-                          )}
-                        </>
-                      ) : (
-                        <div className="h-6" aria-label="Blank Consultant / Pathologist Signature Line" />
-                      )}
-                    </div>
-                  </div>
-                </footer>
+              <div className="col-span-12 flex">
+                <span className="w-24 shrink-0">Referred By</span>
+                <span className="font-medium">
+                  :{' '}
+                  {invoice.doctor_name
+                    ? `${invoice.doctor_name}${invoice.doctor_degree ? `, ${invoice.doctor_degree}` : ''}`
+                    : 'Self'}
+                </span>
+              </div>
+            </div>
+          </section>
 
-                {portalMode && (
-                  <div className="mt-2 pt-1.5 border-t border-black flex flex-col sm:flex-row items-center justify-between gap-2 text-[9.5px] text-black">
-                    <span>
-                      Digitally verified report · {settings.lab_name}, {settings.lab_address}
-                    </span>
-                    <span className="font-mono tabular-nums">
-                      Verification ID: {invoice.invoice_no}-{invoice.patient_uid}
-                    </span>
-                  </div>
-                )}
-
-                {!portalMode && (
-                  <div
-                    style={{ height: `${bottomMarginIn}in` }}
-                    className="mt-2 border-t border-dashed border-slate-300 flex items-center justify-center text-[11px] text-slate-400 no-print"
-                  >
-                    Blank Footer Area ({bottomMarginIn} inch — Reserved for Pre-Printed Offset Pad)
-                  </div>
-                )}
-              </td>
-            </tr>
-
-            {/* Exact blank bottom clearance on print for pre-printed offset pad */}
-            <tr className="print-only-row">
-              <td
-                colSpan={tableColCount}
-                style={{ height: portalMode ? '8mm' : `${bottomMarginIn}in` }}
-                className="p-0 border-0"
-              />
-            </tr>
-          </tfoot>
-
-          {/* Isolated Single-Test Parameter Rows */}
+          {/* Centered Boxed Department Report Title */}
           {isolatedTest && (
-            <tbody className="text-[11px] leading-[1.22] text-black">
-              {activeIsCbc &&
-                (() => {
-                  let lastSection: string | undefined;
-                  return orderedCbc.map(({ row: r, section }) => {
-                    const showSection = Boolean(section && section !== lastSection);
-                    if (section) lastSection = section;
-                    const isHb =
-                      r.parameter_name.toLowerCase().includes('hemoglobin') ||
-                      r.parameter_name.toLowerCase() === 'hb';
-                    const isEsr = r.parameter_name.toLowerCase().startsWith('esr');
+            <div className="mb-2 flex flex-col items-center">
+              <div className="border border-black px-7 py-0.5 bg-white shadow-[2px_2px_0_#000000]">
+                <h2 className="text-sm font-bold tracking-wide text-black">
+                  {formatDepartmentHeading(isolatedTest.category_name)}
+                </h2>
+              </div>
+              {!activeIsCbc && (
+                <div className="mt-1 text-[11px] font-bold text-black">
+                  {isolatedTest.test_name}
+                </div>
+              )}
+            </div>
+          )}
 
-                    return (
-                      <React.Fragment key={r.id}>
-                        {showSection && (
-                          <tr className="print-keep-with-next">
-                            <td colSpan={3} className="pt-2 pb-0.5 px-2 font-bold italic underline text-black">
-                              {section}
-                            </td>
-                          </tr>
-                        )}
-                        <tr className="print-row-avoid">
-                          <td
-                            className={`py-[2px] px-2 align-top text-black ${
-                              isHb ? 'font-bold pt-1.5' : 'font-normal'
-                            }`}
-                          >
-                            {r.parameter_name}
-                          </td>
-                          <td className="py-[2px] px-2 align-top text-black whitespace-nowrap">
-                            <span
-                              className={`font-mono tabular-nums ${
-                                isHb || isEsr ? 'font-bold' : 'font-semibold'
+          {/* Parameter Table */}
+          <table className="w-full border-collapse print-layout-table text-black">
+            <colgroup>
+              <col className={isThreeColumnLayout ? 'w-[34%]' : 'w-[32%]'} />
+              <col className={isThreeColumnLayout ? 'w-[22%]' : 'w-[20%]'} />
+              <col className={isThreeColumnLayout ? 'w-[44%]' : 'w-[34%]'} />
+              {!isThreeColumnLayout && <col className="w-[14%]" />}
+            </colgroup>
+
+            <thead className="print-spacer-head">
+              <tr className="border border-black text-left text-[11px] italic font-bold text-black bg-white">
+                <th className="py-1 px-2 border-y border-l border-black">Parameter Name</th>
+                <th className="py-1 px-2 border-y border-black">Result</th>
+                <th
+                  className={`py-1 px-2 border-y border-black ${
+                    isThreeColumnLayout ? 'border-r' : ''
+                  }`}
+                >
+                  Normal Value
+                </th>
+                {!isThreeColumnLayout && (
+                  <th className="py-1 px-2 border-y border-r border-black text-center">Remark</th>
+                )}
+              </tr>
+            </thead>
+
+            {isolatedTest && (
+              <tbody className="text-[11px] leading-[1.22] text-black">
+                {activeIsCbc &&
+                  (() => {
+                    let lastSection: string | undefined;
+                    return orderedCbc.map(({ row: r, section }) => {
+                      const showSection = Boolean(section && section !== lastSection);
+                      if (section) lastSection = section;
+                      const isHb =
+                        r.parameter_name.toLowerCase().includes('hemoglobin') ||
+                        r.parameter_name.toLowerCase() === 'hb';
+                      const isEsr = r.parameter_name.toLowerCase().startsWith('esr');
+
+                      return (
+                        <React.Fragment key={r.id}>
+                          {showSection && (
+                            <tr className="print-keep-with-next">
+                              <td colSpan={tableColCount} className="pt-2 pb-0.5 px-2 font-bold italic underline text-black">
+                                {section}
+                              </td>
+                            </tr>
+                          )}
+                          <tr className="print-row-avoid">
+                            <td
+                              className={`py-[2px] px-2 align-top text-black ${
+                                isHb ? 'font-bold pt-1.5' : 'font-normal'
                               }`}
                             >
-                              {formatNumericResultDisplay(r.result_value, r.parameter_name)}
-                            </span>
-                            {r.result_value && r.unit && (
-                              <span className="ml-1.5 text-[10.5px]">{r.unit}</span>
-                            )}
-                          </td>
-                          <td className="py-[2px] px-2 align-top font-mono tabular-nums text-[10.5px] leading-[1.2] text-black whitespace-pre-line">
-                            {r.normal_text || r.reference_range_text || '—'}
-                          </td>
-                        </tr>
-                      </React.Fragment>
-                    );
-                  });
-                })()}
-
-              {!activeIsCbc &&
-                activeIsUrine &&
-                (() => {
-                  let lastSection = '';
-                  return (isolatedTest.results || []).map((r) => {
-                    const sec = getUrineSection(r.parameter_name);
-                    const showSection = sec !== lastSection;
-                    lastSection = sec;
-                    const isAbn = r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
-
-                    return (
-                      <React.Fragment key={r.id}>
-                        {showSection && (
-                          <tr className="print-keep-with-next">
-                            <td colSpan={3} className="pt-1.5 pb-0.5 px-2 font-bold italic underline text-black">
-                              {sec}
+                              {r.parameter_name}
+                            </td>
+                            <td className="py-[2px] px-2 align-top text-black whitespace-nowrap">
+                              <span
+                                className={`font-mono tabular-nums ${
+                                  isHb || isEsr ? 'font-bold' : 'font-semibold'
+                                }`}
+                              >
+                                {formatNumericResultDisplay(r.result_value, r.parameter_name)}
+                              </span>
+                              {r.result_value && r.unit && (
+                                <span className="ml-1.5 text-[10.5px]">{r.unit}</span>
+                              )}
+                            </td>
+                            <td className="py-[2px] px-2 align-top font-mono tabular-nums text-[10.5px] leading-[1.2] text-black whitespace-pre-line">
+                              {r.normal_text || r.reference_range_text || '—'}
                             </td>
                           </tr>
-                        )}
-                        <tr className="print-row-avoid">
-                          <td className="py-[1.5px] px-2 align-top font-medium text-black">
-                            {r.parameter_name}
-                          </td>
-                          <td className="py-[1.5px] px-2 align-top text-black whitespace-nowrap">
-                            <span className={`font-mono tabular-nums ${isAbn ? 'font-bold' : 'font-semibold'}`}>
-                              {r.result_value || 'Pending'}
-                            </span>
-                            {r.result_value && r.unit && (
-                              <span className="ml-1.5 text-[10.5px]">{r.unit}</span>
-                            )}
-                          </td>
-                          <td className="py-[1.5px] px-2 align-top font-mono tabular-nums text-[10.5px] text-black whitespace-pre-line">
-                            {r.normal_text || r.reference_range_text || '—'}
-                          </td>
-                        </tr>
-                      </React.Fragment>
-                    );
-                  });
-                })()}
+                        </React.Fragment>
+                      );
+                    });
+                  })()}
 
-              {!activeIsCbc &&
-                !activeIsUrine &&
-                (isolatedTest.results || []).map((r) => {
-                  const isAbnormal = r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
-                  return (
-                    <tr key={r.id} className="print-row-avoid border-b border-slate-200">
-                      <td className="py-1 px-2 align-top font-semibold text-black">
-                        {r.parameter_name}
-                      </td>
-                      <td className="py-1 px-2 align-top text-black whitespace-nowrap">
-                        <span
-                          className={`font-mono tabular-nums ${
-                            isAbnormal ? 'font-bold underline decoration-1 underline-offset-2' : 'font-bold'
+                {!activeIsCbc &&
+                  activeIsUrine &&
+                  (() => {
+                    let lastSection = '';
+                    return (isolatedTest.results || []).map((r) => {
+                      const sec = getUrineSection(r.parameter_name);
+                      const showSection = sec !== lastSection;
+                      lastSection = sec;
+                      const isAbn = r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
+
+                      return (
+                        <React.Fragment key={r.id}>
+                          {showSection && (
+                            <tr className="print-keep-with-next">
+                              <td colSpan={tableColCount} className="pt-1.5 pb-0.5 px-2 font-bold italic underline text-black">
+                                {sec}
+                              </td>
+                            </tr>
+                          )}
+                          <tr className="print-row-avoid">
+                            <td className="py-[1.5px] px-2 align-top font-medium text-black">
+                              {r.parameter_name}
+                            </td>
+                            <td className="py-[1.5px] px-2 align-top text-black whitespace-nowrap">
+                              <span className={`font-mono tabular-nums ${isAbn ? 'font-bold' : 'font-semibold'}`}>
+                                {r.result_value || 'Pending'}
+                              </span>
+                              {r.result_value && r.unit && (
+                                <span className="ml-1.5 text-[10.5px]">{r.unit}</span>
+                              )}
+                            </td>
+                            <td className="py-[1.5px] px-2 align-top font-mono tabular-nums text-[10.5px] text-black whitespace-pre-line">
+                              {r.normal_text || r.reference_range_text || '—'}
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      );
+                    });
+                  })()}
+
+                {!activeIsCbc &&
+                  !activeIsUrine &&
+                  (isolatedTest.results || []).map((r) => {
+                    const isAbnormal = r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
+                    return (
+                      <tr key={r.id} className="print-row-avoid border-b border-slate-200">
+                        <td className="py-1.5 px-2 align-top font-semibold text-black">
+                          {r.parameter_name}
+                        </td>
+                        <td className="py-1.5 px-2 align-top text-black whitespace-nowrap">
+                          <span
+                            className={`font-mono tabular-nums ${
+                              isAbnormal ? 'font-bold underline decoration-1 underline-offset-2' : 'font-bold'
+                            }`}
+                          >
+                            {r.result_value || 'Pending'}
+                          </span>
+                          {r.result_value && r.unit && (
+                            <span className="ml-1.5 text-[10.5px]">{r.unit}</span>
+                          )}
+                        </td>
+                        <td className="py-1.5 px-2 align-top font-mono tabular-nums text-[10.5px] text-black whitespace-pre-line">
+                          {r.reference_range_text || r.normal_text || '—'}
+                        </td>
+                        <td
+                          className={`py-1.5 px-2 align-top text-center text-black ${
+                            isAbnormal ? 'font-bold' : 'font-normal'
                           }`}
                         >
-                          {r.result_value || 'Pending'}
-                        </span>
-                        {r.result_value && r.unit && (
-                          <span className="ml-1.5 text-[10.5px]">{r.unit}</span>
-                        )}
-                      </td>
-                      <td className="py-1 px-2 align-top font-mono tabular-nums text-[10.5px] text-black whitespace-pre-line">
-                        {r.reference_range_text || r.normal_text || '—'}
-                      </td>
-                      <td
-                        className={`py-1 px-2 align-top text-center text-black ${
-                          isAbnormal ? 'font-bold' : 'font-normal'
-                        }`}
-                      >
-                        {r.result_value ? (isAbnormal ? r.flag.toUpperCase() : 'Normal') : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-            </tbody>
+                          {r.result_value ? (isAbnormal ? r.flag.toUpperCase() : 'Normal') : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            )}
+          </table>
+        </div>
+
+        {/* STICKY BOTTOM FOOTER SECTION (Always pinned to bottom of A4 page) */}
+        <div className="print-report-footer mt-auto pt-4">
+          <footer className="grid grid-cols-3 gap-6 items-end text-black">
+            {/* 1. Prepared / Tested By */}
+            <div className="text-left">
+              <div className="h-7" />
+              <div className="border-t border-black pt-1">
+                <div className="text-[9.5px] font-semibold uppercase tracking-wide text-black">
+                  Prepared / Tested By
+                </div>
+                {resolvedTechName && (
+                  <p className="text-[11px] font-bold text-black leading-tight mt-0.5">
+                    {resolvedTechName}
+                  </p>
+                )}
+                {resolvedTechTitle && (
+                  <p className="text-[10px] text-black leading-tight">{resolvedTechTitle}</p>
+                )}
+              </div>
+            </div>
+
+            {/* 2. Checked By */}
+            <div className="text-center">
+              <div className="h-7" />
+              <div className="border-t border-black pt-1">
+                <div className="text-[10.5px] font-bold text-black">Checked by</div>
+              </div>
+            </div>
+
+            {/* 3. Consultant / Pathologist (Blank signature line when unassigned) */}
+            <div className="text-right">
+              <div className="h-7" />
+              <div className="border-t border-black pt-1 text-left">
+                {resolvedConsultantName ? (
+                  <>
+                    <div className="text-[9.5px] font-semibold uppercase tracking-wide text-black">
+                      Consultant / Pathologist
+                    </div>
+                    <p className="text-[11px] font-bold text-black leading-tight mt-0.5">
+                      {resolvedConsultantName}
+                    </p>
+                    {resolvedConsultantTitle && (
+                      <p className="text-[10px] text-black leading-tight">
+                        {resolvedConsultantTitle}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <div className="h-6" aria-label="Blank Consultant / Pathologist Signature Line" />
+                )}
+              </div>
+            </div>
+          </footer>
+
+          {portalMode && (
+            <div className="mt-2 pt-1.5 border-t border-black flex flex-col sm:flex-row items-center justify-between gap-2 text-[9.5px] text-black">
+              <span>
+                Digitally verified report · {settings.lab_name}, {settings.lab_address}
+              </span>
+              <span className="font-mono tabular-nums">
+                Verification ID: {invoice.invoice_no}-{invoice.patient_uid}
+              </span>
+            </div>
           )}
-        </table>
+
+          {/* Exact blank bottom clearance for pre-printed offset pad */}
+          {!portalMode && (
+            <div
+              style={{ height: `${bottomMarginIn}in` }}
+              className="mt-2 border-t border-dashed border-slate-300 print:border-none flex items-center justify-center text-[11px] text-slate-400"
+            >
+              <span className="no-print">
+                Blank Footer Area ({bottomMarginIn} inch — Reserved for Pre-Printed Offset Pad)
+              </span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -66,15 +66,41 @@
   }
 
   .print-report-pad,
-  .print-digital-report {
+  .print-digital-report,
+  .print-a4-page {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
     box-shadow: none !important;
     border: none !important;
     border-radius: 0 !important;
-    margin: 0 !important;
-    padding: 0 12mm !important;
+    margin: 0 auto !important;
     width: 100% !important;
-    max-width: 100% !important;
+    max-width: 210mm !important;
+    min-height: 295.5mm !important;
     height: auto !important;
+    box-sizing: border-box !important;
+  }
+
+  .print-report-pad {
+    padding: 0 12mm !important;
+  }
+
+  .print-digital-report {
+    padding: 8mm 12mm !important;
+  }
+
+  .print-report-body {
+    width: 100% !important;
+    flex: 1 0 auto !important;
+  }
+
+  .print-report-footer {
+    width: 100% !important;
+    margin-top: auto !important;
+    flex-shrink: 0 !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   .print-layout-table {

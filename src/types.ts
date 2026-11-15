@@ -29,6 +29,9 @@ export interface SystemInfo {
   port: number;
   lanUrls: string[];
   serverDate: string;
+  storageMode?: 'mongodb' | 'sqlite';
+  storageLabel?: string;
+  storageWarning?: string;
 }
 
 export interface TestCategory {

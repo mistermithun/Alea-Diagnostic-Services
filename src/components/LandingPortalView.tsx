@@ -86,7 +86,7 @@ export const LandingPortalView: React.FC<LandingPortalViewProps> = ({
                 <div className="space-y-2">
                   <h2 className="text-lg font-bold text-slate-900">Administrator Portal</h2>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Proprietor &amp; management console for revenue analytics, test catalog pricing, doctor commission statements, expenses, and SQLite backups.
+                    Proprietor &amp; management console for revenue analytics, test catalog pricing, doctor commission statements, expenses, and database backups.
                   </p>
                 </div>
                 <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-500">

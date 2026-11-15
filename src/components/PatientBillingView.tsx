@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, Edit3, FileText, Plus, Printer, Search, Trash2, UserPlus } from 'lucide-react';
 import { apiFetch, formatAge, formatBDT, formatDateTime } from '../lib/api.ts';
 import type { DiagnosticTest, Doctor, InvoiceSummary, LabSettings, PatientProfile, TestCategory } from '../types.ts';
+import { DeletePatientConfirmModal } from './DeletePatientConfirmModal.tsx';
 import { EditInvoiceModal } from './EditInvoiceModal.tsx';
 
 interface PatientBillingViewProps {
@@ -52,6 +53,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
   const [listSearch, setListSearch] = useState('');
   const [todayOnly, setTodayOnly] = useState(true);
   const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
+  const [deletingInvoice, setDeletingInvoice] = useState<InvoiceSummary | null>(null);
   const [listBanner, setListBanner] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -872,6 +874,20 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                               <FileText className="w-3.5 h-3.5" />
                               Report
                             </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setListBanner('');
+                                  setDeletingInvoice(inv);
+                                }}
+                                title="Delete patient record (Admin only)"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors whitespace-nowrap shrink-0"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -905,6 +921,24 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
           }}
         />
       )}
+
+      <DeletePatientConfirmModal
+        target={deletingInvoice}
+        onClose={() => setDeletingInvoice(null)}
+        onDeleted={async (result) => {
+          setDeletingInvoice(null);
+          setInvoices((prev) => prev.filter((item) => item.id !== result.deletedInvoiceId));
+          if (result.patientDeleted && existingPatient?.id === result.deletedPatientId) {
+            setExistingPatient(null);
+          }
+          setListBanner(
+            `Deleted ${result.invoiceNo} (${result.patientName})${
+              result.patientDeleted ? ' and patient profile' : ''
+            } · ${result.deletedTestsCount} test record(s) removed.`
+          );
+          await loadInvoices();
+        }}
+      />
     </div>
   );
 };

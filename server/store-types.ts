@@ -163,6 +163,17 @@ export interface LimsStore {
     note?: string;
     isAdmin: boolean;
   }): Promise<Record<string, unknown>>;
+  deleteInvoiceEntry(invoiceId: number): Promise<{
+    success: boolean;
+    deletedInvoiceId: number;
+    invoiceNo: string;
+    deletedPatientId: number;
+    patientUid: string;
+    patientName: string;
+    patientDeleted: boolean;
+    deletedTestsCount: number;
+    deletedResultsCount: number;
+  }>;
 
   // Lab Queue & Results
   getLabQueue(filters: { search?: string; status?: string }): Promise<unknown[]>;

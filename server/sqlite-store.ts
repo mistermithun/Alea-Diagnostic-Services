@@ -1112,6 +1112,74 @@ export class SqliteLimsStore implements LimsStore {
     return (await this.getFullInvoice(payload.invoiceId, payload.isAdmin, true))!;
   }
 
+  async deleteInvoiceEntry(invoiceId: number): Promise<{
+    success: boolean;
+    deletedInvoiceId: number;
+    invoiceNo: string;
+    deletedPatientId: number;
+    patientUid: string;
+    patientName: string;
+    patientDeleted: boolean;
+    deletedTestsCount: number;
+    deletedResultsCount: number;
+  }> {
+    const inv = db
+      .prepare('SELECT id, invoice_no, patient_id FROM invoices WHERE id = ?')
+      .get(invoiceId) as { id: number; invoice_no: string; patient_id: number } | undefined;
+    if (!inv) {
+      throw new StoreError(404, 'Patient invoice record not found.');
+    }
+
+    const patient = db
+      .prepare('SELECT id, patient_uid, name FROM patients WHERE id = ?')
+      .get(inv.patient_id) as { id: number; patient_uid: string; name: string } | undefined;
+
+    let deletedTestsCount = 0;
+    let deletedResultsCount = 0;
+    let patientDeleted = false;
+
+    db.transaction(() => {
+      const invTests = db
+        .prepare('SELECT id FROM invoice_tests WHERE invoice_id = ?')
+        .all(invoiceId) as Array<{ id: number }>;
+      const itIds = invTests.map((it) => it.id);
+
+      if (itIds.length > 0) {
+        const placeholders = itIds.map(() => '?').join(',');
+        const resDel = db
+          .prepare(`DELETE FROM test_results WHERE invoice_test_id IN (${placeholders})`)
+          .run(...itIds);
+        deletedResultsCount = resDel.changes;
+      }
+
+      db.prepare('DELETE FROM due_payments WHERE invoice_id = ?').run(invoiceId);
+      const testsDel = db.prepare('DELETE FROM invoice_tests WHERE invoice_id = ?').run(invoiceId);
+      deletedTestsCount = testsDel.changes;
+
+      db.prepare('DELETE FROM invoices WHERE id = ?').run(invoiceId);
+
+      const remaining = db
+        .prepare('SELECT COUNT(*) as cnt FROM invoices WHERE patient_id = ?')
+        .get(inv.patient_id) as { cnt: number };
+      if ((remaining?.cnt || 0) === 0) {
+        const patDel = db.prepare('DELETE FROM patients WHERE id = ?').run(inv.patient_id);
+        patientDeleted = patDel.changes > 0;
+      }
+    })();
+
+    return {
+      success: true,
+      deletedInvoiceId: invoiceId,
+      invoiceNo: inv.invoice_no,
+      deletedPatientId: inv.patient_id,
+      patientUid: patient?.patient_uid || '',
+      patientName: patient?.name || '',
+      patientDeleted,
+      deletedTestsCount,
+      deletedResultsCount,
+    };
+  }
+
   async getLabQueue(filters: { search?: string; status?: string }): Promise<unknown[]> {
     const conditions: string[] = [];
     const params: unknown[] = [];

@@ -2175,6 +2175,62 @@ export class MongoLimsStore implements LimsStore {
     return full!;
   }
 
+  async deleteInvoiceEntry(invoiceId: number): Promise<{
+    success: boolean;
+    deletedInvoiceId: number;
+    invoiceNo: string;
+    deletedPatientId: number;
+    patientUid: string;
+    patientName: string;
+    patientDeleted: boolean;
+    deletedTestsCount: number;
+    deletedResultsCount: number;
+  }> {
+    const inv = await this.invoicesCol.findOne({ id: invoiceId });
+    if (!inv) {
+      throw new StoreError(404, 'Patient invoice record not found.');
+    }
+
+    const patient = await this.patientsCol.findOne({ id: inv.patient_id });
+    const invTests = await this.invoiceTestsCol
+      .find({ invoice_id: invoiceId }, { projection: { id: 1 } })
+      .toArray();
+    const itIds = invTests.map((it) => it.id);
+
+    let deletedResultsCount = 0;
+    if (itIds.length > 0) {
+      const resDel = await this.testResultsCol.deleteMany({
+        invoice_test_id: { $in: itIds },
+      });
+      deletedResultsCount = resDel.deletedCount;
+    }
+
+    await this.duePaymentsCol.deleteMany({ invoice_id: invoiceId });
+    const testsDel = await this.invoiceTestsCol.deleteMany({ invoice_id: invoiceId });
+    await this.invoicesCol.deleteOne({ id: invoiceId });
+
+    const remainingInvoices = await this.invoicesCol.countDocuments({
+      patient_id: inv.patient_id,
+    });
+    let patientDeleted = false;
+    if (remainingInvoices === 0) {
+      const patDel = await this.patientsCol.deleteOne({ id: inv.patient_id });
+      patientDeleted = patDel.deletedCount > 0;
+    }
+
+    return {
+      success: true,
+      deletedInvoiceId: invoiceId,
+      invoiceNo: inv.invoice_no,
+      deletedPatientId: inv.patient_id,
+      patientUid: patient?.patient_uid || '',
+      patientName: patient?.name || '',
+      patientDeleted,
+      deletedTestsCount: testsDel.deletedCount,
+      deletedResultsCount,
+    };
+  }
+
   async getLabQueue(filters: { search?: string; status?: string }): Promise<unknown[]> {
     const query: Record<string, unknown> = {};
     if (filters.status && filters.status !== 'All') {

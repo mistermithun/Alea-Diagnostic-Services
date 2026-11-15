@@ -7,10 +7,12 @@ import {
   FlaskConical,
   Printer,
   RefreshCw,
+  Trash2,
   UserPlus,
 } from 'lucide-react';
 import { apiFetch, formatBDT, formatDateTime, getTodayISO } from '../lib/api.ts';
-import type { AdminDashboardData, LabSettings, NavTab, StaffOverviewData } from '../types.ts';
+import type { AdminDashboardData, InvoiceSummary, LabSettings, NavTab, StaffOverviewData } from '../types.ts';
+import { DeletePatientConfirmModal } from './DeletePatientConfirmModal.tsx';
 
 interface DashboardViewProps {
   isAdmin: boolean;
@@ -31,6 +33,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [staffData, setStaffData] = useState<StaffOverviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [deleteBanner, setDeleteBanner] = useState('');
+  const [deletingInvoice, setDeletingInvoice] = useState<InvoiceSummary | null>(null);
   const [showDailyClosing, setShowDailyClosing] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -155,6 +159,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {error && (
         <div className="p-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl">{error}</div>
+      )}
+
+      {deleteBanner && (
+        <div className="p-3.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl">
+          {deleteBanner}
+        </div>
       )}
 
       {/* Daily Closing Summary Sheet (Admin) */}
@@ -345,7 +355,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <th className="py-2 pr-3 font-medium text-right">Net Bill</th>
                     <th className="py-2 pr-3 font-medium text-right">Due</th>
                     <th className="py-2 pr-3 font-medium">Status</th>
-                    <th className="py-2 font-medium text-right">Receipt</th>
+                    <th className="py-2 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -378,13 +388,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </span>
                       </td>
                       <td className="py-2.5 text-right">
-                        <button
-                          type="button"
-                          onClick={() => onOpenReceipt(inv.id)}
-                          className="text-xs font-medium text-teal-700 hover:text-teal-900 whitespace-nowrap"
-                        >
-                          Print
-                        </button>
+                        <div className="inline-flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onOpenReceipt(inv.id)}
+                            className="text-xs font-medium text-teal-700 hover:text-teal-900 whitespace-nowrap"
+                          >
+                            Print
+                          </button>
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeleteBanner('');
+                                setDeletingInvoice(inv);
+                              }}
+                              title="Delete patient record (Admin only)"
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors whitespace-nowrap shrink-0"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              Delete
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -506,6 +532,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </>
       )}
+
+      <DeletePatientConfirmModal
+        target={deletingInvoice}
+        onClose={() => setDeletingInvoice(null)}
+        onDeleted={async (result) => {
+          setDeletingInvoice(null);
+          setDeleteBanner(
+            `Deleted ${result.invoiceNo} (${result.patientName})${
+              result.patientDeleted ? ' and patient profile' : ''
+            } · ${result.deletedTestsCount} test record(s) removed.`
+          );
+          await loadData();
+        }}
+      />
     </div>
   );
 };

@@ -497,6 +497,20 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
     })
   );
 
+  app.delete(
+    '/api/invoices/:id',
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const invoiceId = Number(req.params.id);
+      if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
+        res.status(400).json({ error: 'Invalid invoice/patient entry ID.' });
+        return;
+      }
+      const deleted = await store.deleteInvoiceEntry(invoiceId);
+      res.json(deleted);
+    })
+  );
+
   // Lab Queue & Result Entry
   app.get(
     '/api/lab-queue',

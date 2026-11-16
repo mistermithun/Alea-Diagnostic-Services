@@ -598,7 +598,6 @@ function seedInitialOperationalDataIfEmpty() {
       MCV: { val: '86', flag: 'Normal' },
       MCH: { val: '28.5', flag: 'Normal' },
       MCHC: { val: '33.2', flag: 'Normal' },
-      RDW: { val: '13.4', flag: 'Normal' },
     };
     for (const param of getParams(cbc.id)) {
       const sample = cbcSampleValues[param.name] || { val: '', flag: 'Normal' };
@@ -708,7 +707,6 @@ function migrateCbcParameters() {
     { name: 'MCV', unit: 'fL', min_male: 80, max_male: 100, min_female: 80, max_female: 100, min_child: 75, max_child: 95, min_newborn: 95, max_newborn: 120, normal_text: 'Adult (M/F): 80–100 | Child: 75–95\nNewborn: 95–120', sort_order: 13 },
     { name: 'MCH', unit: 'pg', min_male: 27, max_male: 32, min_female: 27, max_female: 32, min_child: 25, max_child: 31, min_newborn: 31, max_newborn: 37, normal_text: 'Adult (M/F): 27–32 | Child: 25–31\nNewborn: 31–37', sort_order: 14 },
     { name: 'MCHC', unit: 'g/dL', min_male: 32, max_male: 36, min_female: 32, max_female: 36, min_child: 32, max_child: 36, min_newborn: 32, max_newborn: 36, normal_text: '32 - 36', sort_order: 15 },
-    { name: 'RDW', unit: '%', min_male: 11.5, max_male: 14.5, min_female: 11.5, max_female: 14.5, min_child: 11.5, max_child: 14.5, min_newborn: 14.0, max_newborn: 18.0, normal_text: 'Adult/Child: 11.5–14.5\nNewborn: 14.0–18.0', sort_order: 16 },
   ];
 
   const existingParams = db
@@ -723,7 +721,6 @@ function migrateCbcParameters() {
       if (lower.startsWith('pcv') && (pn.includes('pcv') || pn.includes('hematocrit') || pn.includes('hct'))) return true;
       if (lower.includes('circulating eosinophil') && pn.includes('circulating eosinophil')) return true;
       if (lower.startsWith('esr') && pn.startsWith('esr')) return true;
-      if (lower === 'rdw' && pn.startsWith('rdw')) return true;
       return false;
     });
   };
@@ -780,7 +777,23 @@ function migrateCbcParameters() {
       }
     }
 
-    // Backfill any missing CBC parameters (such as RDW) & sync order/names into existing invoice_tests for HEM-01
+    // Remove obsolete RDW parameter & results from CBC (HEM-01)
+    const rdwParams = existingParams.filter((p) => p.name.trim().toLowerCase().startsWith('rdw'));
+    if (rdwParams.length > 0) {
+      const delResByParam = db.prepare(
+        `DELETE FROM test_results WHERE parameter_id = ? AND invoice_test_id IN (SELECT id FROM invoice_tests WHERE test_id = ?)`
+      );
+      const delParam = db.prepare(`DELETE FROM test_parameters WHERE id = ?`);
+      for (const rp of rdwParams) {
+        delResByParam.run(rp.id, cbcTest.id);
+        delParam.run(rp.id);
+      }
+    }
+    db.prepare(
+      `DELETE FROM test_results WHERE LOWER(TRIM(parameter_name)) LIKE 'rdw%' AND invoice_test_id IN (SELECT id FROM invoice_tests WHERE test_id = ?)`
+    ).run(cbcTest.id);
+
+    // Backfill any missing CBC parameters & sync order/names into existing invoice_tests for HEM-01
     const cbcParams = db
       .prepare(`SELECT * FROM test_parameters WHERE test_id = ? ORDER BY sort_order ASC, id ASC`)
       .all(cbcTest.id) as Array<{
@@ -855,7 +868,6 @@ function migrateCbcParameters() {
           } else if (cit.invoice_no === 'INV-26001' && cit.status === 'Ready') {
             if (pLower.includes('pcv') || pLower.includes('hematocrit') || pLower.includes('hct')) initialVal = '35.5';
             if (pLower.startsWith('esr')) initialVal = '28';
-            if (pLower === 'rdw') initialVal = '13.4';
           }
 
           const evalRes = evaluateResultFlag(initialVal, param, cit.gender, cit.age_years, cit.age_months, cit.age_days);

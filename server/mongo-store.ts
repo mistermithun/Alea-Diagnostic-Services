@@ -685,7 +685,6 @@ export class MongoLimsStore implements LimsStore {
         MCV: { val: '86', flag: 'Normal' },
         MCH: { val: '28.5', flag: 'Normal' },
         MCHC: { val: '33.2', flag: 'Normal' },
-        RDW: { val: '13.4', flag: 'Normal' },
       };
       for (const param of cbc.params) {
         const sample = cbcSampleValues[param.name] || { val: '', flag: 'Normal' as const };
@@ -1024,10 +1023,29 @@ export class MongoLimsStore implements LimsStore {
         if (lower.startsWith('pcv') && (pn.includes('pcv') || pn.includes('hematocrit') || pn.includes('hct'))) return true;
         if (lower.includes('circulating eosinophil') && pn.includes('circulating eosinophil')) return true;
         if (lower.startsWith('esr') && pn.startsWith('esr')) return true;
-        if (lower === 'rdw' && pn.startsWith('rdw')) return true;
         return false;
       });
     };
+
+    // Remove obsolete RDW parameter & existing result rows for CBC (HEM-01)
+    const rdwParams = existingParams.filter((p) => p.name.trim().toLowerCase().startsWith('rdw'));
+    const cbcInvoiceTestsAll = await this.invoiceTestsCol.find({ test_id: cbcTest.id }).toArray();
+    const cbcInvoiceTestIds = cbcInvoiceTestsAll.map((cit) => cit.id);
+    if (rdwParams.length > 0) {
+      const rdwIds = rdwParams.map((p) => p.id);
+      if (cbcInvoiceTestIds.length > 0) {
+        await this.testResultsCol.deleteMany({
+          invoice_test_id: { $in: cbcInvoiceTestIds },
+          $or: [{ parameter_id: { $in: rdwIds } }, { parameter_name: { $regex: /^\s*rdw/i } }],
+        });
+      }
+      await this.paramsCol.deleteMany({ id: { $in: rdwIds }, test_id: cbcTest.id });
+    } else if (cbcInvoiceTestIds.length > 0) {
+      await this.testResultsCol.deleteMany({
+        invoice_test_id: { $in: cbcInvoiceTestIds },
+        parameter_name: { $regex: /^\s*rdw/i },
+      });
+    }
 
     for (const dp of CBC_DESIRED_PARAMS) {
       const found = findExistingParam(dp.name);

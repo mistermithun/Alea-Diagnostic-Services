@@ -84,7 +84,6 @@ const CBC_ORDER_KEYS: Array<{
   { match: (n) => n === 'mcv' || n.startsWith('mcv '), section: 'RBC Indices & Parameters' },
   { match: (n) => n === 'mch' || n.startsWith('mch '), section: 'RBC Indices & Parameters' },
   { match: (n) => n === 'mchc' || n.startsWith('mchc '), section: 'RBC Indices & Parameters' },
-  { match: (n) => n.startsWith('rdw'), section: 'RBC Indices & Parameters' },
 ];
 
 const URINE_SECTIONS: Array<{

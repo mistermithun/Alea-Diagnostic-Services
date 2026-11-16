@@ -70,6 +70,8 @@ export interface UpdateInvoicePayload {
   };
   doctorId?: number | null;
   addTestIds?: number[];
+  removeInvoiceTestIds?: number[];
+  removeTestIds?: number[];
   discountType?: 'percent' | 'flat';
   discountValue?: number;
   additionalPayment?: number;
@@ -189,6 +191,11 @@ export interface LimsStore {
   ): Promise<Record<string, unknown> | null>;
   createInvoice(payload: CreateInvoicePayload): Promise<Record<string, unknown>>;
   updateInvoice(payload: UpdateInvoicePayload): Promise<Record<string, unknown>>;
+  removeInvoiceTest(payload: {
+    invoiceId: number;
+    invoiceTestId: number;
+    isAdmin: boolean;
+  }): Promise<Record<string, unknown>>;
   addDuePayment(payload: {
     invoiceId: number;
     amount: number;

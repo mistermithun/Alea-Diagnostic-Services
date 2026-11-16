@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, Lock, Plus, Search, X } from 'lucide-react';
+import { Check, Lock, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import { apiFetch, formatBDT, formatDateTime } from '../lib/api.ts';
 import type {
   DiagnosticTest,
@@ -47,10 +47,11 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   const [doctorId, setDoctorId] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
 
-  // Add extra tests
+  // Add & remove tests dynamically before saving
   const [addTestSearch, setAddTestSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [addedTestIds, setAddedTestIds] = useState<number[]>([]);
+  const [removedInvoiceTestIds, setRemovedInvoiceTestIds] = useState<number[]>([]);
 
   // Billing adjustments
   const [discountType, setDiscountType] = useState<'flat' | 'percent'>('flat');
@@ -85,6 +86,8 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
         setDiscountType(res.invoice.discount_type || 'flat');
         setDiscountValue(String(res.invoice.discount_value ?? 0));
         setAdditionalPayment('0');
+        setAddedTestIds([]);
+        setRemovedInvoiceTestIds([]);
 
         const docObj = doctors.find((d) => d.id === res.invoice.doctor_id);
         const docPct = Number(docObj?.commission_pct ?? 0);
@@ -130,9 +133,19 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     };
   }, [invoiceId, doctors]);
 
+  const activeExistingTests = useMemo(
+    () => (fullData?.tests || []).filter((t) => !removedInvoiceTestIds.includes(t.id)),
+    [fullData, removedInvoiceTestIds]
+  );
+
+  const removedExistingTests = useMemo(
+    () => (fullData?.tests || []).filter((t) => removedInvoiceTestIds.includes(t.id)),
+    [fullData, removedInvoiceTestIds]
+  );
+
   const existingTestIdSet = useMemo(
-    () => new Set((fullData?.tests || []).map((t) => t.test_id)),
-    [fullData]
+    () => new Set(activeExistingTests.map((t) => t.test_id)),
+    [activeExistingTests]
   );
 
   const availableTests = useMemo(() => {
@@ -150,9 +163,11 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     [tests, addedTestIds]
   );
 
+  const totalActiveTestsCount = activeExistingTests.length + newlySelectedTests.length;
+
   const existingSubtotal = useMemo(
-    () => (fullData?.tests || []).reduce((sum, t) => sum + Number(t.price), 0),
-    [fullData]
+    () => activeExistingTests.reduce((sum, t) => sum + Number(t.price), 0),
+    [activeExistingTests]
   );
   const addedSubtotal = useMemo(
     () => newlySelectedTests.reduce((sum, t) => sum + Number(t.price), 0),
@@ -172,6 +187,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   const appliedExtraPay = Math.min(maxExtraPay, Math.max(0, Number(additionalPayment || 0)));
   const newPaidTotal = Math.round((alreadyPaid + appliedExtraPay) * 100) / 100;
   const newDue = Math.max(0, Math.round((newNetTotal - newPaidTotal) * 100) / 100);
+  const overpaidCredit = Math.max(0, Math.round((alreadyPaid - newNetTotal) * 100) / 100);
 
   const maxStaffPct = Number(settings.max_staff_discount_pct || 15);
   const discountChanged =
@@ -182,7 +198,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   const exceedsStaffCap = !isAdmin && discountChanged && effectivePct > maxStaffPct + 0.01;
 
   const combinedTestsForComm = useMemo(() => {
-    const existing = (fullData?.tests || []).map((t) => ({
+    const existing = activeExistingTests.map((t) => ({
       test_id: t.test_id,
       test_name: t.test_name,
       price: Number(t.price),
@@ -193,7 +209,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       price: Number(t.price),
     }));
     return [...existing, ...added];
-  }, [fullData, newlySelectedTests]);
+  }, [activeExistingTests, newlySelectedTests]);
 
   const selectedDoctor = useMemo(() => doctors.find((d) => d.id === doctorId) || null, [doctors, doctorId]);
   const doctorDefaultPct = Number(selectedDoctor?.commission_pct ?? 0);
@@ -238,14 +254,36 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   ]);
 
   const toggleAddedTest = (testId: number) => {
+    setError('');
     setAddedTestIds((prev) =>
       prev.includes(testId) ? prev.filter((id) => id !== testId) : [...prev, testId]
     );
   };
 
+  const handleRemoveExistingTest = (invoiceTestId: number) => {
+    if (totalActiveTestsCount <= 1) {
+      setError('An invoice must retain at least one diagnostic test. Add another test before removing this one.');
+      return;
+    }
+    setError('');
+    setRemovedInvoiceTestIds((prev) =>
+      prev.includes(invoiceTestId) ? prev : [...prev, invoiceTestId]
+    );
+  };
+
+  const handleUndoRemovedTest = (invoiceTestId: number, catalogTestId: number) => {
+    setError('');
+    setRemovedInvoiceTestIds((prev) => prev.filter((id) => id !== invoiceTestId));
+    setAddedTestIds((prev) => prev.filter((id) => id !== catalogTestId));
+  };
+
   const handleSave = async (printAfter: boolean) => {
     if (!patientName.trim()) {
       setError('Patient full name is required.');
+      return;
+    }
+    if (totalActiveTestsCount === 0) {
+      setError('An invoice must contain at least one diagnostic test.');
       return;
     }
     if (exceedsStaffCap) {
@@ -282,6 +320,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
           },
           doctorId,
           addTestIds: addedTestIds,
+          removeInvoiceTestIds: removedInvoiceTestIds,
           discountType,
           discountValue: Number(discountValue || 0),
           additionalPayment: appliedExtraPay,
@@ -311,10 +350,10 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between gap-4">
           <div>
             <h2 className="text-base font-semibold">
-              Edit Today&apos;s Patient Entry &amp; Add Tests
+              Edit Patient Entry &amp; Manage Tests
             </h2>
             <p className="text-xs text-slate-300 mt-0.5">
-              Update name, age, mobile, or add more tests. Patient ID &amp; Portal Login remain unchanged.
+              Update details, remove or add diagnostic tests dynamically before saving. Patient ID &amp; Portal Login remain unchanged.
             </p>
           </div>
           <button
@@ -483,18 +522,18 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
               </div>
             </div>
 
-            {/* Existing Tests on Invoice */}
-            <div className="space-y-2 pt-3 border-t border-slate-200">
+            {/* Existing & Newly Added Tests on Invoice (with Dynamic Delete) */}
+            <div className="space-y-2.5 pt-3 border-t border-slate-200">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-slate-900">
-                  02. Already Billed Tests ({fullData.tests.length})
+                  02. Invoice Tests ({totalActiveTestsCount})
                 </h3>
                 <span className="text-xs font-mono tabular-nums font-semibold text-slate-700">
-                  {formatBDT(existingSubtotal)}
+                  {formatBDT(newSubtotal)}
                 </span>
               </div>
               <div className="divide-y divide-slate-200 border border-slate-200 rounded-lg">
-                {fullData.tests.map((t) => (
+                {activeExistingTests.map((t) => (
                   <div key={t.id} className="px-3.5 py-2 flex items-center justify-between gap-3 text-xs">
                     <div className="min-w-0">
                       <span className="font-semibold text-slate-900">{t.test_name}</span>
@@ -502,12 +541,83 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                         ({t.category_name} · {t.status})
                       </span>
                     </div>
-                    <span className="font-mono tabular-nums font-semibold text-slate-800 shrink-0">
-                      {formatBDT(t.price)}
-                    </span>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <span className="font-mono tabular-nums font-semibold text-slate-800">
+                        {formatBDT(t.price)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveExistingTest(t.id)}
+                        disabled={totalActiveTestsCount <= 1}
+                        title={
+                          totalActiveTestsCount <= 1
+                            ? 'At least 1 test is required on an invoice'
+                            : `Remove ${t.test_name}`
+                        }
+                        aria-label={`Remove ${t.test_name}`}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Delete</span>
+                      </button>
+                    </div>
                   </div>
                 ))}
+
+                {newlySelectedTests.map((t) => (
+                  <div key={`new-${t.id}`} className="px-3.5 py-2 flex items-center justify-between gap-3 text-xs bg-teal-50/50">
+                    <div className="min-w-0">
+                      <span className="font-semibold text-teal-900">{t.name}</span>
+                      <span className="text-teal-700 ml-2 font-medium">
+                        (New · {t.category_name})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <span className="font-mono tabular-nums font-semibold text-teal-900">
+                        {formatBDT(t.price)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => toggleAddedTest(t.id)}
+                        title={`Remove ${t.name}`}
+                        aria-label={`Remove ${t.name}`}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-red-700 bg-white border border-red-200 rounded hover:bg-red-50 transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Remove</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {totalActiveTestsCount === 0 && (
+                  <div className="px-3.5 py-4 text-center text-xs text-red-600">
+                    No tests left on invoice. Restore a removed test or add a test below before saving.
+                  </div>
+                )}
               </div>
+
+              {removedExistingTests.length > 0 && (
+                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg space-y-1.5">
+                  <div className="text-[11px] font-semibold text-amber-900">
+                    Marked for Removal on Save ({removedExistingTests.length})
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {removedExistingTests.map((t) => (
+                      <button
+                        key={`undo-${t.id}`}
+                        type="button"
+                        onClick={() => handleUndoRemovedTest(t.id, t.test_id)}
+                        className="inline-flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium text-amber-900 bg-white border border-amber-300 rounded hover:bg-amber-100 transition-colors"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span className="line-through text-slate-500">{t.test_name}</span>
+                        <span className="text-teal-700 font-semibold">Undo</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Add Additional Tests */}
@@ -681,6 +791,12 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                       {formatBDT(newDue)}
                     </span>
                   </div>
+                  {overpaidCredit > 0 && (
+                    <div className="flex justify-between text-[11px] text-amber-800 font-medium pt-0.5">
+                      <span>Overpaid / Refund Credit:</span>
+                      <span className="font-mono tabular-nums">{formatBDT(overpaidCredit)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -823,7 +939,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
               </button>
               <button
                 type="button"
-                disabled={saving}
+                disabled={saving || totalActiveTestsCount === 0}
                 onClick={() => handleSave(false)}
                 className="px-4 py-2 text-sm font-medium text-slate-900 bg-slate-100 border border-slate-300 rounded-lg hover:bg-slate-200 disabled:opacity-50 whitespace-nowrap shrink-0"
               >
@@ -831,7 +947,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
               </button>
               <button
                 type="button"
-                disabled={saving}
+                disabled={saving || totalActiveTestsCount === 0}
                 onClick={() => handleSave(true)}
                 className="px-5 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 whitespace-nowrap shrink-0"
               >

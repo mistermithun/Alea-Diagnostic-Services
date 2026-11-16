@@ -271,6 +271,7 @@ export class MongoLimsStore implements LimsStore {
     await this.ensureIndexes();
     await this.seedDefaultSettings();
     await this.seedCatalogIfEmpty();
+    await this.syncExtendedCatalogV2();
     await this.seedInitialOperationalDataIfEmpty();
     await this.migrateCbcParameters();
     await this.migrateUrineReParameters();
@@ -461,6 +462,80 @@ export class MongoLimsStore implements LimsStore {
         }
       }
     }
+
+    await this.setSetting('catalog_v2_synced', '1');
+  }
+
+  private async syncExtendedCatalogV2(): Promise<void> {
+    const synced = await this.getSetting('catalog_v2_synced');
+    if (synced === '1') return;
+
+    const existingCats = await this.categoriesCol.find({}, { projection: { _id: 0 } }).toArray();
+    const catIdByLowerName = new Map<string, number>(
+      existingCats.map((c) => [c.name.trim().toLowerCase(), c.id])
+    );
+    const existingTests = await this.testsCol.find({}, { projection: { _id: 0 } }).toArray();
+    const existingCodes = new Set(existingTests.map((t) => t.code.trim().toLowerCase()));
+    const existingNames = new Set(existingTests.map((t) => t.name.trim().toLowerCase()));
+
+    for (const group of SEED_CATALOG) {
+      const catKey = group.category.trim().toLowerCase();
+      let catId = catIdByLowerName.get(catKey);
+      if (catId === undefined) {
+        catId = await this.nextSeq('test_categories');
+        await this.categoriesCol.insertOne({
+          id: catId,
+          name: group.category,
+          sort_order: group.sort_order,
+        });
+        catIdByLowerName.set(catKey, catId);
+      }
+
+      for (const t of group.tests) {
+        if (existingCodes.has(t.code.trim().toLowerCase()) || existingNames.has(t.name.trim().toLowerCase())) {
+          continue;
+        }
+        const testId = await this.nextSeq('tests');
+        await this.testsCol.insertOne({
+          id: testId,
+          category_id: catId,
+          code: t.code,
+          name: t.name,
+          price: t.price,
+          sample_type: t.sample_type,
+          is_active: 1,
+        });
+        existingCodes.add(t.code.trim().toLowerCase());
+        existingNames.add(t.name.trim().toLowerCase());
+
+        for (let idx = 0; idx < t.parameters.length; idx++) {
+          const p = t.parameters[idx];
+          const paramId = await this.nextSeq('test_parameters');
+          await this.paramsCol.insertOne({
+            id: paramId,
+            test_id: testId,
+            name: p.name,
+            unit: p.unit || '',
+            input_type: p.input_type || 'numeric',
+            normal_text: p.normal_text || '',
+            default_value: p.default_value ?? '',
+            select_options: p.select_options || '',
+            abnormal_values: p.abnormal_values || '',
+            min_male: p.min_male ?? null,
+            max_male: p.max_male ?? null,
+            min_female: p.min_female ?? p.min_male ?? null,
+            max_female: p.max_female ?? p.max_male ?? null,
+            min_child: p.min_child ?? null,
+            max_child: p.max_child ?? null,
+            min_newborn: p.min_newborn ?? null,
+            max_newborn: p.max_newborn ?? null,
+            sort_order: idx + 1,
+          });
+        }
+      }
+    }
+
+    await this.setSetting('catalog_v2_synced', '1');
   }
 
   private async seedInitialOperationalDataIfEmpty(): Promise<void> {
@@ -2321,12 +2396,29 @@ export class MongoLimsStore implements LimsStore {
     const requestedIds = Array.isArray(payload.addTestIds)
       ? Array.from(new Set(payload.addTestIds.map(Number).filter((n) => Number.isFinite(n) && n > 0)))
       : [];
+    const removeInvTestIdSet = new Set(
+      Array.isArray(payload.removeInvoiceTestIds)
+        ? payload.removeInvoiceTestIds.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+        : []
+    );
+    const removeCatalogTestIdSet = new Set(
+      Array.isArray(payload.removeTestIds)
+        ? payload.removeTestIds.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+        : []
+    );
 
     const existingInvTests = await this.invoiceTestsCol
       .find({ invoice_id: payload.invoiceId }, { projection: { _id: 0 } })
       .toArray();
-    const existingTestIds = new Set(existingInvTests.map((r) => r.test_id));
-    const newTestIds = requestedIds.filter((id) => !existingTestIds.has(id));
+    const removedInvTests = existingInvTests.filter(
+      (r) => removeInvTestIdSet.has(r.id) || removeCatalogTestIdSet.has(r.test_id)
+    );
+    const keptExistingInvTests = existingInvTests.filter(
+      (r) => !removeInvTestIdSet.has(r.id) && !removeCatalogTestIdSet.has(r.test_id)
+    );
+
+    const keptExistingTestIds = new Set(keptExistingInvTests.map((r) => r.test_id));
+    const newTestIds = requestedIds.filter((id) => !keptExistingTestIds.has(id));
 
     const testsToAdd = newTestIds.length
       ? await this.testsCol.find({ id: { $in: newTestIds }, is_active: 1 }, { projection: { _id: 0 } }).toArray()
@@ -2334,8 +2426,12 @@ export class MongoLimsStore implements LimsStore {
     const cats = await this.categoriesCol.find({}, { projection: { _id: 0 } }).toArray();
     const catMap = new Map(cats.map((c) => [c.id, c.name]));
 
+    if (keptExistingInvTests.length + testsToAdd.length === 0) {
+      throw new StoreError(400, 'An invoice must have at least one diagnostic test.');
+    }
+
     const newSubtotal =
-      existingInvTests.reduce((sum, r) => sum + Number(r.price), 0) +
+      keptExistingInvTests.reduce((sum, r) => sum + Number(r.price), 0) +
       testsToAdd.reduce((sum, t) => sum + Number(t.price), 0);
 
     const dType =
@@ -2407,7 +2503,7 @@ export class MongoLimsStore implements LimsStore {
     const resolvedTestCommissions: TestCommissionOverride[] =
       payload.isAdmin && payload.commissionMode === 'custom_per_test' && Array.isArray(payload.testCommissions)
         ? payload.testCommissions
-        : existingInvTests.map((it) => ({
+        : keptExistingInvTests.map((it) => ({
             testId: it.test_id,
             commissionType: it.commission_type === 'flat' ? 'flat' : 'percent',
             commissionValue:
@@ -2415,7 +2511,7 @@ export class MongoLimsStore implements LimsStore {
           }));
 
     const allCombinedTests = [
-      ...existingInvTests.map((r) => ({ test_id: r.test_id, price: Number(r.price) })),
+      ...keptExistingInvTests.map((r) => ({ test_id: r.test_id, price: Number(r.price) })),
       ...testsToAdd.map((t) => ({ test_id: t.id, price: Number(t.price) })),
     ];
 
@@ -2454,7 +2550,15 @@ export class MongoLimsStore implements LimsStore {
       }
     );
 
-    const existingItIds = existingInvTests.map((t) => t.id);
+    if (removedInvTests.length > 0) {
+      const removedItIds = removedInvTests.map((r) => r.id);
+      await Promise.all([
+        this.testResultsCol.deleteMany({ invoice_test_id: { $in: removedItIds } }),
+        this.invoiceTestsCol.deleteMany({ id: { $in: removedItIds }, invoice_id: payload.invoiceId }),
+      ]);
+    }
+
+    const existingItIds = keptExistingInvTests.map((t) => t.id);
     if (existingItIds.length > 0) {
       const existingResults = await this.testResultsCol
         .find({ invoice_test_id: { $in: existingItIds } })
@@ -2535,7 +2639,7 @@ export class MongoLimsStore implements LimsStore {
       }
     }
 
-    for (const existingIt of existingInvTests) {
+    for (const existingIt of keptExistingInvTests) {
       const tc = computedComm.perTestMap.get(existingIt.test_id);
       if (tc) {
         await this.invoiceTestsCol.updateOne(
@@ -2589,6 +2693,39 @@ export class MongoLimsStore implements LimsStore {
 
     const full = await this.getFullInvoice(payload.invoiceId, payload.isAdmin, true);
     return full!;
+  }
+
+  async removeInvoiceTest(payload: {
+    invoiceId: number;
+    invoiceTestId: number;
+    isAdmin: boolean;
+  }): Promise<Record<string, unknown>> {
+    const inv = await this.invoicesCol.findOne({ id: payload.invoiceId }, { projection: { _id: 0 } });
+    if (!inv) throw new StoreError(404, 'Invoice not found.');
+
+    const pat = await this.patientsCol.findOne({ id: inv.patient_id }, { projection: { _id: 0 } });
+    if (!pat) throw new StoreError(404, 'Patient record not found.');
+
+    const target = await this.invoiceTestsCol.findOne(
+      { id: payload.invoiceTestId, invoice_id: payload.invoiceId },
+      { projection: { _id: 0 } }
+    );
+    if (!target) throw new StoreError(404, 'Invoice test item not found.');
+
+    return this.updateInvoice({
+      invoiceId: payload.invoiceId,
+      isAdmin: payload.isAdmin,
+      patient: {
+        name: pat.name,
+        ageYears: pat.age_years,
+        ageMonths: pat.age_months,
+        ageDays: pat.age_days,
+        gender: pat.gender,
+        mobile: pat.mobile,
+        address: pat.address,
+      },
+      removeInvoiceTestIds: [payload.invoiceTestId],
+    });
   }
 
   async addDuePayment(payload: {

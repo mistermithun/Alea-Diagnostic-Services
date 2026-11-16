@@ -530,6 +530,25 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
     })
   );
 
+  app.delete(
+    '/api/invoices/:id/tests/:invoiceTestId',
+    requireStaffOrAdmin,
+    asyncHandler(async (req, res) => {
+      const invoiceId = Number(req.params.id);
+      const invoiceTestId = Number(req.params.invoiceTestId);
+      if (!Number.isInteger(invoiceId) || invoiceId <= 0 || !Number.isInteger(invoiceTestId) || invoiceTestId <= 0) {
+        res.status(400).json({ error: 'Invalid invoice ID or invoice test ID.' });
+        return;
+      }
+      const updated = await store.removeInvoiceTest({
+        invoiceId,
+        invoiceTestId,
+        isAdmin: isAdminRequest(req),
+      });
+      res.json(updated);
+    })
+  );
+
   app.post(
     '/api/invoices/:id/due-payment',
     requireStaffOrAdmin,

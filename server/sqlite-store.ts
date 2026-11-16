@@ -1279,6 +1279,16 @@ export class SqliteLimsStore implements LimsStore {
     const requestedIds = Array.isArray(payload.addTestIds)
       ? Array.from(new Set(payload.addTestIds.map(Number).filter((n) => Number.isFinite(n) && n > 0)))
       : [];
+    const removeInvTestIdSet = new Set(
+      Array.isArray(payload.removeInvoiceTestIds)
+        ? payload.removeInvoiceTestIds.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+        : []
+    );
+    const removeCatalogTestIdSet = new Set(
+      Array.isArray(payload.removeTestIds)
+        ? payload.removeTestIds.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+        : []
+    );
 
     const existingTestRows = db
       .prepare('SELECT id, test_id, price, commission_type, commission_value FROM invoice_tests WHERE invoice_id = ?')
@@ -1289,8 +1299,15 @@ export class SqliteLimsStore implements LimsStore {
       commission_type?: string;
       commission_value?: number;
     }>;
-    const existingTestIds = new Set(existingTestRows.map((r) => r.test_id));
-    const newTestIds = requestedIds.filter((id) => !existingTestIds.has(id));
+    const removedTestRows = existingTestRows.filter(
+      (r) => removeInvTestIdSet.has(r.id) || removeCatalogTestIdSet.has(r.test_id)
+    );
+    const keptExistingRows = existingTestRows.filter(
+      (r) => !removeInvTestIdSet.has(r.id) && !removeCatalogTestIdSet.has(r.test_id)
+    );
+
+    const keptExistingTestIds = new Set(keptExistingRows.map((r) => r.test_id));
+    const newTestIds = requestedIds.filter((id) => !keptExistingTestIds.has(id));
 
     let testsToAdd: Array<{ id: number; name: string; category_name: string; sample_type: string; price: number }> = [];
     if (newTestIds.length > 0) {
@@ -1302,8 +1319,12 @@ export class SqliteLimsStore implements LimsStore {
         .all(...newTestIds) as typeof testsToAdd;
     }
 
+    if (keptExistingRows.length + testsToAdd.length === 0) {
+      throw new StoreError(400, 'An invoice must have at least one diagnostic test.');
+    }
+
     const newSubtotal =
-      existingTestRows.reduce((sum, r) => sum + Number(r.price), 0) +
+      keptExistingRows.reduce((sum, r) => sum + Number(r.price), 0) +
       testsToAdd.reduce((sum, t) => sum + Number(t.price), 0);
 
     const dType =
@@ -1377,7 +1398,7 @@ export class SqliteLimsStore implements LimsStore {
     const resolvedTestCommissions: TestCommissionOverride[] =
       payload.isAdmin && payload.commissionMode === 'custom_per_test' && Array.isArray(payload.testCommissions)
         ? payload.testCommissions
-        : existingTestRows.map((it) => ({
+        : keptExistingRows.map((it) => ({
             testId: it.test_id,
             commissionType: it.commission_type === 'flat' ? 'flat' : 'percent',
             commissionValue:
@@ -1385,7 +1406,7 @@ export class SqliteLimsStore implements LimsStore {
           }));
 
     const allCombinedTests = [
-      ...existingTestRows.map((r) => ({ test_id: r.test_id, price: Number(r.price) })),
+      ...keptExistingRows.map((r) => ({ test_id: r.test_id, price: Number(r.price) })),
       ...testsToAdd.map((t) => ({ test_id: t.id, price: Number(t.price) })),
     ];
 
@@ -1422,6 +1443,15 @@ export class SqliteLimsStore implements LimsStore {
         payload.patient!.address?.trim() || '',
         existingInv.patient_id
       );
+
+      if (removedTestRows.length > 0) {
+        const delResults = db.prepare(`DELETE FROM test_results WHERE invoice_test_id = ?`);
+        const delInvTest = db.prepare(`DELETE FROM invoice_tests WHERE id = ?`);
+        for (const rem of removedTestRows) {
+          delResults.run(rem.id);
+          delInvTest.run(rem.id);
+        }
+      }
 
       const existingResults = db
         .prepare(
@@ -1538,7 +1568,7 @@ export class SqliteLimsStore implements LimsStore {
       const updExistingIt = db.prepare(
         `UPDATE invoice_tests SET commission_type = ?, commission_value = ?, commission_amount = ? WHERE id = ?`
       );
-      for (const existingIt of existingTestRows) {
+      for (const existingIt of keptExistingRows) {
         const tc = computedComm.perTestMap.get(existingIt.test_id);
         if (tc) {
           updExistingIt.run(tc.commission_type, tc.commission_value, tc.commission_amount, existingIt.id);
@@ -1586,6 +1616,53 @@ export class SqliteLimsStore implements LimsStore {
     })();
 
     return (await this.getFullInvoice(payload.invoiceId, payload.isAdmin, true))!;
+  }
+
+  async removeInvoiceTest(payload: {
+    invoiceId: number;
+    invoiceTestId: number;
+    isAdmin: boolean;
+  }): Promise<Record<string, unknown>> {
+    const existing = db
+      .prepare(
+        `SELECT i.id, p.name, p.age_years, p.age_months, p.age_days, p.gender, p.mobile, p.address
+         FROM invoices i
+         JOIN patients p ON p.id = i.patient_id
+         WHERE i.id = ?`
+      )
+      .get(payload.invoiceId) as
+      | {
+          id: number;
+          name: string;
+          age_years: number;
+          age_months: number;
+          age_days: number;
+          gender: 'Male' | 'Female' | 'Other';
+          mobile: string;
+          address: string;
+        }
+      | undefined;
+    if (!existing) throw new StoreError(404, 'Invoice not found.');
+
+    const targetTest = db
+      .prepare(`SELECT id FROM invoice_tests WHERE id = ? AND invoice_id = ?`)
+      .get(payload.invoiceTestId, payload.invoiceId) as { id: number } | undefined;
+    if (!targetTest) throw new StoreError(404, 'Invoice test item not found.');
+
+    return this.updateInvoice({
+      invoiceId: payload.invoiceId,
+      isAdmin: payload.isAdmin,
+      patient: {
+        name: existing.name,
+        ageYears: existing.age_years,
+        ageMonths: existing.age_months,
+        ageDays: existing.age_days,
+        gender: existing.gender,
+        mobile: existing.mobile,
+        address: existing.address,
+      },
+      removeInvoiceTestIds: [payload.invoiceTestId],
+    });
   }
 
   async addDuePayment(payload: {

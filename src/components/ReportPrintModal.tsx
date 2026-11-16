@@ -480,19 +480,22 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     return segments;
   };
 
-  // Reserve exact vertical clearance at bottom of EVERY printed page so overflowing tables break cleanly above fixed footer
-  const printFooterReserveHeight = portalMode
-    ? 'calc(1.06in + 8mm)'
-    : `calc(1.02in + ${bottomMarginIn}in)`;
+  // Reserve exact vertical clearance above the fixed signature footer on EVERY printed page
+  // (Pad top/bottom blank margins are applied via scoped @page margins so <thead>/<tfoot> stay compact and always repeat)
+  const printFooterReserveHeight = portalMode ? '1.08in' : '1.04in';
 
   return (
     <div
       className={
         inlinePageMode
-          ? 'w-full min-h-screen bg-white flex flex-col items-center px-3 py-4 sm:p-6 print:block print:min-h-0 print:p-0 print:bg-white'
-          : 'fixed inset-0 z-50 bg-white overflow-y-auto px-3 py-4 sm:p-6 flex flex-col items-center print:block print:static print:inset-auto print:h-auto print:min-h-0 print:overflow-visible print:p-0 print:bg-white'
+          ? 'print-modal-root w-full min-h-screen bg-white flex flex-col items-center px-3 py-4 sm:p-6'
+          : 'print-modal-root fixed inset-0 z-50 bg-white overflow-y-auto px-3 py-4 sm:p-6 flex flex-col items-center'
       }
     >
+      {/* Dynamic A4 @page margins scoped to this report modal so Pre-Printed Pad or Digital Letterhead margins apply to EVERY printed page */}
+      <style>{`@media print { @page { size: A4 portrait; margin: ${
+        portalMode ? '8mm 12mm 8mm 12mm' : `${topMarginIn}in 12mm ${bottomMarginIn}in 12mm`
+      }; } }`}</style>
       {/* Print Controls Toolbar (Hidden on Paper) */}
       <div className="w-full max-w-4xl bg-slate-50/80 border border-slate-200 rounded-xl px-4 py-3 mb-4 space-y-2.5 no-print">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -618,18 +621,18 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
           portalMode ? 'p-4 sm:p-8 print-digital-report' : 'px-4 sm:px-10 py-0 print-report-pad'
         }`}
       >
-        {/* Outer Table Shell: guarantees <thead> (Pad Header + Patient Header + QR) and <tfoot> (Bottom Clearance Spacer) repeat on EVERY printed A4 page */}
+        {/* Outer Table Shell: guarantees <thead> (Patient Header + QR) and <tfoot> (Footer Clearance Spacer) repeat on EVERY printed A4 page */}
         <table className="print-shell-table w-full border-collapse">
           <thead className="print-shell-head">
             <tr>
-              <td className="p-0 align-top">
-                {/* Exact blank top clearance for pre-printed offset pad (repeats on every printed page) */}
+              <td className="p-0 pb-2.5 align-top">
+                {/* Screen preview of blank top clearance for pre-printed offset pad (on print, @page margin-top reserves this on EVERY page) */}
                 {!portalMode && (
                   <div
                     style={{ height: `${topMarginIn}in` }}
-                    className="border-b border-dashed border-slate-300 print:border-none flex items-center justify-center text-xs text-slate-400"
+                    className="no-print border-b border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-400"
                   >
-                    <span className="no-print">
+                    <span>
                       Blank Header Area ({topMarginIn} inch — Reserved for Pre-Printed Offset Pad)
                     </span>
                   </div>
@@ -637,11 +640,11 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
 
                 {/* Full Official Digital Letterhead (Patient Portal / Direct QR Digital PDF Mode only) */}
                 {portalMode && (
-                  <header className="border-b-2 border-black pb-2.5 mb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
+                  <header className="border-b-2 border-black pb-2 mb-1.5 flex flex-col sm:flex-row print:flex-row sm:items-center print:items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2.5">
                       <svg
-                        width="40"
-                        height="40"
+                        width="36"
+                        height="36"
                         viewBox="0 0 46 46"
                         fill="none"
                         xmlns="http://www.w3.org/2000/svg"
@@ -653,22 +656,22 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                         <circle cx="23" cy="23" r="3.5" fill="#000000" />
                       </svg>
                       <div>
-                        <h1 className="text-xl font-bold text-black tracking-tight leading-tight">
+                        <h1 className="text-lg font-bold text-black tracking-tight leading-tight">
                           {settings.lab_name}
                         </h1>
-                        <p className="text-xs text-black">{settings.lab_address}</p>
-                        <p className="text-[11px] font-semibold text-black">
+                        <p className="text-[11px] text-black">{settings.lab_address}</p>
+                        <p className="text-[10.5px] font-semibold text-black">
                           Department of Pathology &amp; Clinical Diagnostics · Digital Verified Report
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 sm:justify-end">
+                    <div className="flex items-center gap-3 sm:justify-end print:justify-end">
                       <div className="text-right">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-black">
+                        <div className="text-[9.5px] font-bold uppercase tracking-wider text-black">
                           Official Test Report
                         </div>
-                        <div className="text-[11px] font-mono font-bold tabular-nums text-black">
+                        <div className="text-[10.5px] font-mono font-bold tabular-nums text-black">
                           {invoice.invoice_no}
                         </div>
                         <VerificationBarcode code={`${invoice.invoice_no}`} />
@@ -678,7 +681,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                 )}
 
                 {/* Modern Borderless Two-Column Patient Info Header + Far-Right Dynamic QR Code (Repeats on EVERY Printed Page) */}
-                <section className="mt-1 mb-2.5 pb-2 border-b border-slate-300 print:border-black/35 bg-white text-black flex flex-col sm:flex-row print:flex-row items-start sm:items-center print:items-center justify-between gap-3 sm:gap-4 print:gap-3.5">
+                <section className="mt-0.5 pb-2 border-b border-slate-300 print:border-black/40 bg-white text-black flex flex-col sm:flex-row print:flex-row items-start sm:items-center print:items-center justify-between gap-3 sm:gap-4 print:gap-3.5">
                   <div className="flex-1 min-w-0 w-full grid grid-cols-1 sm:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] print:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] gap-x-5 print:gap-x-4 gap-y-1.5 text-[11px] leading-[1.35]">
                     {/* Left Column: Patient Name, Age/Sex, ID/Invoice No, Specimen */}
                     <div className="space-y-1 min-w-0">
@@ -1206,13 +1209,13 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
             </div>
           )}
 
-          {/* Exact blank bottom clearance for pre-printed offset pad */}
+          {/* Screen preview of blank bottom clearance for pre-printed offset pad (on print, @page margin-bottom reserves this on EVERY page) */}
           {!portalMode && (
             <div
               style={{ height: `${bottomMarginIn}in` }}
-              className="mt-1.5 border-t border-dashed border-slate-300 print:border-none flex items-center justify-center text-[11px] text-slate-400"
+              className="no-print mt-1.5 border-t border-dashed border-slate-300 flex items-center justify-center text-[11px] text-slate-400"
             >
-              <span className="no-print">
+              <span>
                 Blank Footer Area ({bottomMarginIn} inch — Reserved for Pre-Printed Offset Pad)
               </span>
             </div>

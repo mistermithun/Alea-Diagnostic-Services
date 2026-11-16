@@ -2876,6 +2876,36 @@ export class MongoLimsStore implements LimsStore {
       }
     }
 
+    const hbMeta = findMetaByName((n) => n === 'hemoglobin (hb)' || n === 'hemoglobin' || n === 'hb' || (n.includes('hemoglobin') && !n.includes('hba1c') && !n.includes('glycated') && !n.includes('occult')));
+    const pcvMeta = findMetaByName((n) => /\bpcv\b/.test(n) || /\bhct\b/.test(n) || n.includes('packed cell volume') || n.includes('hematocrit'));
+    const rbcMeta = findMetaByName((n) => (n.includes('total rbc') || /\brbc\b/.test(n)) && !n.includes('urine'));
+    const mcvMeta = findMetaByName((n) => /\bmcv\b/.test(n) || n.includes('mean corpuscular volume'));
+    const mchMeta = findMetaByName((n) => (/\bmch\b/.test(n) || (n.includes('mean corpuscular hemoglobin') && !n.includes('concentration'))) && !n.includes('mchc'));
+    const mchcMeta = findMetaByName((n) => /\bmchc\b/.test(n) || n.includes('mean corpuscular hemoglobin concentration'));
+
+    if (hbMeta || pcvMeta || rbcMeta) {
+      const parseNum = (meta?: { parameter_id: number }) => {
+        if (!meta) return Number.NaN;
+        const raw = (submittedMap.get(meta.parameter_id) || '').replace(/,/g, '').trim();
+        if (!raw) return Number.NaN;
+        const val = Number(raw);
+        return Number.isFinite(val) ? val : Number.NaN;
+      };
+      const hbNum = parseNum(hbMeta);
+      const pcvNum = parseNum(pcvMeta);
+      const rbcNum = parseNum(rbcMeta);
+
+      if (mcvMeta && !(submittedMap.get(mcvMeta.parameter_id) || '').trim() && Number.isFinite(pcvNum) && pcvNum > 0 && Number.isFinite(rbcNum) && rbcNum > 0) {
+        submittedMap.set(mcvMeta.parameter_id, String(Math.round(((pcvNum * 10) / rbcNum) * 100) / 100));
+      }
+      if (mchMeta && !(submittedMap.get(mchMeta.parameter_id) || '').trim() && Number.isFinite(hbNum) && hbNum > 0 && Number.isFinite(rbcNum) && rbcNum > 0) {
+        submittedMap.set(mchMeta.parameter_id, String(Math.round(((hbNum * 10) / rbcNum) * 100) / 100));
+      }
+      if (mchcMeta && !(submittedMap.get(mchcMeta.parameter_id) || '').trim() && Number.isFinite(hbNum) && hbNum > 0 && Number.isFinite(pcvNum) && pcvNum > 0) {
+        submittedMap.set(mchcMeta.parameter_id, String(Math.round(((hbNum / pcvNum) * 100) * 100) / 100));
+      }
+    }
+
     const diffMeta = testResultMeta.filter((m) => {
       const n = m.parameter_name.toLowerCase();
       return (

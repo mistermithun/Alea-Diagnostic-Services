@@ -23,6 +23,67 @@ function isCirculatingEosinophilParam(name: string): boolean {
   return name.toLowerCase().includes('circulating eosinophil');
 }
 
+function isHemoglobinParam(name: string): boolean {
+  const n = name.toLowerCase().trim();
+  return (
+    n === 'hemoglobin (hb)' ||
+    n === 'hemoglobin' ||
+    n === 'hb' ||
+    (n.includes('hemoglobin') &&
+      !n.includes('hba1c') &&
+      !n.includes('glycated') &&
+      !n.includes('occult'))
+  );
+}
+
+function isPcvParam(name: string): boolean {
+  const n = name.toLowerCase().trim();
+  return (
+    /\bpcv\b/.test(n) ||
+    /\bhct\b/.test(n) ||
+    n.includes('packed cell volume') ||
+    n.includes('hematocrit')
+  );
+}
+
+function isTotalRbcParam(name: string): boolean {
+  const n = name.toLowerCase().trim();
+  return (
+    n.includes('total rbc') ||
+    /\brbc\b/.test(n)
+  ) && !n.includes('urine');
+}
+
+function isMcvParam(name: string): boolean {
+  const n = name.toLowerCase().trim();
+  return /\bmcv\b/.test(n) || n.includes('mean corpuscular volume');
+}
+
+function isMchParam(name: string): boolean {
+  const n = name.toLowerCase().trim();
+  return (
+    (/\bmch\b/.test(n) ||
+      (n.includes('mean corpuscular hemoglobin') && !n.includes('concentration'))) &&
+    !n.includes('mchc')
+  );
+}
+
+function isMchcParam(name: string): boolean {
+  const n = name.toLowerCase().trim();
+  return /\bmchc\b/.test(n) || n.includes('mean corpuscular hemoglobin concentration');
+}
+
+function parseNumericInput(rawValue: string | undefined): number {
+  const cleaned = (rawValue ?? '').replace(/,/g, '').trim();
+  if (!cleaned) return Number.NaN;
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : Number.NaN;
+}
+
+function roundToTwoDecimals(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
 function isDifferentialParam(name: string): boolean {
   const n = name.toLowerCase();
   return (
@@ -36,24 +97,86 @@ function isDifferentialParam(name: string): boolean {
 
 function applyCbcAutoCalculations(
   rows: TestResultRow[],
-  map: Record<number, string>
+  map: Record<number, string>,
+  changedParameterId?: number
 ): Record<number, string> {
+  const next = { ...map };
+
   const wbcRow = rows.find((r) => isTotalWbcParam(r.parameter_name));
   const eosRow = rows.find((r) => isDiffEosinophilParam(r.parameter_name));
   const circEosRow = rows.find((r) => isCirculatingEosinophilParam(r.parameter_name));
-  if (!wbcRow || !eosRow || !circEosRow) return map;
 
-  const wbcRaw = (map[wbcRow.parameter_id] ?? '').replace(/,/g, '').trim();
-  const eosRaw = (map[eosRow.parameter_id] ?? '').replace(/,/g, '').trim();
-  const wbc = wbcRaw === '' ? Number.NaN : Number(wbcRaw);
-  const eos = eosRaw === '' ? Number.NaN : Number(eosRaw);
+  if (wbcRow && eosRow && circEosRow) {
+    const wbc = parseNumericInput(next[wbcRow.parameter_id]);
+    const eos = parseNumericInput(next[eosRow.parameter_id]);
 
-  const next = { ...map };
-  if (Number.isFinite(wbc) && Number.isFinite(eos) && wbc >= 0 && eos >= 0) {
-    next[circEosRow.parameter_id] = String(Math.round(((wbc * eos) / 100) * 100) / 100);
-  } else {
-    next[circEosRow.parameter_id] = '';
+    if (Number.isFinite(wbc) && Number.isFinite(eos) && wbc >= 0 && eos >= 0) {
+      next[circEosRow.parameter_id] = roundToTwoDecimals((wbc * eos) / 100);
+    } else {
+      next[circEosRow.parameter_id] = '';
+    }
   }
+
+  // Real-time RBC Indices: MCV, MCH, MCHC from Hemoglobin (Hb), PCV / HCT, Total RBC Count
+  const hbRow = rows.find((r) => isHemoglobinParam(r.parameter_name));
+  const pcvRow = rows.find((r) => isPcvParam(r.parameter_name));
+  const rbcRow = rows.find((r) => isTotalRbcParam(r.parameter_name));
+  const mcvRow = rows.find((r) => isMcvParam(r.parameter_name));
+  const mchRow = rows.find((r) => isMchParam(r.parameter_name));
+  const mchcRow = rows.find((r) => isMchcParam(r.parameter_name));
+
+  const isSourceChange =
+    changedParameterId === undefined ||
+    changedParameterId === hbRow?.parameter_id ||
+    changedParameterId === pcvRow?.parameter_id ||
+    changedParameterId === rbcRow?.parameter_id;
+
+  if (isSourceChange) {
+    const hb = hbRow ? parseNumericInput(next[hbRow.parameter_id]) : Number.NaN;
+    const pcv = pcvRow ? parseNumericInput(next[pcvRow.parameter_id]) : Number.NaN;
+    const rbc = rbcRow ? parseNumericInput(next[rbcRow.parameter_id]) : Number.NaN;
+
+    const hasHb = Number.isFinite(hb) && hb > 0;
+    const hasPcv = Number.isFinite(pcv) && pcv > 0;
+    const hasRbc = Number.isFinite(rbc) && rbc > 0;
+
+    // 1. MCV (fL) = (PCV * 10) / Total RBC count
+    if (mcvRow && pcvRow && rbcRow) {
+      const hasExistingMcv = Boolean((next[mcvRow.parameter_id] ?? '').trim());
+      if (hasPcv && hasRbc) {
+        if (changedParameterId !== undefined || !hasExistingMcv) {
+          next[mcvRow.parameter_id] = roundToTwoDecimals((pcv * 10) / rbc);
+        }
+      } else if (changedParameterId !== undefined || !hasExistingMcv) {
+        next[mcvRow.parameter_id] = '';
+      }
+    }
+
+    // 2. MCH (pg) = (Hemoglobin * 10) / Total RBC Count
+    if (mchRow && hbRow && rbcRow) {
+      const hasExistingMch = Boolean((next[mchRow.parameter_id] ?? '').trim());
+      if (hasHb && hasRbc) {
+        if (changedParameterId !== undefined || !hasExistingMch) {
+          next[mchRow.parameter_id] = roundToTwoDecimals((hb * 10) / rbc);
+        }
+      } else if (changedParameterId !== undefined || !hasExistingMch) {
+        next[mchRow.parameter_id] = '';
+      }
+    }
+
+    // 3. MCHC (g/dL) = (Hemoglobin / PCV) * 100
+    if (mchcRow && hbRow && pcvRow) {
+      const hasExistingMchc = Boolean((next[mchcRow.parameter_id] ?? '').trim());
+      if (hasHb && hasPcv) {
+        if (changedParameterId !== undefined || !hasExistingMchc) {
+          next[mchcRow.parameter_id] = roundToTwoDecimals((hb / pcv) * 100);
+        }
+      } else if (changedParameterId !== undefined || !hasExistingMchc) {
+        next[mchcRow.parameter_id] = '';
+      }
+    }
+  }
+
   return next;
 }
 
@@ -126,7 +249,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
   const handleValueChange = (parameterId: number, nextValue: string) => {
     setValuesMap((prev) => {
       const updated = { ...prev, [parameterId]: nextValue };
-      return applyCbcAutoCalculations(results, updated);
+      return applyCbcAutoCalculations(results, updated, parameterId);
     });
   };
 
@@ -393,6 +516,18 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
                       );
                       const isAbnormal = val.trim() !== '' && liveFlag !== 'Normal';
                       const isAutoCircEos = isCirculatingEosinophilParam(r.parameter_name);
+                      const isAutoMcv = isMcvParam(r.parameter_name);
+                      const isAutoMch = isMchParam(r.parameter_name);
+                      const isAutoMchc = isMchcParam(r.parameter_name);
+                      const autoFormulaLabel = isAutoCircEos
+                        ? 'Auto-calculated: (Total WBC × Eosinophils) ÷ 100'
+                        : isAutoMcv
+                        ? 'Auto-calculated: (PCV × 10) ÷ Total RBC'
+                        : isAutoMch
+                        ? 'Auto-calculated: (Hb × 10) ÷ Total RBC'
+                        : isAutoMchc
+                        ? 'Auto-calculated: (Hb ÷ PCV) × 100'
+                        : '';
                       const options = (r.select_options || '')
                         .split(',')
                         .map((o) => o.trim())
@@ -402,9 +537,9 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
                         <tr key={r.id}>
                           <td className="py-2.5 pr-3 font-medium text-slate-900">
                             <div>{r.parameter_name}</div>
-                            {isAutoCircEos && (
+                            {autoFormulaLabel && (
                               <div className="text-[11px] font-normal text-teal-700">
-                                Auto-calculated: (Total WBC × Eosinophils) ÷ 100
+                                {autoFormulaLabel}
                               </div>
                             )}
                           </td>
@@ -440,12 +575,22 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
                             ) : (
                               <input
                                 type="text"
+                                inputMode={r.input_type === 'numeric' ? 'decimal' : 'text'}
                                 value={val}
                                 onChange={(e) => handleValueChange(r.parameter_id, e.target.value)}
-                                placeholder={r.input_type === 'numeric' ? '0.0' : 'Enter value'}
+                                placeholder={
+                                  autoFormulaLabel
+                                    ? 'Auto-calculated'
+                                    : r.input_type === 'numeric'
+                                    ? '0.0'
+                                    : 'Enter value'
+                                }
+                                title={autoFormulaLabel || undefined}
                                 className={`w-full px-2.5 py-1.5 text-sm font-mono tabular-nums border rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600 ${
                                   isAbnormal
                                     ? 'border-red-400 bg-red-50/40 text-red-600 font-bold'
+                                    : autoFormulaLabel
+                                    ? 'border-slate-300 bg-teal-50/30 text-slate-900 font-semibold'
                                     : 'border-slate-300 text-slate-900'
                                 }`}
                               />

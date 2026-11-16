@@ -10,10 +10,12 @@ import {
 } from 'lucide-react';
 import { apiFetch, evaluateClientFlag, formatAge, formatDateTime } from '../lib/api.ts';
 import type { FullInvoice, LabQueueItem, LabSettings, TestResultRow } from '../types.ts';
+import { SampleTimerControl } from './SampleTimerControl.tsx';
 
 interface LabResultsViewProps {
   settings: LabSettings;
   onOpenReport: (invoiceId: number, focusTestId?: number) => void;
+  targetPatient?: { invoiceId: number; testName?: string; nonce: number } | null;
 }
 
 interface PatientQueueGroup {
@@ -242,7 +244,11 @@ function getStatusTextClass(status: LabQueueItem['status']): string {
   }
 }
 
-export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpenReport }) => {
+export const LabResultsView: React.FC<LabResultsViewProps> = ({
+  settings,
+  onOpenReport,
+  targetPatient,
+}) => {
   const [statusFilter, setStatusFilter] = useState<string>('Pending');
   const [search, setSearch] = useState('');
   const [queue, setQueue] = useState<LabQueueItem[]>([]);
@@ -485,6 +491,90 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
       }
     }
   };
+
+  useEffect(() => {
+    if (!targetPatient) return;
+    let cancelled = false;
+
+    const loadTargetedPatient = async () => {
+      setMessage('');
+      setError('');
+      setActiveInvoiceId(targetPatient.invoiceId);
+      setLoadingSubTest(true);
+      try {
+        const fullInv = await apiFetch<FullInvoice>(`/api/invoices/${targetPatient.invoiceId}`);
+        if (cancelled) return;
+
+        const mergedSubTests: LabQueueItem[] = fullInv.tests.map((t) => ({
+          ...t,
+          invoice_no: fullInv.invoice.invoice_no,
+          invoice_date: fullInv.invoice.created_at,
+          patient_uid: fullInv.invoice.patient_uid,
+          patient_name: fullInv.invoice.patient_name,
+          age_years: fullInv.invoice.age_years,
+          age_months: fullInv.invoice.age_months,
+          age_days: fullInv.invoice.age_days,
+          gender: fullInv.invoice.gender,
+          patient_mobile: fullInv.invoice.patient_mobile,
+          doctor_name: fullInv.invoice.doctor_name,
+          total_params: t.results?.length ?? 0,
+          filled_params: t.results
+            ? t.results.filter((r) => (r.result_value || '').trim() !== '').length
+            : 0,
+          abnormal_count: t.results
+            ? t.results.filter(
+                (r) => (r.result_value || '').trim() !== '' && r.flag && r.flag !== 'Normal'
+              ).length
+            : 0,
+        }));
+
+        setPatientHeader({
+          invoice_id: fullInv.invoice.id,
+          invoice_no: fullInv.invoice.invoice_no,
+          patient_uid: fullInv.invoice.patient_uid,
+          patient_name: fullInv.invoice.patient_name,
+          age_years: fullInv.invoice.age_years,
+          age_months: fullInv.invoice.age_months,
+          age_days: fullInv.invoice.age_days,
+          gender: fullInv.invoice.gender,
+          patient_mobile: fullInv.invoice.patient_mobile,
+          doctor_name: fullInv.invoice.doctor_name,
+          doctor_degree: fullInv.invoice.doctor_degree,
+        });
+        setSubTests(mergedSubTests);
+        setDraftsByTestId({});
+
+        const normalizedTarget = targetPatient.testName?.trim().toLowerCase();
+        const chosenTest =
+          (normalizedTarget
+            ? mergedSubTests.find((t) => t.test_name.toLowerCase() === normalizedTarget)
+            : undefined) ||
+          mergedSubTests.find((t) => t.status !== 'Ready') ||
+          mergedSubTests[0];
+
+        if (chosenTest) {
+          setActiveSubTestId(chosenTest.id);
+          const res = await apiFetch<{ item: LabQueueItem; results: TestResultRow[] }>(
+            `/api/lab-tests/${chosenTest.id}`
+          );
+          if (cancelled) return;
+          const draft = buildInitialDraft(res.item, res.results);
+          setDraftsByTestId({ [chosenTest.id]: draft });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to open patient workspace.');
+        }
+      } finally {
+        if (!cancelled) setLoadingSubTest(false);
+      }
+    };
+
+    loadTargetedPatient();
+    return () => {
+      cancelled = true;
+    };
+  }, [targetPatient, buildInitialDraft]);
 
   const activeDraft = activeSubTestId ? draftsByTestId[activeSubTestId] || null : null;
   const selectedItem = activeDraft?.item || null;
@@ -730,11 +820,18 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
                 const isSelected = activeInvoiceId === group.invoice_id;
                 const allReady = group.readyCount === group.tests.length && group.tests.length > 0;
                 return (
-                  <button
+                  <div
                     key={group.invoice_id}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => openPatientWorkspace(group)}
-                    className={`w-full text-left p-4 transition-colors flex items-start justify-between gap-3 ${
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openPatientWorkspace(group);
+                      }
+                    }}
+                    className={`w-full text-left p-4 transition-colors flex items-start justify-between gap-3 cursor-pointer ${
                       isSelected ? 'bg-teal-50/80' : 'hover:bg-slate-50'
                     }`}
                   >
@@ -773,6 +870,18 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
                           </span>
                         )}
                       </div>
+
+                      <div className="mt-2">
+                        <SampleTimerControl
+                          compact
+                          alignRight={false}
+                          invoiceId={group.invoice_id}
+                          invoiceNo={group.invoice_no}
+                          patientUid={group.patient_uid}
+                          patientName={group.patient_name}
+                          tests={group.tests}
+                        />
+                      </div>
                     </div>
 
                     <div className="text-right shrink-0">
@@ -795,7 +904,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
                         {formatDateTime(group.latestCollectedAt).split(',')[0]}
                       </div>
                     </div>
-                  </button>
+                  </div>
                 );
               })
             )}
@@ -837,14 +946,24 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({ settings, onOpen
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => onOpenReport(patientHeader.invoice_id)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 whitespace-nowrap shrink-0"
-                >
-                  <FileText className="w-4 h-4" />
-                  Print Combined A4 Report
-                </button>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <SampleTimerControl
+                    invoiceId={patientHeader.invoice_id}
+                    invoiceNo={patientHeader.invoice_no}
+                    patientUid={patientHeader.patient_uid}
+                    patientName={patientHeader.patient_name}
+                    tests={subTests}
+                    defaultTestName={selectedItem?.test_name}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onOpenReport(patientHeader.invoice_id)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 whitespace-nowrap shrink-0"
+                  >
+                    <FileText className="w-4 h-4" />
+                    Print Combined A4 Report
+                  </button>
+                </div>
               </div>
 
               {/* Sub-Tabs Strip for All Tests Ordered for This Patient */}

@@ -4,6 +4,7 @@ import { apiFetch, formatAge, formatBDT, formatDateTime } from '../lib/api.ts';
 import type { DiagnosticTest, Doctor, InvoiceSummary, LabSettings, PatientProfile, TestCategory } from '../types.ts';
 import { DeletePatientConfirmModal } from './DeletePatientConfirmModal.tsx';
 import { EditInvoiceModal } from './EditInvoiceModal.tsx';
+import { SampleTimerControl } from './SampleTimerControl.tsx';
 
 interface PatientBillingViewProps {
   isAdmin: boolean;
@@ -1116,6 +1117,17 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                           )}
                           <div className="font-mono tabular-nums text-[11px] text-slate-500">
                             {inv.ready_tests ?? 0}/{inv.total_tests ?? 0} Ready
+                          </div>
+                          <div className="mt-1.5">
+                            <SampleTimerControl
+                              compact
+                              alignRight={false}
+                              invoiceId={inv.id}
+                              invoiceNo={inv.invoice_no}
+                              patientUid={inv.patient_uid}
+                              patientName={inv.patient_name}
+                              tests={inv.test_items}
+                            />
                           </div>
                         </td>
                         <td className="py-3 pr-3 text-right font-mono tabular-nums text-xs">

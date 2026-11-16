@@ -20,6 +20,7 @@ import type {
   StaffOverviewPatientGroup,
 } from '../types.ts';
 import { DeletePatientConfirmModal } from './DeletePatientConfirmModal.tsx';
+import { SampleTimerControl } from './SampleTimerControl.tsx';
 
 function getTestStatusDotClass(status: string): string {
   switch (status) {
@@ -430,6 +431,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <th className="py-2 pr-3 font-medium">Invoice</th>
                     <th className="py-2 pr-3 font-medium">Patient</th>
                     <th className="py-2 pr-3 font-medium">Ordered Tests</th>
+                    <th className="py-2 pr-3 font-medium">Sample Timer</th>
                     <th className="py-2 pr-3 font-medium text-right">Net Bill</th>
                     <th className="py-2 pr-3 font-medium text-right">Due</th>
                     <th className="py-2 pr-3 font-medium">Status</th>
@@ -467,6 +469,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         ) : (
                           <span className="text-xs text-slate-400">—</span>
                         )}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <SampleTimerControl
+                          compact
+                          alignRight={false}
+                          invoiceId={inv.id}
+                          invoiceNo={inv.invoice_no}
+                          patientUid={inv.patient_uid}
+                          patientName={inv.patient_name}
+                          tests={inv.test_items}
+                        />
                       </td>
                       <td className="py-2.5 pr-3 text-right font-mono tabular-nums font-medium whitespace-nowrap">
                         {formatBDT(inv.net_total)}
@@ -594,6 +607,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <th className="py-2 pr-3 font-medium">Invoice / ID</th>
                   <th className="py-2 pr-3 font-medium">Patient</th>
                   <th className="py-2 pr-3 font-medium">Ordered Tests</th>
+                  <th className="py-2 pr-3 font-medium">Sample Timer</th>
                   <th className="py-2 pr-3 font-medium">Collected</th>
                   <th className="py-2 font-medium text-right">Status</th>
                 </tr>
@@ -601,7 +615,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <tbody className="divide-y divide-slate-200">
                 {groupedSampleQueue.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
+                    <td colSpan={6} className="py-8 text-center text-sm text-slate-500">
                       No active sample queue entries yet.
                     </td>
                   </tr>
@@ -636,6 +650,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           <div className="text-[11px] text-slate-500 mt-1">
                             {group.total_tests} {group.total_tests === 1 ? 'test' : 'tests'}
                           </div>
+                        </td>
+                        <td className="py-3 pr-3">
+                          <SampleTimerControl
+                            compact
+                            alignRight={false}
+                            invoiceId={group.invoice_id}
+                            invoiceNo={group.invoice_no}
+                            patientUid={group.patient_uid}
+                            patientName={group.patient_name}
+                            tests={group.tests}
+                          />
                         </td>
                         <td className="py-3 pr-3 font-mono tabular-nums text-xs text-slate-600 whitespace-nowrap">
                           {formatDateTime(group.latest_collected_at)}

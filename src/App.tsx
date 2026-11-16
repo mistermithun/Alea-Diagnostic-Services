@@ -41,6 +41,11 @@ import {
   resolvePublicBaseUrl,
   setPatientToken,
 } from './lib/api.ts';
+import {
+  SampleTimerNotificationTray,
+  SampleTimerProvider,
+  TopBarTimerSummary,
+} from './lib/sampleTimers.tsx';
 import type { FullInvoice, LabSettings, NavTab, SystemInfo } from './types.ts';
 
 type AppRoute =
@@ -195,6 +200,16 @@ export default function App() {
 
   const [receiptModalData, setReceiptModalData] = useState<FullInvoice | null>(null);
   const [reportModalData, setReportModalData] = useState<{ data: FullInvoice; focusTestId?: number } | null>(null);
+  const [labTargetPatient, setLabTargetPatient] = useState<{
+    invoiceId: number;
+    testName?: string;
+    nonce: number;
+  } | null>(null);
+
+  const handleOpenLabForPatient = useCallback((invoiceId: number, testName?: string) => {
+    setLabTargetPatient({ invoiceId, testName, nonce: Date.now() });
+    setActiveTab('lab');
+  }, []);
 
   const navigateTo = useCallback((nextRoute: AppRoute, replace = false) => {
     const targetPath = pathForRoute(nextRoute);
@@ -587,7 +602,8 @@ export default function App() {
   const resolvedTab = activeNavMeta.id;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col lg:flex-row print:block print:min-h-0 print:h-auto print:bg-white">
+    <SampleTimerProvider onOpenLabForPatient={handleOpenLabForPatient}>
+      <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col lg:flex-row print:block print:min-h-0 print:h-auto print:bg-white">
       {/* Mobile Drawer Backdrop */}
       {mobileMenuOpen && (
         <div
@@ -727,6 +743,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0">
+            <TopBarTimerSummary />
             <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 border border-slate-200 rounded-lg whitespace-nowrap shrink-0">
               {isAdmin ? (
                 <>
@@ -786,6 +803,7 @@ export default function App() {
           {resolvedTab === 'lab' && (
             <LabResultsView
               settings={settings}
+              targetPatient={labTargetPatient}
               onOpenReport={(invId, testId) => handleOpenReport(invId, testId)}
             />
           )}
@@ -836,6 +854,9 @@ export default function App() {
         portalMode={false}
         onClose={() => setReportModalData(null)}
       />
+
+      <SampleTimerNotificationTray />
     </div>
+    </SampleTimerProvider>
   );
 }

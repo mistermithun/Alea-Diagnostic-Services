@@ -1155,7 +1155,7 @@ export class MongoLimsStore implements LimsStore {
       verifiedCount,
       readyReportsCount,
       dueInvoicesCount,
-      recentItems,
+      recentInvs,
     ] = await Promise.all([
       this.invoicesCol.countDocuments({ created_at: { $gte: today, $lte: `${today}\uffff` } }),
       this.invoiceTestsCol.countDocuments({ status: 'Sample Collected' }),
@@ -1166,37 +1166,87 @@ export class MongoLimsStore implements LimsStore {
         collected_at: { $gte: today, $lte: `${today}\uffff` },
       }),
       this.invoicesCol.countDocuments({ due_amount: { $gt: 0 } }),
-      this.invoiceTestsCol
+      this.invoicesCol
         .find({}, { projection: { _id: 0 } })
         .sort({ id: -1 })
-        .limit(10)
+        .limit(12)
         .toArray(),
     ]);
 
-    const invIds = Array.from(new Set(recentItems.map((it) => it.invoice_id)));
-    const invs = await this.invoicesCol.find({ id: { $in: invIds } }).toArray();
-    const invMap = new Map(invs.map((i) => [i.id, i]));
-    const patIds = Array.from(new Set(invs.map((i) => i.patient_id)));
-    const pats = await this.patientsCol.find({ id: { $in: patIds } }).toArray();
-    const patMap = new Map(pats.map((p) => [p.id, p]));
+    const invIds = recentInvs.map((i) => i.id);
+    const patIds = Array.from(new Set(recentInvs.map((i) => i.patient_id)));
+    const docIds = Array.from(
+      new Set(recentInvs.map((i) => i.doctor_id).filter((id): id is number => id !== null))
+    );
 
-    const recentQueue = recentItems.map((it) => {
-      const inv = invMap.get(it.invoice_id);
-      const pat = inv ? patMap.get(inv.patient_id) : undefined;
+    const [pats, docs, invTests] = await Promise.all([
+      patIds.length > 0 ? this.patientsCol.find({ id: { $in: patIds } }).toArray() : Promise.resolve([]),
+      docIds.length > 0 ? this.doctorsCol.find({ id: { $in: docIds } }).toArray() : Promise.resolve([]),
+      invIds.length > 0
+        ? this.invoiceTestsCol.find({ invoice_id: { $in: invIds } }, { projection: { _id: 0 } }).sort({ id: 1 }).toArray()
+        : Promise.resolve([]),
+    ]);
+
+    const patMap = new Map(pats.map((p) => [p.id, p]));
+    const docMap = new Map(docs.map((d) => [d.id, d]));
+    const testsByInv = new Map<number, typeof invTests>();
+    for (const it of invTests) {
+      const list = testsByInv.get(it.invoice_id) || [];
+      list.push(it);
+      testsByInv.set(it.invoice_id, list);
+    }
+
+    const recentPatientQueue = recentInvs.map((inv) => {
+      const pat = patMap.get(inv.patient_id);
+      const doc = inv.doctor_id ? docMap.get(inv.doctor_id) : undefined;
+      const items = testsByInv.get(inv.id) || [];
+      const readyCount = items.filter((t) => t.status === 'Ready').length;
+      const latestCollectedAt =
+        items.reduce((latest, t) => (!latest || (t.collected_at && t.collected_at > latest) ? t.collected_at : latest), '') ||
+        inv.created_at;
+
       return {
+        invoice_id: inv.id,
+        invoice_no: inv.invoice_no,
+        created_at: inv.created_at,
+        patient_uid: pat?.patient_uid || '',
+        patient_name: pat?.name || '',
+        age_years: pat?.age_years || 0,
+        age_months: pat?.age_months || 0,
+        age_days: pat?.age_days || 0,
+        gender: pat?.gender || 'Male',
+        patient_mobile: pat?.mobile || '',
+        doctor_name: doc?.name || '',
+        latest_collected_at: latestCollectedAt,
+        ready_count: readyCount,
+        total_tests: items.length,
+        tests: items.map((it) => ({
+          id: it.id,
+          test_name: it.test_name,
+          category_name: it.category_name,
+          status: it.status,
+          collected_at: it.collected_at,
+        })),
+      };
+    });
+
+    const recentQueue = recentPatientQueue.flatMap((grp) =>
+      grp.tests.map((it) => ({
         id: it.id,
         test_name: it.test_name,
         category_name: it.category_name,
         status: it.status,
         collected_at: it.collected_at,
-        invoice_id: inv?.id || 0,
-        invoice_no: inv?.invoice_no || '',
-        patient_uid: pat?.patient_uid || '',
-        patient_name: pat?.name || '',
-        gender: pat?.gender || '',
-        age_years: pat?.age_years || 0,
-      };
-    });
+        invoice_id: grp.invoice_id,
+        invoice_no: grp.invoice_no,
+        patient_uid: grp.patient_uid,
+        patient_name: grp.patient_name,
+        gender: grp.gender,
+        age_years: grp.age_years,
+        age_months: grp.age_months,
+        age_days: grp.age_days,
+      }))
+    );
 
     return {
       todayPatients,
@@ -1206,6 +1256,7 @@ export class MongoLimsStore implements LimsStore {
       pendingTestsCount: sampleCollectedCount + processingCount + verifiedCount,
       readyReportsCount,
       dueInvoicesCount,
+      recentPatientQueue,
       recentQueue,
     };
   }
@@ -1279,22 +1330,40 @@ export class MongoLimsStore implements LimsStore {
 
     const recentPatIds = Array.from(new Set(recentInvDocs.map((i) => i.patient_id)));
     const recentDocIds = Array.from(new Set(recentInvDocs.map((i) => i.doctor_id).filter((id): id is number => id !== null)));
-    const [pats, docs] = await Promise.all([
+    const recentInvIds = recentInvDocs.map((i) => i.id);
+    const [pats, docs, recentInvTests] = await Promise.all([
       this.patientsCol.find({ id: { $in: recentPatIds } }).toArray(),
       recentDocIds.length > 0 ? this.doctorsCol.find({ id: { $in: recentDocIds } }).toArray() : Promise.resolve([]),
+      recentInvIds.length > 0
+        ? this.invoiceTestsCol.find({ invoice_id: { $in: recentInvIds } }, { projection: { _id: 0 } }).sort({ id: 1 }).toArray()
+        : Promise.resolve([]),
     ]);
     const patMap = new Map(pats.map((p) => [p.id, p]));
     const docMap = new Map(docs.map((d) => [d.id, d]));
+    const recentTestsByInv = new Map<number, Array<{ id: number; test_name: string; category_name: string; status: string }>>();
+    for (const it of recentInvTests) {
+      const arr = recentTestsByInv.get(it.invoice_id) || [];
+      arr.push({ id: it.id, test_name: it.test_name, category_name: it.category_name, status: it.status });
+      recentTestsByInv.set(it.invoice_id, arr);
+    }
 
     const recentInvoices = recentInvDocs.map((inv) => {
       const p = patMap.get(inv.patient_id);
       const d = inv.doctor_id ? docMap.get(inv.doctor_id) : undefined;
+      const items = recentTestsByInv.get(inv.id) || [];
       return {
         ...inv,
         patient_uid: p?.patient_uid || '',
         patient_name: p?.name || '',
+        age_years: p?.age_years || 0,
+        age_months: p?.age_months || 0,
+        age_days: p?.age_days || 0,
+        gender: p?.gender || 'Male',
         patient_mobile: p?.mobile || '',
         doctor_name: d?.name,
+        total_tests: items.length,
+        ready_tests: items.filter((t) => t.status === 'Ready').length,
+        test_items: items,
       };
     });
 
@@ -1975,18 +2044,32 @@ export class MongoLimsStore implements LimsStore {
 
     const patMap = new Map(pats.map((p) => [p.id, p]));
     const docMap = new Map(docs.map((d) => [d.id, d]));
-    const testStats = new Map<number, { total: number; ready: number }>();
-    for (const it of invTests) {
-      const cur = testStats.get(it.invoice_id) || { total: 0, ready: 0 };
+    const testStats = new Map<
+      number,
+      {
+        total: number;
+        ready: number;
+        items: Array<{ id: number; test_name: string; category_name: string; status: string }>;
+      }
+    >();
+    const sortedInvTests = [...invTests].sort((a, b) => a.id - b.id);
+    for (const it of sortedInvTests) {
+      const cur = testStats.get(it.invoice_id) || { total: 0, ready: 0, items: [] };
       cur.total += 1;
       if (it.status === 'Ready') cur.ready += 1;
+      cur.items.push({
+        id: it.id,
+        test_name: it.test_name,
+        category_name: it.category_name,
+        status: it.status,
+      });
       testStats.set(it.invoice_id, cur);
     }
 
     return invoices.map((i) => {
       const p = patMap.get(i.patient_id);
       const d = i.doctor_id ? docMap.get(i.doctor_id) : undefined;
-      const stats = testStats.get(i.id) || { total: 0, ready: 0 };
+      const stats = testStats.get(i.id) || { total: 0, ready: 0, items: [] };
       const out: Record<string, unknown> = {
         id: i.id,
         invoice_no: i.invoice_no,
@@ -2021,6 +2104,7 @@ export class MongoLimsStore implements LimsStore {
         doctor_degree: d?.degree,
         total_tests: stats.total,
         ready_tests: stats.ready,
+        test_items: stats.items,
       };
       if (filters.includeCommission) {
         out.commission_pct = i.commission_pct;

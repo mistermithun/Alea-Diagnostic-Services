@@ -96,6 +96,14 @@ export interface TestCommissionOverride {
   commissionValue: number;
 }
 
+export interface InvoiceTestBadgeItem {
+  id: number;
+  test_name: string;
+  category_name: string;
+  status: 'Sample Collected' | 'Processing' | 'Verified' | 'Ready';
+  collected_at?: string;
+}
+
 export interface InvoiceSummary {
   id: number;
   invoice_no: string;
@@ -134,6 +142,7 @@ export interface InvoiceSummary {
   doctor_hospital?: string;
   total_tests?: number;
   ready_tests?: number;
+  test_items?: InvoiceTestBadgeItem[];
   is_today?: number;
 }
 
@@ -290,6 +299,24 @@ export interface AdminDashboardData {
   recentInvoices: InvoiceSummary[];
 }
 
+export interface StaffOverviewPatientGroup {
+  invoice_id: number;
+  invoice_no: string;
+  created_at: string;
+  patient_uid: string;
+  patient_name: string;
+  age_years: number;
+  age_months: number;
+  age_days: number;
+  gender: 'Male' | 'Female' | 'Other';
+  patient_mobile?: string;
+  doctor_name?: string;
+  latest_collected_at: string;
+  ready_count: number;
+  total_tests: number;
+  tests: InvoiceTestBadgeItem[];
+}
+
 export interface StaffOverviewData {
   todayPatients: number;
   sampleCollectedCount: number;
@@ -298,6 +325,7 @@ export interface StaffOverviewData {
   pendingTestsCount: number;
   readyReportsCount: number;
   dueInvoicesCount: number;
+  recentPatientQueue?: StaffOverviewPatientGroup[];
   recentQueue: Array<{
     id: number;
     test_name: string;
@@ -310,6 +338,8 @@ export interface StaffOverviewData {
     patient_name: string;
     gender: string;
     age_years: number;
+    age_months?: number;
+    age_days?: number;
   }>;
 }
 

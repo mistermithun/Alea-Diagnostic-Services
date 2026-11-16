@@ -137,14 +137,37 @@ export const DueLedgerView: React.FC<DueLedgerViewProps> = ({ onOpenReceipt }) =
                   </tr>
                 ) : (
                   invoices.map((inv) => (
-                    <tr key={inv.id} className="hover:bg-slate-50">
-                      <td className="py-3 pr-3 font-mono tabular-nums text-xs">
+                    <tr key={inv.id} className="hover:bg-slate-50 align-top">
+                      <td className="py-3 pr-3 font-mono tabular-nums text-xs whitespace-nowrap">
                         <div className="font-semibold text-slate-900">{inv.invoice_no}</div>
                         <div className="text-slate-500">{formatDateTime(inv.created_at).split(',')[0]}</div>
                       </td>
                       <td className="py-3 pr-3">
                         <div className="font-medium text-slate-900">{inv.patient_name}</div>
                         <div className="text-xs text-slate-500 font-mono tabular-nums">{inv.patient_mobile || inv.patient_uid}</div>
+                        {inv.test_items && inv.test_items.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {inv.test_items.map((t) => (
+                              <span
+                                key={t.id}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md bg-white border border-slate-200 text-slate-700"
+                              >
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full ${
+                                    t.status === 'Ready'
+                                      ? 'bg-emerald-500'
+                                      : t.status === 'Verified'
+                                      ? 'bg-teal-500'
+                                      : t.status === 'Processing'
+                                      ? 'bg-amber-500'
+                                      : 'bg-slate-400'
+                                  }`}
+                                />
+                                <span className="truncate max-w-[130px]">{t.test_name}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 pr-3 text-right font-mono tabular-nums">
                         {formatBDT(inv.net_total)}
@@ -198,6 +221,30 @@ export const DueLedgerView: React.FC<DueLedgerViewProps> = ({ onOpenReceipt }) =
                   Print Receipt
                 </button>
               </div>
+
+              {selectedInvoice.tests.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedInvoice.tests.map((t) => (
+                    <span
+                      key={t.id}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md bg-slate-50 border border-slate-200 text-slate-700"
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          t.status === 'Ready'
+                            ? 'bg-emerald-500'
+                            : t.status === 'Verified'
+                            ? 'bg-teal-500'
+                            : t.status === 'Processing'
+                            ? 'bg-amber-500'
+                            : 'bg-slate-400'
+                        }`}
+                      />
+                      <span>{t.test_name}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
 
               <div className="grid grid-cols-3 gap-3 text-center p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs">
                 <div>

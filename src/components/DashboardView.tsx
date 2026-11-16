@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
   Calendar,
@@ -10,9 +10,42 @@ import {
   Trash2,
   UserPlus,
 } from 'lucide-react';
-import { apiFetch, formatBDT, formatDateTime, getTodayISO } from '../lib/api.ts';
-import type { AdminDashboardData, InvoiceSummary, LabSettings, NavTab, StaffOverviewData } from '../types.ts';
+import { apiFetch, formatAge, formatBDT, formatDateTime, getTodayISO } from '../lib/api.ts';
+import type {
+  AdminDashboardData,
+  InvoiceSummary,
+  LabSettings,
+  NavTab,
+  StaffOverviewData,
+  StaffOverviewPatientGroup,
+} from '../types.ts';
 import { DeletePatientConfirmModal } from './DeletePatientConfirmModal.tsx';
+
+function getTestStatusDotClass(status: string): string {
+  switch (status) {
+    case 'Ready':
+      return 'bg-emerald-500';
+    case 'Verified':
+      return 'bg-teal-500';
+    case 'Processing':
+      return 'bg-amber-500';
+    default:
+      return 'bg-slate-400';
+  }
+}
+
+function getTestStatusTextClass(status: string): string {
+  switch (status) {
+    case 'Ready':
+      return 'text-emerald-700';
+    case 'Verified':
+      return 'text-teal-700';
+    case 'Processing':
+      return 'text-amber-700';
+    default:
+      return 'text-slate-700';
+  }
+}
 
 interface DashboardViewProps {
   isAdmin: boolean;
@@ -60,6 +93,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const groupedSampleQueue = useMemo<StaffOverviewPatientGroup[]>(() => {
+    if (!staffData) return [];
+    if (Array.isArray(staffData.recentPatientQueue) && staffData.recentPatientQueue.length > 0) {
+      return staffData.recentPatientQueue;
+    }
+    const map = new Map<number, StaffOverviewPatientGroup>();
+    for (const q of staffData.recentQueue || []) {
+      let grp = map.get(q.invoice_id);
+      if (!grp) {
+        grp = {
+          invoice_id: q.invoice_id,
+          invoice_no: q.invoice_no,
+          created_at: q.collected_at,
+          patient_uid: q.patient_uid,
+          patient_name: q.patient_name,
+          age_years: q.age_years || 0,
+          age_months: q.age_months || 0,
+          age_days: q.age_days || 0,
+          gender: (q.gender as 'Male' | 'Female' | 'Other') || 'Male',
+          latest_collected_at: q.collected_at,
+          ready_count: 0,
+          total_tests: 0,
+          tests: [],
+        };
+        map.set(q.invoice_id, grp);
+      }
+      const typedStatus =
+        (q.status as 'Sample Collected' | 'Processing' | 'Verified' | 'Ready') || 'Sample Collected';
+      grp.tests.push({
+        id: q.id,
+        test_name: q.test_name,
+        category_name: q.category_name,
+        status: typedStatus,
+        collected_at: q.collected_at,
+      });
+      grp.total_tests += 1;
+      if (typedStatus === 'Ready') grp.ready_count += 1;
+      if (q.collected_at && q.collected_at > grp.latest_collected_at) {
+        grp.latest_collected_at = q.collected_at;
+      }
+    }
+    return Array.from(map.values());
+  }, [staffData]);
 
   return (
     <div className="space-y-6">
@@ -352,6 +429,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
                     <th className="py-2 pr-3 font-medium">Invoice</th>
                     <th className="py-2 pr-3 font-medium">Patient</th>
+                    <th className="py-2 pr-3 font-medium">Ordered Tests</th>
                     <th className="py-2 pr-3 font-medium text-right">Net Bill</th>
                     <th className="py-2 pr-3 font-medium text-right">Due</th>
                     <th className="py-2 pr-3 font-medium">Status</th>
@@ -360,21 +438,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {adminData.recentInvoices.map((inv) => (
-                    <tr key={inv.id} className="hover:bg-slate-50">
-                      <td className="py-2.5 pr-3 font-mono tabular-nums text-xs font-semibold text-slate-800">
+                    <tr key={inv.id} className="hover:bg-slate-50 align-top">
+                      <td className="py-2.5 pr-3 font-mono tabular-nums text-xs font-semibold text-slate-800 whitespace-nowrap">
                         {inv.invoice_no}
                       </td>
                       <td className="py-2.5 pr-3">
                         <div className="font-medium text-slate-900">{inv.patient_name}</div>
                         <div className="text-xs text-slate-500 font-mono tabular-nums">{inv.patient_uid}</div>
                       </td>
-                      <td className="py-2.5 pr-3 text-right font-mono tabular-nums font-medium">
+                      <td className="py-2.5 pr-3">
+                        {inv.test_items && inv.test_items.length > 0 ? (
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap gap-1">
+                              {inv.test_items.map((t) => (
+                                <span
+                                  key={t.id}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md bg-white border border-slate-200 text-slate-700"
+                                >
+                                  <span className={`w-1.5 h-1.5 rounded-full ${getTestStatusDotClass(t.status)}`} />
+                                  <span className="truncate max-w-[140px]">{t.test_name}</span>
+                                </span>
+                              ))}
+                            </div>
+                            <div className="text-[11px] font-mono tabular-nums text-slate-500">
+                              {inv.ready_tests ?? 0}/{inv.total_tests ?? inv.test_items.length} Ready
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-mono tabular-nums font-medium whitespace-nowrap">
                         {formatBDT(inv.net_total)}
                       </td>
-                      <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-red-700 font-medium">
+                      <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-red-700 font-medium whitespace-nowrap">
                         {inv.due_amount > 0 ? formatBDT(inv.due_amount) : '—'}
                       </td>
-                      <td className="py-2.5 pr-3 text-xs font-semibold">
+                      <td className="py-2.5 pr-3 text-xs font-semibold whitespace-nowrap">
                         <span
                           className={
                             inv.payment_status === 'Paid'
@@ -469,8 +569,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl p-5 overflow-x-auto">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-slate-900">Active Sample & Lab Queue</h2>
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">
+                  Active Sample &amp; Lab Queue ({groupedSampleQueue.length}{' '}
+                  {groupedSampleQueue.length === 1 ? 'patient' : 'patients'})
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Grouped per patient invoice with live test status badges.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => onNavigate('lab')}
@@ -485,48 +593,74 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
                   <th className="py-2 pr-3 font-medium">Invoice / ID</th>
                   <th className="py-2 pr-3 font-medium">Patient</th>
-                  <th className="py-2 pr-3 font-medium">Investigation</th>
+                  <th className="py-2 pr-3 font-medium">Ordered Tests</th>
                   <th className="py-2 pr-3 font-medium">Collected</th>
-                  <th className="py-2 font-medium">Status</th>
+                  <th className="py-2 font-medium text-right">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {staffData.recentQueue.map((q) => (
-                  <tr key={q.id} className="hover:bg-slate-50">
-                    <td className="py-2.5 pr-3 font-mono tabular-nums text-xs">
-                      <div className="font-semibold text-slate-800">{q.invoice_no}</div>
-                      <div className="text-slate-500">{q.patient_uid}</div>
-                    </td>
-                    <td className="py-2.5 pr-3">
-                      <div className="font-medium text-slate-900">{q.patient_name}</div>
-                      <div className="text-xs text-slate-500">
-                        {q.age_years}Y · {q.gender}
-                      </div>
-                    </td>
-                    <td className="py-2.5 pr-3">
-                      <div className="font-medium text-slate-900">{q.test_name}</div>
-                      <div className="text-xs text-slate-500">{q.category_name}</div>
-                    </td>
-                    <td className="py-2.5 pr-3 font-mono tabular-nums text-xs text-slate-600">
-                      {formatDateTime(q.collected_at)}
-                    </td>
-                    <td className="py-2.5 text-xs font-semibold">
-                      <span
-                        className={
-                          q.status === 'Ready'
-                            ? 'text-emerald-700'
-                            : q.status === 'Verified'
-                            ? 'text-teal-700'
-                            : q.status === 'Processing'
-                            ? 'text-amber-700'
-                            : 'text-slate-700'
-                        }
-                      >
-                        {q.status}
-                      </span>
+                {groupedSampleQueue.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
+                      No active sample queue entries yet.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  groupedSampleQueue.map((group) => {
+                    const allReady = group.ready_count === group.total_tests && group.total_tests > 0;
+                    return (
+                      <tr key={group.invoice_id} className="hover:bg-slate-50 align-top">
+                        <td className="py-3 pr-3 font-mono tabular-nums text-xs whitespace-nowrap">
+                          <div className="font-semibold text-slate-900">{group.invoice_no}</div>
+                          <div className="text-slate-500">{group.patient_uid}</div>
+                        </td>
+                        <td className="py-3 pr-3">
+                          <div className="font-semibold text-slate-900">{group.patient_name}</div>
+                          <div className="text-xs text-slate-500">
+                            {formatAge(group.age_years, group.age_months, group.age_days)} · {group.gender}
+                            {group.doctor_name ? ` · ${group.doctor_name}` : ''}
+                          </div>
+                        </td>
+                        <td className="py-3 pr-3">
+                          <div className="flex flex-wrap gap-1.5">
+                            {group.tests.map((t) => (
+                              <span
+                                key={t.id}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md bg-white border border-slate-200 text-slate-700"
+                              >
+                                <span className={`w-1.5 h-1.5 rounded-full ${getTestStatusDotClass(t.status)}`} />
+                                <span className="truncate max-w-[160px]">{t.test_name}</span>
+                              </span>
+                            ))}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-1">
+                            {group.total_tests} {group.total_tests === 1 ? 'test' : 'tests'}
+                          </div>
+                        </td>
+                        <td className="py-3 pr-3 font-mono tabular-nums text-xs text-slate-600 whitespace-nowrap">
+                          {formatDateTime(group.latest_collected_at)}
+                        </td>
+                        <td className="py-3 text-right text-xs font-semibold whitespace-nowrap">
+                          <span
+                            className={
+                              allReady
+                                ? 'text-emerald-700'
+                                : group.tests.length === 1
+                                ? getTestStatusTextClass(group.tests[0].status)
+                                : 'text-amber-700'
+                            }
+                          >
+                            {group.tests.length === 1
+                              ? group.tests[0].status
+                              : allReady
+                              ? 'All Ready'
+                              : `${group.ready_count}/${group.total_tests} Ready`}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>

@@ -111,16 +111,106 @@ export class SqliteLimsStore implements LimsStore {
       db.prepare(`SELECT COUNT(*) as c FROM invoices WHERE due_amount > 0`).get() as { c: number }
     ).c;
 
-    const recentQueue = db
+    const recentInvs = db
       .prepare(
-        `SELECT it.id, it.test_name, it.category_name, it.status, it.collected_at,
-                i.id as invoice_id, i.invoice_no, p.patient_uid, p.name as patient_name, p.gender, p.age_years
-         FROM invoice_tests it
-         JOIN invoices i ON i.id = it.invoice_id
+        `SELECT i.id as invoice_id, i.invoice_no, i.created_at,
+                p.patient_uid, p.name as patient_name, p.age_years, p.age_months, p.age_days, p.gender, p.mobile as patient_mobile,
+                d.name as doctor_name
+         FROM invoices i
          JOIN patients p ON p.id = i.patient_id
-         ORDER BY it.id DESC LIMIT 10`
+         LEFT JOIN doctors d ON d.id = i.doctor_id
+         ORDER BY i.id DESC LIMIT 12`
       )
-      .all();
+      .all() as Array<{
+      invoice_id: number;
+      invoice_no: string;
+      created_at: string;
+      patient_uid: string;
+      patient_name: string;
+      age_years: number;
+      age_months: number;
+      age_days: number;
+      gender: 'Male' | 'Female' | 'Other';
+      patient_mobile: string;
+      doctor_name: string | null;
+    }>;
+
+    const invIds = recentInvs.map((i) => i.invoice_id);
+    const invTests =
+      invIds.length > 0
+        ? (db
+            .prepare(
+              `SELECT id, invoice_id, test_name, category_name, status, collected_at
+               FROM invoice_tests
+               WHERE invoice_id IN (${invIds.map(() => '?').join(',')})
+               ORDER BY id ASC`
+            )
+            .all(...invIds) as Array<{
+            id: number;
+            invoice_id: number;
+            test_name: string;
+            category_name: string;
+            status: 'Sample Collected' | 'Processing' | 'Verified' | 'Ready';
+            collected_at: string;
+          }>)
+        : [];
+
+    const testsByInv = new Map<number, typeof invTests>();
+    for (const it of invTests) {
+      const list = testsByInv.get(it.invoice_id) || [];
+      list.push(it);
+      testsByInv.set(it.invoice_id, list);
+    }
+
+    const recentPatientQueue = recentInvs.map((inv) => {
+      const items = testsByInv.get(inv.invoice_id) || [];
+      const readyCount = items.filter((t) => t.status === 'Ready').length;
+      const latestCollectedAt =
+        items.reduce((latest, t) => (!latest || (t.collected_at && t.collected_at > latest) ? t.collected_at : latest), '') ||
+        inv.created_at;
+
+      return {
+        invoice_id: inv.invoice_id,
+        invoice_no: inv.invoice_no,
+        created_at: inv.created_at,
+        patient_uid: inv.patient_uid,
+        patient_name: inv.patient_name,
+        age_years: inv.age_years || 0,
+        age_months: inv.age_months || 0,
+        age_days: inv.age_days || 0,
+        gender: inv.gender || 'Male',
+        patient_mobile: inv.patient_mobile || '',
+        doctor_name: inv.doctor_name || '',
+        latest_collected_at: latestCollectedAt,
+        ready_count: readyCount,
+        total_tests: items.length,
+        tests: items.map((it) => ({
+          id: it.id,
+          test_name: it.test_name,
+          category_name: it.category_name,
+          status: it.status,
+          collected_at: it.collected_at,
+        })),
+      };
+    });
+
+    const recentQueue = recentPatientQueue.flatMap((grp) =>
+      grp.tests.map((it) => ({
+        id: it.id,
+        test_name: it.test_name,
+        category_name: it.category_name,
+        status: it.status,
+        collected_at: it.collected_at,
+        invoice_id: grp.invoice_id,
+        invoice_no: grp.invoice_no,
+        patient_uid: grp.patient_uid,
+        patient_name: grp.patient_name,
+        gender: grp.gender,
+        age_years: grp.age_years,
+        age_months: grp.age_months,
+        age_days: grp.age_days,
+      }))
+    );
 
     return {
       todayPatients,
@@ -130,6 +220,7 @@ export class SqliteLimsStore implements LimsStore {
       pendingTestsCount: sampleCollectedCount + processingCount + verifiedCount,
       readyReportsCount,
       dueInvoicesCount,
+      recentPatientQueue,
       recentQueue,
     };
   }
@@ -212,16 +303,50 @@ export class SqliteLimsStore implements LimsStore {
       )
       .all(from, to);
 
-    const recentInvoices = db
+    const recentInvoicesRaw = db
       .prepare(
-        `SELECT i.*, p.patient_uid, p.name as patient_name, p.mobile as patient_mobile,
+        `SELECT i.*, p.patient_uid, p.name as patient_name, p.age_years, p.age_months, p.age_days, p.gender, p.mobile as patient_mobile,
                 d.name as doctor_name
          FROM invoices i
          JOIN patients p ON p.id = i.patient_id
          LEFT JOIN doctors d ON d.id = i.doctor_id
          ORDER BY i.id DESC LIMIT 8`
       )
-      .all();
+      .all() as Array<Record<string, unknown> & { id: number }>;
+
+    const recentInvIds = recentInvoicesRaw.map((r) => r.id);
+    const recentTestsByInv = new Map<number, Array<{ id: number; test_name: string; category_name: string; status: string }>>();
+    if (recentInvIds.length > 0) {
+      const recentTestRows = db
+        .prepare(
+          `SELECT id, invoice_id, test_name, category_name, status
+           FROM invoice_tests
+           WHERE invoice_id IN (${recentInvIds.map(() => '?').join(',')})
+           ORDER BY id ASC`
+        )
+        .all(...recentInvIds) as Array<{
+        id: number;
+        invoice_id: number;
+        test_name: string;
+        category_name: string;
+        status: string;
+      }>;
+      for (const tr of recentTestRows) {
+        const list = recentTestsByInv.get(tr.invoice_id) || [];
+        list.push({ id: tr.id, test_name: tr.test_name, category_name: tr.category_name, status: tr.status });
+        recentTestsByInv.set(tr.invoice_id, list);
+      }
+    }
+
+    const recentInvoices = recentInvoicesRaw.map((inv) => {
+      const items = recentTestsByInv.get(inv.id) || [];
+      return {
+        ...inv,
+        total_tests: items.length,
+        ready_tests: items.filter((t) => t.status === 'Ready').length,
+        test_items: items,
+      };
+    });
 
     return {
       from,
@@ -887,7 +1012,7 @@ export class SqliteLimsStore implements LimsStore {
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    return db
+    const rows = db
       .prepare(
         `SELECT i.id, i.invoice_no, i.patient_id, i.doctor_id, i.subtotal, i.discount_type, i.discount_value,
                 i.discount_amount,
@@ -913,7 +1038,36 @@ export class SqliteLimsStore implements LimsStore {
          ORDER BY i.id DESC
          LIMIT 200`
       )
-      .all(...params);
+      .all(...params) as Array<Record<string, unknown> & { id: number }>;
+
+    const invIds = rows.map((r) => r.id);
+    const itemsByInv = new Map<number, Array<{ id: number; test_name: string; category_name: string; status: string }>>();
+    if (invIds.length > 0) {
+      const testRows = db
+        .prepare(
+          `SELECT id, invoice_id, test_name, category_name, status
+           FROM invoice_tests
+           WHERE invoice_id IN (${invIds.map(() => '?').join(',')})
+           ORDER BY id ASC`
+        )
+        .all(...invIds) as Array<{
+        id: number;
+        invoice_id: number;
+        test_name: string;
+        category_name: string;
+        status: string;
+      }>;
+      for (const tr of testRows) {
+        const list = itemsByInv.get(tr.invoice_id) || [];
+        list.push({ id: tr.id, test_name: tr.test_name, category_name: tr.category_name, status: tr.status });
+        itemsByInv.set(tr.invoice_id, list);
+      }
+    }
+
+    return rows.map((r) => ({
+      ...r,
+      test_items: itemsByInv.get(r.id) || [],
+    }));
   }
 
   async searchPatients(q: string): Promise<unknown[]> {

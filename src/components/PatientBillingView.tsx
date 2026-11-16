@@ -1090,8 +1090,33 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                           </div>
                         </td>
                         <td className="py-3 pr-3 text-xs text-slate-700">{inv.doctor_name || 'Self'}</td>
-                        <td className="py-3 pr-3 text-xs font-mono tabular-nums text-slate-700">
-                          {inv.ready_tests ?? 0}/{inv.total_tests ?? 0} Ready
+                        <td className="py-3 pr-3 text-xs text-slate-700">
+                          {inv.test_items && inv.test_items.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-1 max-w-[260px]">
+                              {inv.test_items.map((t) => (
+                                <span
+                                  key={t.id}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md bg-white border border-slate-200 text-slate-700"
+                                >
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                      t.status === 'Ready'
+                                        ? 'bg-emerald-500'
+                                        : t.status === 'Verified'
+                                        ? 'bg-teal-500'
+                                        : t.status === 'Processing'
+                                        ? 'bg-amber-500'
+                                        : 'bg-slate-400'
+                                    }`}
+                                  />
+                                  <span className="truncate max-w-[130px]">{t.test_name}</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <div className="font-mono tabular-nums text-[11px] text-slate-500">
+                            {inv.ready_tests ?? 0}/{inv.total_tests ?? 0} Ready
+                          </div>
                         </td>
                         <td className="py-3 pr-3 text-right font-mono tabular-nums text-xs">
                           {inv.discount_amount > 0 ? (

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Download, FolderOpen, Printer, ShieldCheck, X } from 'lucide-react';
+import { Check, Download, FolderOpen, Layers, Printer, ShieldCheck, X } from 'lucide-react';
 import QRCode from 'qrcode';
 import {
   buildPatientReportQrUrl,
@@ -194,7 +194,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
   onViewAllArchive,
   onClose,
 }) => {
-  const [activeTestId, setActiveTestId] = useState<number | null>(focusTestId ?? null);
+  const [selectedTestIds, setSelectedTestIds] = useState<number[]>([]);
   const [blankConsultantOverride, setBlankConsultantOverride] = useState<boolean>(false);
   const [qrSvgDataUrl, setQrSvgDataUrl] = useState<string>('');
   const portalWebsiteUrl = resolvePublicBaseUrl(publicBaseUrl);
@@ -204,34 +204,37 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
 
   useEffect(() => {
     if (!data) {
-      setActiveTestId(null);
+      setSelectedTestIds([]);
       setBlankConsultantOverride(false);
       return;
     }
     if (focusTestId && data.tests.some((t) => t.id === focusTestId)) {
-      setActiveTestId(focusTestId);
+      setSelectedTestIds([focusTestId]);
     } else {
-      setActiveTestId(data.tests[0]?.id ?? null);
+      setSelectedTestIds(data.tests.map((t) => t.id));
     }
     setBlankConsultantOverride(false);
   }, [data, focusTestId]);
 
-  const resolvedTestForQr =
-    (data && focusTestId ? data.tests.find((t) => t.id === focusTestId) : undefined) ||
-    data?.tests.find((t) => t.id === activeTestId) ||
-    data?.tests[0];
+  const selectedTests = useMemo<InvoiceTestItem[]>(() => {
+    if (!data) return [];
+    const idSet = new Set(selectedTestIds);
+    const matched = data.tests.filter((t) => idSet.has(t.id));
+    return matched.length > 0 ? matched : data.tests.slice(0, 1);
+  }, [data, selectedTestIds]);
+
+  const qrTestId = selectedTests.length === 1 ? selectedTests[0]?.id : undefined;
 
   useEffect(() => {
     const qrToken = data?.invoice?.patient_qr_token;
     const uid = data?.invoice?.patient_uid;
     const invId = data?.invoice?.id;
-    const testId = resolvedTestForQr?.id;
     if (!data || !qrToken || !invId) {
       setQrSvgDataUrl('');
       return;
     }
 
-    const reportUrl = buildPatientReportQrUrl(qrToken, uid, invId, testId, publicBaseUrl);
+    const reportUrl = buildPatientReportQrUrl(qrToken, uid, invId, qrTestId, publicBaseUrl);
     QRCode.toDataURL(reportUrl, {
       width: 160,
       margin: 1,
@@ -240,26 +243,71 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     })
       .then((url) => setQrSvgDataUrl(url))
       .catch(() => setQrSvgDataUrl(''));
-  }, [data, resolvedTestForQr?.id, publicBaseUrl]);
+  }, [data, qrTestId, publicBaseUrl]);
+
+  // Group selected tests by department preserving test appearance order
+  const departmentGroups = useMemo(() => {
+    const groups: Array<{
+      categoryName: string;
+      departmentHeading: string;
+      tests: InvoiceTestItem[];
+    }> = [];
+    const indexMap = new Map<string, number>();
+    for (const test of selectedTests) {
+      const cat = (test.category_name || 'Pathology').trim();
+      const key = cat.toLowerCase();
+      const existingIdx = indexMap.get(key);
+      if (existingIdx !== undefined) {
+        groups[existingIdx].tests.push(test);
+      } else {
+        indexMap.set(key, groups.length);
+        groups.push({
+          categoryName: cat,
+          departmentHeading: formatDepartmentHeading(cat),
+          tests: [test],
+        });
+      }
+    }
+    return groups;
+  }, [selectedTests]);
 
   if (!data) return null;
 
   const { invoice, tests } = data;
+  const readyTests = tests.filter((t) => t.status === 'Ready');
 
-  // Strict Single-Test Isolation
-  const isolatedTest: InvoiceTestItem | undefined = resolvedTestForQr;
+  const toggleTestSelection = (testId: number) => {
+    setSelectedTestIds((prev) => {
+      if (prev.includes(testId)) {
+        // Keep at least 1 test selected so the A4 preview never goes blank
+        if (prev.length <= 1) return prev;
+        return prev.filter((id) => id !== testId);
+      }
+      return [...prev, testId];
+    });
+  };
 
-  const activeIsCbc = isolatedTest ? isCbcTest(isolatedTest) : false;
-  const activeIsUrine = isolatedTest ? isUrineReTest(isolatedTest) : false;
-  const isThreeColumnLayout = activeIsCbc || activeIsUrine;
-  const tableColCount = isThreeColumnLayout ? 3 : 4;
+  // Combined Specimen, Collection Date, and Report Date across selected tests
+  const combinedSpecimens = Array.from(
+    new Set(selectedTests.map((t) => (t.sample_type || '').trim()).filter(Boolean))
+  ).join(', ');
 
-  const primaryCollectedAt = isolatedTest?.collected_at || invoice.created_at;
+  const primaryCollectedAt =
+    selectedTests
+      .map((t) => t.collected_at)
+      .filter(Boolean)
+      .sort()[0] || invoice.created_at;
+
   const primaryReportedAt =
-    isolatedTest?.ready_at || isolatedTest?.verified_at || new Date().toISOString();
+    selectedTests
+      .map((t) => t.ready_at || t.verified_at || '')
+      .filter(Boolean)
+      .sort()
+      .slice(-1)[0] || new Date().toISOString();
 
   // Prepared / Tested By (Technologist with full academic qualification & designation)
-  const techRaw = (isolatedTest?.verified_by || '').trim();
+  const techRaw =
+    selectedTests.map((t) => (t.verified_by || '').trim()).find(Boolean) || '';
   const techDefaultName = (settings.technologist_name || '').trim();
   const resolvedTechName =
     techRaw && techDefaultName && techDefaultName.toLowerCase().startsWith(techRaw.toLowerCase())
@@ -268,8 +316,15 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
   const resolvedTechTitle = (settings.technologist_title || 'Medical Technologist (Lab)').trim();
 
   // Consultant / Pathologist with Conditional Rule
-  const testConsultantName = (isolatedTest?.consultant_name || '').trim();
-  const testConsultantTitle = (isolatedTest?.consultant_title || '').trim();
+  const assignedConsultantTest = selectedTests.find(
+    (t) => (t.consultant_name || '').trim() !== '' && t.consultant_name !== '__BLANK__'
+  );
+  const allExplicitBlank =
+    selectedTests.length > 0 &&
+    selectedTests.every((t) => (t.consultant_name || '').trim() === '__BLANK__');
+
+  const testConsultantName = (assignedConsultantTest?.consultant_name || '').trim();
+  const testConsultantTitle = (assignedConsultantTest?.consultant_title || '').trim();
   const settingsPathologistName = (settings.pathologist_name || '').trim();
   const settingsPathologistTitle = (settings.pathologist_title || '').trim();
   const referralDocName = (invoice.doctor_name || '').trim();
@@ -279,7 +334,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
   let resolvedConsultantName = '';
   let resolvedConsultantTitle = '';
 
-  if (!blankConsultantOverride && testConsultantName !== '__BLANK__') {
+  if (!blankConsultantOverride && !allExplicitBlank) {
     if (testConsultantName) {
       resolvedConsultantName = testConsultantName;
       resolvedConsultantTitle =
@@ -293,79 +348,74 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     }
   }
 
-  const orderedCbc = isolatedTest && activeIsCbc ? getOrderedCbcRows(isolatedTest.results || []) : [];
-
-  // Test-specific & dynamic parameter table typography (Patient Header & Signature Footer stay fixed)
+  // Dynamic parameter table typography tuned across all combined tests on the report
   const tableTypography = (() => {
-    if (activeIsCbc) {
-      return {
-        theadClass: 'text-[10.5px]',
-        tbodyClass: 'text-[12px] leading-[1.32]',
-        unitClass: 'text-[11px]',
-        normalClass: 'text-[11px] leading-[1.26]',
-        rowPadClass: 'py-[3px]',
-        sectionPadClass: 'pt-2 pb-0.5',
-      };
+    const hasSpecialDenseTest = selectedTests.some((t) => isCbcTest(t) || isUrineReTest(t));
+    if (hasSpecialDenseTest && selectedTests.length === 1) {
+      const onlyCbc = isCbcTest(selectedTests[0]);
+      return onlyCbc
+        ? {
+            theadClass: 'text-[10.5px]',
+            tbodyClass: 'text-[12px] leading-[1.32]',
+            unitClass: 'text-[11px]',
+            normalClass: 'text-[11px] leading-[1.26]',
+            rowPadClass: 'py-[3px]',
+            sectionPadClass: 'pt-2 pb-0.5',
+          }
+        : {
+            theadClass: 'text-[10.5px]',
+            tbodyClass: 'text-[12px] leading-[1.28]',
+            unitClass: 'text-[11px]',
+            normalClass: 'text-[11px] leading-[1.24]',
+            rowPadClass: 'py-[2.5px]',
+            sectionPadClass: 'pt-1.5 pb-0.5',
+          };
     }
-    if (activeIsUrine) {
+
+    const totalParamRows = selectedTests.reduce((acc, t) => acc + (t.results?.length || 0), 0);
+    const totalSubHeaders = selectedTests.length > 1 ? selectedTests.length : 0;
+    const extraRangeLines = selectedTests.reduce((acc, t) => {
+      return (
+        acc +
+        (t.results || []).reduce((rAcc, row) => {
+          const refText = (row.reference_range_text || row.normal_text || '').trim();
+          if (!refText) return rAcc;
+          const explicitLines = refText.split('\n').length - 1;
+          const wrapEstimate = refText.length > 42 ? 1 : 0;
+          return rAcc + Math.max(explicitLines, wrapEstimate);
+        }, 0)
+      );
+    }, 0);
+
+    const effectiveUnits = totalParamRows + totalSubHeaders * 0.75 + extraRangeLines * 0.55;
+
+    if (effectiveUnits <= 5 && !hasSpecialDenseTest) {
       return {
-        theadClass: 'text-[10.5px]',
-        tbodyClass: 'text-[12px] leading-[1.28]',
-        unitClass: 'text-[11px]',
-        normalClass: 'text-[11px] leading-[1.24]',
-        rowPadClass: 'py-[2.5px]',
+        theadClass: 'text-[11px]',
+        tbodyClass: 'text-[13px] leading-[1.42]',
+        unitClass: 'text-[12px]',
+        normalClass: 'text-[12px] leading-[1.35]',
+        rowPadClass: effectiveUnits <= 2 ? 'py-2.5' : 'py-2',
         sectionPadClass: 'pt-1.5 pb-0.5',
       };
     }
-
-    const paramRows = isolatedTest?.results || [];
-    const paramCount = paramRows.length;
-    const extraRangeLines = paramRows.reduce((acc, row) => {
-      const refText = (row.reference_range_text || row.normal_text || '').trim();
-      if (!refText) return acc;
-      const explicitLines = refText.split('\n').length - 1;
-      const wrapEstimate = refText.length > 42 ? 1 : 0;
-      return acc + Math.max(explicitLines, wrapEstimate);
-    }, 0);
-    const effectiveUnits = paramCount + extraRangeLines * 0.55;
-
-    if (effectiveUnits <= 5) {
+    if (effectiveUnits <= 11 && !hasSpecialDenseTest) {
       return {
         theadClass: 'text-[11px]',
-        tbodyClass: 'text-[13.5px] leading-[1.45]',
-        unitClass: 'text-[12.5px]',
-        normalClass: 'text-[12.5px] leading-[1.38]',
-        rowPadClass: effectiveUnits <= 2 ? 'py-3' : 'py-2.5',
-        sectionPadClass: 'pt-2 pb-0.5',
-      };
-    }
-    if (effectiveUnits <= 11) {
-      return {
-        theadClass: 'text-[11px]',
-        tbodyClass: 'text-[12.5px] leading-[1.38]',
+        tbodyClass: 'text-[12.5px] leading-[1.36]',
         unitClass: 'text-[11.5px]',
-        normalClass: 'text-[11.5px] leading-[1.32]',
-        rowPadClass: 'py-2',
-        sectionPadClass: 'pt-2 pb-0.5',
-      };
-    }
-    if (effectiveUnits <= 17) {
-      return {
-        theadClass: 'text-[10.5px]',
-        tbodyClass: 'text-[12px] leading-[1.32]',
-        unitClass: 'text-[11px]',
-        normalClass: 'text-[11px] leading-[1.26]',
+        normalClass: 'text-[11.5px] leading-[1.3]',
         rowPadClass: 'py-1.5',
-        sectionPadClass: 'pt-2 pb-0.5',
+        sectionPadClass: 'pt-1.5 pb-0.5',
       };
     }
     return {
       theadClass: 'text-[10.5px]',
-      tbodyClass: 'text-[12px] leading-[1.34]',
-      unitClass: 'text-[11px]',
-      normalClass: 'text-[11px] leading-[1.28]',
-      rowPadClass: 'py-1.5',
-      sectionPadClass: 'pt-2 pb-0.5',
+      tbodyClass: 'text-[11.5px] leading-[1.3]',
+      unitClass: 'text-[10.5px]',
+      normalClass: 'text-[10.5px] leading-[1.24]',
+      rowPadClass: 'py-[3px]',
+      sectionPadClass: 'pt-1.5 pb-0.5',
     };
   })();
 
@@ -378,6 +428,36 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
       document.title = prevTitle;
     }, 1000);
   };
+
+  // Helper to segment tests inside a department into consecutive 4-col standard batches vs special 3-col tests (CBC / Urine R/E)
+  const buildDepartmentSegments = (deptTests: InvoiceTestItem[]) => {
+    const segments: Array<
+      | { kind: 'cbc'; test: InvoiceTestItem }
+      | { kind: 'urine'; test: InvoiceTestItem }
+      | { kind: 'standard'; tests: InvoiceTestItem[] }
+    > = [];
+
+    for (const test of deptTests) {
+      if (isCbcTest(test)) {
+        segments.push({ kind: 'cbc', test });
+      } else if (isUrineReTest(test)) {
+        segments.push({ kind: 'urine', test });
+      } else {
+        const last = segments[segments.length - 1];
+        if (last && last.kind === 'standard') {
+          last.tests.push(test);
+        } else {
+          segments.push({ kind: 'standard', tests: [test] });
+        }
+      }
+    }
+    return segments;
+  };
+
+  // Reserve exact vertical clearance at bottom of EVERY printed page so overflowing tables break cleanly above fixed footer
+  const printFooterReserveHeight = portalMode
+    ? 'calc(1.06in + 8mm)'
+    : `calc(1.02in + ${bottomMarginIn}in)`;
 
   return (
     <div
@@ -394,11 +474,11 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
             {portalMode ? (
               <span className="inline-flex items-center gap-1.5 text-teal-800">
                 <ShieldCheck className="w-4 h-4 text-teal-600" />
-                Verified Digital Pathology Report · Soft Copy &amp; A4 PDF Ready
+                Verified Digital Pathology Report · Smart Multi-Test A4 PDF Ready
               </span>
             ) : (
               <span>
-                Lab Internal Print Mode · Pre-Printed Pad ({topMarginIn}&quot; top / {bottomMarginIn}&quot; bottom blank)
+                Smart A4 Combined Print · Pre-Printed Pad ({topMarginIn}&quot; top / {bottomMarginIn}&quot; bottom blank)
               </span>
             )}
           </div>
@@ -433,7 +513,11 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors whitespace-nowrap shrink-0"
             >
               {portalMode ? <Download className="w-4 h-4" /> : <Printer className="w-4 h-4" />}
-              {portalMode ? 'Download PDF' : 'Print Isolated Test Report'}
+              {portalMode
+                ? 'Download PDF'
+                : selectedTests.length > 1
+                ? `Print Combined Report (${selectedTests.length} Tests)`
+                : 'Print Report'}
             </button>
             {!inlinePageMode && (
               <button
@@ -448,26 +532,53 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
           </div>
         </div>
 
-        {/* Isolated Single-Test Switcher when opened from Invoice with multiple tests */}
-        {!focusTestId && tests.length > 1 && (
+        {/* Dynamic Multi-Test Inclusion Selector when Invoice has Multiple Tests */}
+        {tests.length > 1 && (
           <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-semibold text-slate-500 mr-1">
-              {portalMode ? 'Select Test Report:' : 'Select Isolated Report to Print:'}
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 mr-1">
+              <Layers className="w-3.5 h-3.5 text-teal-700" />
+              Tests on Report ({selectedTests.length}/{tests.length}):
             </span>
+
+            <button
+              type="button"
+              onClick={() => setSelectedTestIds(tests.map((t) => t.id))}
+              className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition-colors whitespace-nowrap ${
+                selectedTests.length === tests.length
+                  ? 'bg-teal-700 text-white border-teal-700'
+                  : 'bg-white text-teal-800 border-teal-300 hover:bg-teal-50'
+              }`}
+            >
+              All Combined ({tests.length})
+            </button>
+
+            {readyTests.length > 0 && readyTests.length < tests.length && (
+              <button
+                type="button"
+                onClick={() => setSelectedTestIds(readyTests.map((t) => t.id))}
+                className="px-2.5 py-1 text-xs font-medium rounded-md border bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 whitespace-nowrap"
+              >
+                Ready Only ({readyTests.length})
+              </button>
+            )}
+
+            <span className="h-4 w-px bg-slate-200 mx-0.5" aria-hidden="true" />
+
             {tests.map((t) => {
-              const active = isolatedTest?.id === t.id;
+              const checked = selectedTests.some((s) => s.id === t.id);
               return (
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => setActiveTestId(t.id)}
-                  className={`px-3 py-1 text-xs font-medium rounded-md border transition-colors whitespace-nowrap ${
-                    active
+                  onClick={() => toggleTestSelection(t.id)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors whitespace-nowrap ${
+                    checked
                       ? 'bg-slate-900 text-white border-slate-900'
-                      : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                      : 'bg-slate-50 text-slate-600 border-slate-300 hover:bg-slate-100'
                   }`}
                 >
-                  {t.test_name}
+                  {checked && <Check className="w-3 h-3 shrink-0" />}
+                  <span>{t.test_name}</span>
                 </button>
               );
             })}
@@ -475,422 +586,526 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
         )}
       </div>
 
-      {/* A4 Report Sheet — Compact Sample-Inspired Layout, Sticky Bottom Signatures, Pure Black Ink */}
+      {/* A4 Report Sheet — Smart Multi-Test Department Flow, Repeating Header & Repeating Bottom-Pinned Signatures */}
       <div
         className={`w-full max-w-[210mm] min-h-[295.5mm] flex flex-col justify-between bg-white border border-slate-300 rounded-xl shadow-lg text-black print-pure-black print-a4-page ${
           portalMode ? 'p-5 sm:p-8 print-digital-report' : 'px-6 sm:px-10 py-0 print-report-pad'
         }`}
       >
-        {/* TOP + BODY SECTION */}
-        <div className="print-report-body">
-          {/* Exact blank top clearance for pre-printed offset pad (preserved in print; dashed guide hidden on paper) */}
-          {!portalMode && (
-            <div
-              style={{ height: `${topMarginIn}in` }}
-              className="border-b border-dashed border-slate-300 print:border-none flex items-center justify-center text-xs text-slate-400"
-            >
-              <span className="no-print">
-                Blank Header Area ({topMarginIn} inch — Reserved for Pre-Printed Offset Pad)
-              </span>
-            </div>
-          )}
-
-          {/* Full Official Digital Letterhead (Patient Portal / Direct QR Digital PDF Mode only) */}
-          {portalMode && (
-            <header className="border-b-2 border-black pb-2.5 mb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <svg
-                  width="40"
-                  height="40"
-                  viewBox="0 0 46 46"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="shrink-0"
-                  aria-hidden="true"
-                >
-                  <rect width="46" height="46" rx="10" fill="#000000" />
-                  <path d="M20 11H26V20H35V26H26V35H20V26H11V20H20V11Z" fill="#FFFFFF" />
-                  <circle cx="23" cy="23" r="3.5" fill="#000000" />
-                </svg>
-                <div>
-                  <h1 className="text-xl font-bold text-black tracking-tight leading-tight">
-                    {settings.lab_name}
-                  </h1>
-                  <p className="text-xs text-black">{settings.lab_address}</p>
-                  <p className="text-[11px] font-semibold text-black">
-                    Department of Pathology &amp; Clinical Diagnostics · Digital Verified Report
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 sm:justify-end">
-                <div className="text-right">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-black">
-                    Official Test Report
+        {/* Outer Table Shell: guarantees <thead> (Pad Header + Patient Header + QR) and <tfoot> (Bottom Clearance Spacer) repeat on EVERY printed A4 page */}
+        <table className="print-shell-table w-full border-collapse">
+          <thead className="print-shell-head">
+            <tr>
+              <td className="p-0 align-top">
+                {/* Exact blank top clearance for pre-printed offset pad (repeats on every printed page) */}
+                {!portalMode && (
+                  <div
+                    style={{ height: `${topMarginIn}in` }}
+                    className="border-b border-dashed border-slate-300 print:border-none flex items-center justify-center text-xs text-slate-400"
+                  >
+                    <span className="no-print">
+                      Blank Header Area ({topMarginIn} inch — Reserved for Pre-Printed Offset Pad)
+                    </span>
                   </div>
-                  <div className="text-[11px] font-mono font-bold tabular-nums text-black">
-                    {invoice.invoice_no}
-                  </div>
-                  <VerificationBarcode code={`${invoice.invoice_no}`} />
-                </div>
-              </div>
-            </header>
-          )}
-
-          {/* Modern Borderless Two-Column Patient Info Header + Far-Right Dynamic QR Code */}
-          <section className="print-row-avoid mt-1 mb-2 pb-2 border-b border-slate-300 print:border-black/35 bg-white text-black flex flex-col sm:flex-row print:flex-row items-start sm:items-center print:items-center justify-between gap-3 sm:gap-4 print:gap-3.5">
-            {/* Clean Borderless Two-Column Patient Details Grid */}
-            <div className="flex-1 min-w-0 w-full grid grid-cols-1 sm:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] print:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] gap-x-5 print:gap-x-4 gap-y-1.5 text-[11px] leading-[1.35]">
-              {/* Left Column: Patient Name, Age/Sex, ID/Invoice No, Specimen */}
-              <div className="space-y-1 min-w-0">
-                <div className="flex items-baseline gap-1.5 min-w-0">
-                  <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
-                    Patient
-                  </span>
-                  <span className="min-w-0 flex-1 text-[13.5px] font-bold tracking-tight text-black leading-[1.2] whitespace-normal break-words">
-                    {invoice.patient_name}
-                  </span>
-                </div>
-
-                <div className="flex items-baseline gap-1.5 min-w-0">
-                  <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
-                    Age / Sex
-                  </span>
-                  <span className="min-w-0 flex-1 font-semibold tabular-nums text-black whitespace-normal">
-                    {formatAge(invoice.age_years, invoice.age_months, invoice.age_days)} /{' '}
-                    {invoice.gender}
-                  </span>
-                </div>
-
-                <div className="flex items-baseline gap-1.5 min-w-0">
-                  <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
-                    ID / Inv No
-                  </span>
-                  <span className="min-w-0 flex-1 font-mono font-bold tabular-nums text-black whitespace-normal break-all">
-                    {invoice.patient_uid} / {invoice.invoice_no}
-                  </span>
-                </div>
-
-                <div className="flex items-baseline gap-1.5 min-w-0">
-                  <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
-                    Specimen
-                  </span>
-                  <span className="min-w-0 flex-1 font-medium text-black whitespace-normal break-words">
-                    {isolatedTest?.sample_type || '—'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Right Column: Registration/Report Date, Referring Doctor, Contact */}
-              <div className="space-y-1 min-w-0">
-                <div className="flex items-baseline gap-1.5 min-w-0">
-                  <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
-                    Reg. Date
-                  </span>
-                  <span className="min-w-0 flex-1 font-mono font-medium tabular-nums text-black whitespace-nowrap">
-                    {formatDateTime(primaryCollectedAt)}
-                  </span>
-                </div>
-
-                <div className="flex items-baseline gap-1.5 min-w-0">
-                  <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
-                    Report Date
-                  </span>
-                  <span className="min-w-0 flex-1 font-mono font-medium tabular-nums text-black whitespace-nowrap">
-                    {formatDateTime(primaryReportedAt)}
-                  </span>
-                </div>
-
-                <div className="flex items-baseline gap-1.5 min-w-0">
-                  <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
-                    Referred By
-                  </span>
-                  <span className="min-w-0 flex-1 font-medium text-black whitespace-normal break-words leading-[1.3]">
-                    {invoice.doctor_name
-                      ? `${invoice.doctor_name}${invoice.doctor_degree ? `, ${invoice.doctor_degree}` : ''}`
-                      : 'Self'}
-                  </span>
-                </div>
-
-                <div className="flex items-baseline gap-1.5 min-w-0">
-                  <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
-                    Contact
-                  </span>
-                  <span className="min-w-0 flex-1 font-mono font-medium tabular-nums text-black whitespace-normal break-words">
-                    {invoice.patient_mobile || '—'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Far Right Area: Cleanly Padded Patient-Specific Scannable QR Code */}
-            {qrSvgDataUrl && (
-              <div className="shrink-0 pt-1 sm:pt-0 sm:pl-2 print:pt-0 print:pl-2 flex flex-row sm:flex-col print:flex-col items-center justify-center gap-2 sm:gap-1 print:gap-1">
-                <div className="p-1.5 rounded-md border border-slate-200 print:border-black/25 bg-white">
-                  <img
-                    src={qrSvgDataUrl}
-                    alt={`Verification QR code for ${invoice.patient_uid}`}
-                    className="w-[62px] h-[62px] block"
-                  />
-                </div>
-                <span className="text-[7.5px] font-bold uppercase tracking-wider text-slate-600 leading-none text-center whitespace-nowrap">
-                  Scan for Report
-                </span>
-              </div>
-            )}
-          </section>
-
-          {/* Centered Boxed Department Report Title (Fixed Standard Size) */}
-          {isolatedTest && (
-            <div className="print-keep-with-next mb-2 flex flex-col items-center">
-              <div className="border border-black px-7 py-0.5 bg-white shadow-[2px_2px_0_#000000]">
-                <h2 className="text-sm font-bold tracking-wide text-black">
-                  {formatDepartmentHeading(isolatedTest.category_name)}
-                </h2>
-              </div>
-              {!activeIsCbc && (
-                <div className="mt-1 text-[11px] font-bold text-black">
-                  {isolatedTest.test_name}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Parameter Table (Test-Specific & Dynamic Typography with Modern Soft Styling) */}
-          <table className="w-full border-collapse print-layout-table font-sans text-black">
-            <colgroup>
-              <col className={isThreeColumnLayout ? 'w-[34%]' : 'w-[32%]'} />
-              <col className={isThreeColumnLayout ? 'w-[22%]' : 'w-[20%]'} />
-              <col className={isThreeColumnLayout ? 'w-[44%]' : 'w-[34%]'} />
-              {!isThreeColumnLayout && <col className="w-[14%]" />}
-            </colgroup>
-
-            <thead className="print-spacer-head">
-              <tr
-                className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
-              >
-                <th className="py-1.5 px-2.5 border-y border-l border-[#e0e0e0]">Parameter Name</th>
-                <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">Result</th>
-                <th
-                  className={`py-1.5 px-2.5 border-y border-[#e0e0e0] ${
-                    isThreeColumnLayout ? 'border-r' : ''
-                  }`}
-                >
-                  Normal Value
-                </th>
-                {!isThreeColumnLayout && (
-                  <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0] text-center">
-                    Remark
-                  </th>
                 )}
-              </tr>
-            </thead>
 
-            {isolatedTest && (
-              <tbody className={`${tableTypography.tbodyClass} font-sans text-black`}>
-                {activeIsCbc &&
-                  (() => {
-                    let lastSection: string | undefined;
-                    return orderedCbc.map(({ row: r, section }) => {
-                      const showSection = Boolean(section && section !== lastSection);
-                      if (section) lastSection = section;
-                      const isHb =
-                        r.parameter_name.toLowerCase().includes('hemoglobin') ||
-                        r.parameter_name.toLowerCase() === 'hb';
-                      const isEsr = r.parameter_name.toLowerCase().startsWith('esr');
-
-                      return (
-                        <React.Fragment key={r.id}>
-                          {showSection && (
-                            <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
-                              <td
-                                colSpan={tableColCount}
-                                className={`${tableTypography.sectionPadClass} px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-600`}
-                              >
-                                {section}
-                              </td>
-                            </tr>
-                          )}
-                          <tr className="print-row-avoid border-b border-[#e8ecf0]">
-                            <td
-                              className={`${tableTypography.rowPadClass} px-2.5 align-top text-black ${
-                                isHb ? 'font-bold pt-1.5' : 'font-medium'
-                              }`}
-                            >
-                              {r.parameter_name}
-                            </td>
-                            <td
-                              className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
-                            >
-                              <span
-                                className={`tabular-nums ${
-                                  isHb || isEsr ? 'font-bold' : 'font-semibold'
-                                }`}
-                              >
-                                {formatNumericResultDisplay(r.result_value, r.parameter_name)}
-                              </span>
-                              {r.result_value && r.unit && (
-                                <span
-                                  className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
-                                >
-                                  {r.unit}
-                                </span>
-                              )}
-                            </td>
-                            <td
-                              className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
-                            >
-                              {r.normal_text || r.reference_range_text || '—'}
-                            </td>
-                          </tr>
-                        </React.Fragment>
-                      );
-                    });
-                  })()}
-
-                {!activeIsCbc &&
-                  activeIsUrine &&
-                  (() => {
-                    let lastSection = '';
-                    return (isolatedTest.results || []).map((r) => {
-                      const sec = getUrineSection(r.parameter_name);
-                      const showSection = sec !== lastSection;
-                      lastSection = sec;
-                      const isAbn = r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
-
-                      return (
-                        <React.Fragment key={r.id}>
-                          {showSection && (
-                            <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
-                              <td
-                                colSpan={tableColCount}
-                                className={`${tableTypography.sectionPadClass} px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-600`}
-                              >
-                                {sec}
-                              </td>
-                            </tr>
-                          )}
-                          <tr className="print-row-avoid border-b border-[#e8ecf0]">
-                            <td
-                              className={`${tableTypography.rowPadClass} px-2.5 align-top font-medium text-black`}
-                            >
-                              {r.parameter_name}
-                            </td>
-                            <td
-                              className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
-                            >
-                              <span
-                                className={`tabular-nums ${
-                                  isAbn ? 'font-bold' : 'font-semibold'
-                                }`}
-                              >
-                                {r.result_value || 'Pending'}
-                              </span>
-                              {r.result_value && r.unit && (
-                                <span
-                                  className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
-                                >
-                                  {r.unit}
-                                </span>
-                              )}
-                            </td>
-                            <td
-                              className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
-                            >
-                              {r.normal_text || r.reference_range_text || '—'}
-                            </td>
-                          </tr>
-                        </React.Fragment>
-                      );
-                    });
-                  })()}
-
-                {!activeIsCbc &&
-                  !activeIsUrine &&
-                  (isolatedTest.results || []).map((r) => {
-                    const isAbnormal = r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
-                    return (
-                      <tr
-                        key={r.id}
-                        className="print-row-avoid border-b border-[#e8ecf0]"
+                {/* Full Official Digital Letterhead (Patient Portal / Direct QR Digital PDF Mode only) */}
+                {portalMode && (
+                  <header className="border-b-2 border-black pb-2.5 mb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <svg
+                        width="40"
+                        height="40"
+                        viewBox="0 0 46 46"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="shrink-0"
+                        aria-hidden="true"
                       >
-                        <td
-                          className={`${tableTypography.rowPadClass} px-2.5 align-top font-medium text-black`}
-                        >
-                          {r.parameter_name}
-                        </td>
-                        <td
-                          className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
-                        >
-                          <span
-                            className={`tabular-nums ${
-                              isAbnormal
-                                ? 'font-bold underline decoration-1 underline-offset-2'
-                                : 'font-semibold'
-                            }`}
-                          >
-                            {r.result_value || 'Pending'}
-                          </span>
-                          {r.result_value && r.unit && (
-                            <span
-                              className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
-                            >
-                              {r.unit}
-                            </span>
+                        <rect width="46" height="46" rx="10" fill="#000000" />
+                        <path d="M20 11H26V20H35V26H26V35H20V26H11V20H20V11Z" fill="#FFFFFF" />
+                        <circle cx="23" cy="23" r="3.5" fill="#000000" />
+                      </svg>
+                      <div>
+                        <h1 className="text-xl font-bold text-black tracking-tight leading-tight">
+                          {settings.lab_name}
+                        </h1>
+                        <p className="text-xs text-black">{settings.lab_address}</p>
+                        <p className="text-[11px] font-semibold text-black">
+                          Department of Pathology &amp; Clinical Diagnostics · Digital Verified Report
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 sm:justify-end">
+                      <div className="text-right">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-black">
+                          Official Test Report
+                        </div>
+                        <div className="text-[11px] font-mono font-bold tabular-nums text-black">
+                          {invoice.invoice_no}
+                        </div>
+                        <VerificationBarcode code={`${invoice.invoice_no}`} />
+                      </div>
+                    </div>
+                  </header>
+                )}
+
+                {/* Modern Borderless Two-Column Patient Info Header + Far-Right Dynamic QR Code */}
+                <section className="print-row-avoid mt-1 mb-2.5 pb-2 border-b border-slate-300 print:border-black/35 bg-white text-black flex flex-col sm:flex-row print:flex-row items-start sm:items-center print:items-center justify-between gap-3 sm:gap-4 print:gap-3.5">
+                  <div className="flex-1 min-w-0 w-full grid grid-cols-1 sm:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] print:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] gap-x-5 print:gap-x-4 gap-y-1.5 text-[11px] leading-[1.35]">
+                    {/* Left Column: Patient Name, Age/Sex, ID/Invoice No, Specimen */}
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-baseline gap-1.5 min-w-0">
+                        <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                          Patient
+                        </span>
+                        <span className="min-w-0 flex-1 text-[13.5px] font-bold tracking-tight text-black leading-[1.2] whitespace-normal break-words">
+                          {invoice.patient_name}
+                        </span>
+                      </div>
+
+                      <div className="flex items-baseline gap-1.5 min-w-0">
+                        <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                          Age / Sex
+                        </span>
+                        <span className="min-w-0 flex-1 font-semibold tabular-nums text-black whitespace-normal">
+                          {formatAge(invoice.age_years, invoice.age_months, invoice.age_days)} /{' '}
+                          {invoice.gender}
+                        </span>
+                      </div>
+
+                      <div className="flex items-baseline gap-1.5 min-w-0">
+                        <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                          ID / Inv No
+                        </span>
+                        <span className="min-w-0 flex-1 font-mono font-bold tabular-nums text-black whitespace-normal break-all">
+                          {invoice.patient_uid} / {invoice.invoice_no}
+                        </span>
+                      </div>
+
+                      <div className="flex items-baseline gap-1.5 min-w-0">
+                        <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                          Specimen
+                        </span>
+                        <span className="min-w-0 flex-1 font-medium text-black whitespace-normal break-words">
+                          {combinedSpecimens || '—'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Right Column: Registration/Report Date, Referring Doctor, Contact */}
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-baseline gap-1.5 min-w-0">
+                        <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                          Reg. Date
+                        </span>
+                        <span className="min-w-0 flex-1 font-mono font-medium tabular-nums text-black whitespace-nowrap">
+                          {formatDateTime(primaryCollectedAt)}
+                        </span>
+                      </div>
+
+                      <div className="flex items-baseline gap-1.5 min-w-0">
+                        <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                          Report Date
+                        </span>
+                        <span className="min-w-0 flex-1 font-mono font-medium tabular-nums text-black whitespace-nowrap">
+                          {formatDateTime(primaryReportedAt)}
+                        </span>
+                      </div>
+
+                      <div className="flex items-baseline gap-1.5 min-w-0">
+                        <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                          Referred By
+                        </span>
+                        <span className="min-w-0 flex-1 font-medium text-black whitespace-normal break-words leading-[1.3]">
+                          {invoice.doctor_name
+                            ? `${invoice.doctor_name}${invoice.doctor_degree ? `, ${invoice.doctor_degree}` : ''}`
+                            : 'Self'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-baseline gap-1.5 min-w-0">
+                        <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                          Contact
+                        </span>
+                        <span className="min-w-0 flex-1 font-mono font-medium tabular-nums text-black whitespace-normal break-words">
+                          {invoice.patient_mobile || '—'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Far Right Area: Cleanly Padded Patient-Specific Scannable QR Code */}
+                  {qrSvgDataUrl && (
+                    <div className="shrink-0 pt-1 sm:pt-0 sm:pl-2 print:pt-0 print:pl-2 flex flex-row sm:flex-col print:flex-col items-center justify-center gap-2 sm:gap-1 print:gap-1">
+                      <div className="p-1.5 rounded-md border border-slate-200 print:border-black/25 bg-white">
+                        <img
+                          src={qrSvgDataUrl}
+                          alt={`Verification QR code for ${invoice.patient_uid}`}
+                          className="w-[62px] h-[62px] block"
+                        />
+                      </div>
+                      <span className="text-[7.5px] font-bold uppercase tracking-wider text-slate-600 leading-none text-center whitespace-nowrap">
+                        Scan for Report
+                      </span>
+                    </div>
+                  )}
+                </section>
+              </td>
+            </tr>
+          </thead>
+
+          {/* REPORT BODY: Grouped by Department & Flowing Sequentially Across A4 Pages */}
+          <tbody className="print-report-body">
+            <tr>
+              <td className="p-0 align-top">
+                <div className="space-y-3.5">
+                  {departmentGroups.map((dept) => {
+                    const segments = buildDepartmentSegments(dept.tests);
+                    const isSingleStandardTestInReport =
+                      selectedTests.length === 1 &&
+                      segments.length === 1 &&
+                      segments[0].kind === 'standard';
+
+                    return (
+                      <section key={dept.categoryName} className="space-y-2">
+                        {/* Centered Boxed Department Heading */}
+                        <div className="print-keep-with-next flex flex-col items-center">
+                          <div className="border border-black px-7 py-0.5 bg-white shadow-[2px_2px_0_#000000]">
+                            <h2 className="text-sm font-bold tracking-wide text-black">
+                              {dept.departmentHeading}
+                            </h2>
+                          </div>
+                          {isSingleStandardTestInReport && (
+                            <div className="mt-1 text-[11px] font-bold text-black">
+                              {dept.tests[0].test_name}
+                            </div>
                           )}
-                        </td>
-                        <td
-                          className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
-                        >
-                          {r.reference_range_text || r.normal_text || '—'}
-                        </td>
-                        <td
-                          className={`${tableTypography.rowPadClass} px-2.5 align-top text-center ${
-                            isAbnormal ? 'font-bold text-black' : 'font-medium text-slate-700'
-                          }`}
-                        >
-                          {r.result_value ? (isAbnormal ? r.flag.toUpperCase() : 'Normal') : '—'}
-                        </td>
-                      </tr>
+                        </div>
+
+                        {segments.map((seg, segIdx) => {
+                          if (seg.kind === 'cbc') {
+                            const orderedCbc = getOrderedCbcRows(seg.test.results || []);
+                            let lastSection: string | undefined;
+
+                            return (
+                              <table
+                                key={`cbc-${seg.test.id}`}
+                                className="w-full border-collapse print-layout-table font-sans text-black"
+                              >
+                                <colgroup>
+                                  <col className="w-[34%]" />
+                                  <col className="w-[22%]" />
+                                  <col className="w-[44%]" />
+                                </colgroup>
+                                <thead className="print-spacer-head">
+                                  <tr
+                                    className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
+                                  >
+                                    <th className="py-1.5 px-2.5 border-y border-l border-[#e0e0e0]">
+                                      Parameter Name
+                                    </th>
+                                    <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">Result</th>
+                                    <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0]">
+                                      Normal Value
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody className={`${tableTypography.tbodyClass} font-sans text-black`}>
+                                  {dept.tests.length > 1 && (
+                                    <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/80 print:bg-[#f8fafc]">
+                                      <td
+                                        colSpan={3}
+                                        className="py-1 px-2.5 text-[11px] font-bold text-black"
+                                      >
+                                        {seg.test.test_name}
+                                      </td>
+                                    </tr>
+                                  )}
+                                  {orderedCbc.map(({ row: r, section }) => {
+                                    const showSection = Boolean(section && section !== lastSection);
+                                    if (section) lastSection = section;
+                                    const isHb =
+                                      r.parameter_name.toLowerCase().includes('hemoglobin') ||
+                                      r.parameter_name.toLowerCase() === 'hb';
+                                    const isEsr = r.parameter_name.toLowerCase().startsWith('esr');
+
+                                    return (
+                                      <React.Fragment key={r.id}>
+                                        {showSection && (
+                                          <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
+                                            <td
+                                              colSpan={3}
+                                              className={`${tableTypography.sectionPadClass} px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-600`}
+                                            >
+                                              {section}
+                                            </td>
+                                          </tr>
+                                        )}
+                                        <tr className="print-row-avoid border-b border-[#e8ecf0]">
+                                          <td
+                                            className={`${tableTypography.rowPadClass} px-2.5 align-top text-black ${
+                                              isHb ? 'font-bold pt-1.5' : 'font-medium'
+                                            }`}
+                                          >
+                                            {r.parameter_name}
+                                          </td>
+                                          <td
+                                            className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
+                                          >
+                                            <span
+                                              className={`tabular-nums ${
+                                                isHb || isEsr ? 'font-bold' : 'font-semibold'
+                                              }`}
+                                            >
+                                              {formatNumericResultDisplay(r.result_value, r.parameter_name)}
+                                            </span>
+                                            {r.result_value && r.unit && (
+                                              <span
+                                                className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
+                                              >
+                                                {r.unit}
+                                              </span>
+                                            )}
+                                          </td>
+                                          <td
+                                            className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
+                                          >
+                                            {r.normal_text || r.reference_range_text || '—'}
+                                          </td>
+                                        </tr>
+                                      </React.Fragment>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            );
+                          }
+
+                          if (seg.kind === 'urine') {
+                            let lastSection = '';
+                            return (
+                              <table
+                                key={`urine-${seg.test.id}`}
+                                className="w-full border-collapse print-layout-table font-sans text-black"
+                              >
+                                <colgroup>
+                                  <col className="w-[34%]" />
+                                  <col className="w-[22%]" />
+                                  <col className="w-[44%]" />
+                                </colgroup>
+                                <thead className="print-spacer-head">
+                                  <tr
+                                    className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
+                                  >
+                                    <th className="py-1.5 px-2.5 border-y border-l border-[#e0e0e0]">
+                                      Parameter Name
+                                    </th>
+                                    <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">Result</th>
+                                    <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0]">
+                                      Normal Value
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody className={`${tableTypography.tbodyClass} font-sans text-black`}>
+                                  {dept.tests.length > 1 && (
+                                    <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/80 print:bg-[#f8fafc]">
+                                      <td
+                                        colSpan={3}
+                                        className="py-1 px-2.5 text-[11px] font-bold text-black"
+                                      >
+                                        {seg.test.test_name}
+                                      </td>
+                                    </tr>
+                                  )}
+                                  {(seg.test.results || []).map((r) => {
+                                    const sec = getUrineSection(r.parameter_name);
+                                    const showSection = sec !== lastSection;
+                                    lastSection = sec;
+                                    const isAbn = r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
+
+                                    return (
+                                      <React.Fragment key={r.id}>
+                                        {showSection && (
+                                          <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
+                                            <td
+                                              colSpan={3}
+                                              className={`${tableTypography.sectionPadClass} px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-600`}
+                                            >
+                                              {sec}
+                                            </td>
+                                          </tr>
+                                        )}
+                                        <tr className="print-row-avoid border-b border-[#e8ecf0]">
+                                          <td
+                                            className={`${tableTypography.rowPadClass} px-2.5 align-top font-medium text-black`}
+                                          >
+                                            {r.parameter_name}
+                                          </td>
+                                          <td
+                                            className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
+                                          >
+                                            <span
+                                              className={`tabular-nums ${isAbn ? 'font-bold' : 'font-semibold'}`}
+                                            >
+                                              {r.result_value || 'Pending'}
+                                            </span>
+                                            {r.result_value && r.unit && (
+                                              <span
+                                                className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
+                                              >
+                                                {r.unit}
+                                              </span>
+                                            )}
+                                          </td>
+                                          <td
+                                            className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
+                                          >
+                                            {r.normal_text || r.reference_range_text || '—'}
+                                          </td>
+                                        </tr>
+                                      </React.Fragment>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            );
+                          }
+
+                          // Standard 4-column sequential tests grouped neatly in one department table
+                          return (
+                            <table
+                              key={`std-${dept.categoryName}-${segIdx}`}
+                              className="w-full border-collapse print-layout-table font-sans text-black"
+                            >
+                              <colgroup>
+                                <col className="w-[32%]" />
+                                <col className="w-[20%]" />
+                                <col className="w-[34%]" />
+                                <col className="w-[14%]" />
+                              </colgroup>
+                              <thead className="print-spacer-head">
+                                <tr
+                                  className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
+                                >
+                                  <th className="py-1.5 px-2.5 border-y border-l border-[#e0e0e0]">
+                                    Parameter Name
+                                  </th>
+                                  <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">Result</th>
+                                  <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">
+                                    Normal Value
+                                  </th>
+                                  <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0] text-center">
+                                    Remark
+                                  </th>
+                                </tr>
+                              </thead>
+
+                              {seg.tests.map((test) => {
+                                const rows = test.results || [];
+                                const showSubHeading = !isSingleStandardTestInReport;
+                                return (
+                                  <tbody
+                                    key={test.id}
+                                    className={`${tableTypography.tbodyClass} font-sans text-black ${
+                                      rows.length <= 5 ? 'print-row-avoid' : ''
+                                    }`}
+                                  >
+                                    {showSubHeading && (
+                                      <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/70 print:bg-[#f8fafc]">
+                                        <td
+                                          colSpan={4}
+                                          className="py-1 px-2.5 text-[11px] font-bold tracking-tight text-black"
+                                        >
+                                          {test.test_name}
+                                        </td>
+                                      </tr>
+                                    )}
+                                    {rows.map((r) => {
+                                      const isAbnormal =
+                                        r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
+                                      return (
+                                        <tr
+                                          key={r.id}
+                                          className="print-row-avoid border-b border-[#e8ecf0]"
+                                        >
+                                          <td
+                                            className={`${tableTypography.rowPadClass} px-2.5 align-top font-medium text-black`}
+                                          >
+                                            {r.parameter_name}
+                                          </td>
+                                          <td
+                                            className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
+                                          >
+                                            <span
+                                              className={`tabular-nums ${
+                                                isAbnormal
+                                                  ? 'font-bold underline decoration-1 underline-offset-2'
+                                                  : 'font-semibold'
+                                              }`}
+                                            >
+                                              {r.result_value || 'Pending'}
+                                            </span>
+                                            {r.result_value && r.unit && (
+                                              <span
+                                                className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
+                                              >
+                                                {r.unit}
+                                              </span>
+                                            )}
+                                          </td>
+                                          <td
+                                            className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
+                                          >
+                                            {r.reference_range_text || r.normal_text || '—'}
+                                          </td>
+                                          <td
+                                            className={`${tableTypography.rowPadClass} px-2.5 align-top text-center ${
+                                              isAbnormal
+                                                ? 'font-bold text-black'
+                                                : 'font-medium text-slate-700'
+                                            }`}
+                                          >
+                                            {r.result_value
+                                              ? isAbnormal
+                                                ? r.flag.toUpperCase()
+                                                : 'Normal'
+                                              : '—'}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                );
+                              })}
+                            </table>
+                          );
+                        })}
+                      </section>
                     );
                   })}
-              </tbody>
-            )}
-          </table>
-        </div>
-
-        {/* STICKY BOTTOM FOOTER SECTION (Always pinned to bottom of A4 page) */}
-        <div className="print-report-footer mt-auto pt-4">
-          <footer className="grid grid-cols-3 gap-6 items-end text-black">
-            {/* 1. Prepared / Tested By */}
-            <div className="text-left">
-              <div className="h-7" />
-              <div className="border-t border-black pt-1">
-                <div className="text-[9.5px] font-semibold uppercase tracking-wide text-black">
-                  Prepared / Tested By
                 </div>
-                {resolvedTechName && (
-                  <p className="text-[11px] font-bold text-black leading-tight mt-0.5">
-                    {resolvedTechName}
-                  </p>
-                )}
-                {resolvedTechTitle && (
-                  <p className="text-[10px] text-black leading-tight">{resolvedTechTitle}</p>
-                )}
-              </div>
-            </div>
+              </td>
+            </tr>
+          </tbody>
 
-            {/* 2. Checked By */}
-            <div className="text-center">
-              <div className="h-7" />
-              <div className="border-t border-black pt-1">
-                <div className="text-[10.5px] font-bold text-black">Checked by</div>
-              </div>
-            </div>
+          {/* Invisible Bottom Spacer repeated on EVERY printed page so overflowing tables break BEFORE the fixed signature footer */}
+          <tfoot className="print-shell-foot hidden print:table-footer-group">
+            <tr aria-hidden="true">
+              <td className="p-0">
+                <div style={{ height: printFooterReserveHeight }} />
+              </td>
+            </tr>
+          </tfoot>
+        </table>
 
-            {/* 3. Consultant / Pathologist (Blank signature line when unassigned) */}
-            <div className="text-right">
-              <div className="h-7" />
+        {/* SWAPPED BOTTOM SIGNATURE FOOTER — Pinned cleanly to the bottom of EVERY printed A4 page */}
+        <div className="print-report-footer print-fixed-footer mt-auto pt-3">
+          <footer className="grid grid-cols-3 gap-6 items-end text-black">
+            {/* 1. LEFT: Doctor / Consultant Pathologist Designation & Signature Area */}
+            <div className="text-left">
+              <div className="h-6" />
               <div className="border-t border-black pt-1 text-left">
                 {resolvedConsultantName ? (
                   <>
@@ -908,6 +1123,32 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                   </>
                 ) : (
                   <div className="h-6" aria-label="Blank Consultant / Pathologist Signature Line" />
+                )}
+              </div>
+            </div>
+
+            {/* 2. CENTER: Checked By */}
+            <div className="text-center">
+              <div className="h-6" />
+              <div className="border-t border-black pt-1">
+                <div className="text-[10.5px] font-bold text-black">Checked by</div>
+              </div>
+            </div>
+
+            {/* 3. RIGHT: Technologist Designation & Signature Area */}
+            <div className="text-right">
+              <div className="h-6" />
+              <div className="border-t border-black pt-1 text-right">
+                <div className="text-[9.5px] font-semibold uppercase tracking-wide text-black">
+                  Prepared / Tested By
+                </div>
+                {resolvedTechName && (
+                  <p className="text-[11px] font-bold text-black leading-tight mt-0.5">
+                    {resolvedTechName}
+                  </p>
+                )}
+                {resolvedTechTitle && (
+                  <p className="text-[10px] text-black leading-tight">{resolvedTechTitle}</p>
                 )}
               </div>
             </div>

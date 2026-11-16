@@ -41,7 +41,7 @@ function resolvePublicBaseUrl(): string {
   const raw =
     process.env.BASE_URL?.trim() ||
     process.env.VITE_BASE_URL?.trim() ||
-    'https://alea-diagnostic-services.onrender.com';
+    'https://aleadiagnostic.com';
   return raw.replace(/\/+$/, '');
 }
 

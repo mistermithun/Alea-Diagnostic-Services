@@ -213,7 +213,7 @@ export function evaluateClientFlag(
   return 'Normal';
 }
 
-export const DEFAULT_PUBLIC_BASE_URL = 'https://alea-diagnostic-services.onrender.com';
+export const DEFAULT_PUBLIC_BASE_URL = 'https://aleadiagnostic.com';
 
 export function resolvePublicBaseUrl(serverBaseUrl?: string | null): string {
   const configured =

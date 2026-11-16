@@ -261,10 +261,6 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   };
 
   const handleRemoveExistingTest = (invoiceTestId: number) => {
-    if (totalActiveTestsCount <= 1) {
-      setError('An invoice must retain at least one diagnostic test. Add another test before removing this one.');
-      return;
-    }
     setError('');
     setRemovedInvoiceTestIds((prev) =>
       prev.includes(invoiceTestId) ? prev : [...prev, invoiceTestId]
@@ -524,66 +520,83 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
 
             {/* Existing & Newly Added Tests on Invoice (with Dynamic Delete) */}
             <div className="space-y-2.5 pt-3 border-t border-slate-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-900">
-                  02. Invoice Tests ({totalActiveTestsCount})
-                </h3>
-                <span className="text-xs font-mono tabular-nums font-semibold text-slate-700">
-                  {formatBDT(newSubtotal)}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    02. Active Invoice Tests ({totalActiveTestsCount})
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Click Delete to remove a test and recalculate the bill immediately. Save Changes to update the invoice.
+                  </p>
+                </div>
+                <span className="text-xs font-mono tabular-nums font-semibold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-md">
+                  Subtotal: {formatBDT(newSubtotal)}
                 </span>
               </div>
-              <div className="divide-y divide-slate-200 border border-slate-200 rounded-lg">
-                {activeExistingTests.map((t) => (
-                  <div key={t.id} className="px-3.5 py-2 flex items-center justify-between gap-3 text-xs">
-                    <div className="min-w-0">
-                      <span className="font-semibold text-slate-900">{t.test_name}</span>
-                      <span className="text-slate-500 ml-2">
-                        ({t.category_name} · {t.status})
-                      </span>
+              <div className="divide-y divide-slate-200 border border-slate-200 rounded-lg overflow-hidden">
+                {activeExistingTests.map((t) => {
+                  const isCompleted = t.status === 'Ready' || t.status === 'Verified';
+                  return (
+                    <div
+                      key={t.id}
+                      className="px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs bg-white hover:bg-slate-50/70 transition-colors"
+                    >
+                      <div className="min-w-0 flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-slate-900">{t.test_name}</span>
+                        <span className="text-slate-500">{t.category_name}</span>
+                        <span
+                          className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border ${
+                            isCompleted
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-slate-100 text-slate-600 border-slate-200'
+                          }`}
+                        >
+                          {t.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <span className="font-mono tabular-nums font-semibold text-slate-900">
+                          {formatBDT(t.price)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveExistingTest(t.id)}
+                          title={`Delete ${t.test_name} from invoice`}
+                          aria-label={`Delete ${t.test_name}`}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete</span>
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      <span className="font-mono tabular-nums font-semibold text-slate-800">
-                        {formatBDT(t.price)}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveExistingTest(t.id)}
-                        disabled={totalActiveTestsCount <= 1}
-                        title={
-                          totalActiveTestsCount <= 1
-                            ? 'At least 1 test is required on an invoice'
-                            : `Remove ${t.test_name}`
-                        }
-                        aria-label={`Remove ${t.test_name}`}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        <span>Delete</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 {newlySelectedTests.map((t) => (
-                  <div key={`new-${t.id}`} className="px-3.5 py-2 flex items-center justify-between gap-3 text-xs bg-teal-50/50">
-                    <div className="min-w-0">
-                      <span className="font-semibold text-teal-900">{t.name}</span>
-                      <span className="text-teal-700 ml-2 font-medium">
-                        (New · {t.category_name})
+                  <div
+                    key={`new-${t.id}`}
+                    className="px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs bg-teal-50/60"
+                  >
+                    <div className="min-w-0 flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-teal-950">{t.name}</span>
+                      <span className="text-teal-700">{t.category_name}</span>
+                      <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded bg-teal-100 text-teal-800 border border-teal-200">
+                        New Addition
                       </span>
                     </div>
                     <div className="flex items-center gap-2.5 shrink-0">
-                      <span className="font-mono tabular-nums font-semibold text-teal-900">
+                      <span className="font-mono tabular-nums font-semibold text-teal-950">
                         {formatBDT(t.price)}
                       </span>
                       <button
                         type="button"
                         onClick={() => toggleAddedTest(t.id)}
-                        title={`Remove ${t.name}`}
+                        title={`Remove ${t.name} from invoice`}
                         aria-label={`Remove ${t.name}`}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-red-700 bg-white border border-red-200 rounded hover:bg-red-50 transition-colors"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-red-700 bg-white border border-red-200 rounded-md hover:bg-red-50 transition-colors cursor-pointer"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className="w-3.5 h-3.5" />
                         <span>Remove</span>
                       </button>
                     </div>
@@ -591,8 +604,8 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                 ))}
 
                 {totalActiveTestsCount === 0 && (
-                  <div className="px-3.5 py-4 text-center text-xs text-red-600">
-                    No tests left on invoice. Restore a removed test or add a test below before saving.
+                  <div className="px-3.5 py-5 text-center text-xs font-medium text-red-600 bg-red-50/40">
+                    No tests left on invoice. Restore a removed test below or add a replacement test before saving.
                   </div>
                 )}
               </div>
@@ -764,7 +777,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
 
                 <div className="space-y-1 bg-white border border-slate-200 rounded-md p-2.5">
                   <div className="flex justify-between">
-                    <span className="text-slate-600">New Subtotal:</span>
+                    <span className="text-slate-600">Subtotal ({totalActiveTestsCount} tests):</span>
                     <span className="font-mono tabular-nums font-semibold text-slate-900">
                       {formatBDT(newSubtotal)}
                     </span>
@@ -779,6 +792,12 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                     <span className="text-slate-600">New Net Bill:</span>
                     <span className="font-mono tabular-nums font-bold text-teal-700">
                       {formatBDT(newNetTotal)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Total Paid:</span>
+                    <span className="font-mono tabular-nums font-semibold text-emerald-700">
+                      {formatBDT(newPaidTotal)}
                     </span>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-slate-200">

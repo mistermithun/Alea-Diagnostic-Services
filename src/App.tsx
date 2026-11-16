@@ -60,12 +60,12 @@ const DEFAULT_SETTINGS: LabSettings = {
   proprietor_name: 'Md. Mishkatur Rahman',
   lab_phone: '+88 01720 660 824',
   max_staff_discount_pct: '15',
-  technologist_name: 'Md. Tariqul Islam, B.Sc (MLT)',
+  technologist_name: 'Md. Mishkatur Rahman, B.Sc (MLT)',
   technologist_title: 'Medical Technologist (Lab)',
   pathologist_name: 'Dr. Farhana Yasmin, MBBS, M.Phil',
   pathologist_title: 'Consultant Pathologist',
-  pad_header_margin_in: '1.5',
-  pad_footer_margin_in: '0.4',
+  pad_header_margin_in: '2',
+  pad_footer_margin_in: '1',
 };
 
 interface NavItem {

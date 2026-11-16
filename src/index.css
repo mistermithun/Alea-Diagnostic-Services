@@ -27,6 +27,15 @@
   display: none;
 }
 
+@media screen {
+  .print-a4-page,
+  .print-report-pad,
+  .print-digital-report {
+    background-color: #ffffff;
+    box-shadow: none;
+  }
+}
+
 @media print {
   html,
   body {
@@ -69,6 +78,7 @@
   .print-digital-report,
   .print-a4-page {
     display: block !important;
+    background: #ffffff !important;
     box-shadow: none !important;
     border: none !important;
     border-radius: 0 !important;
@@ -101,6 +111,8 @@
 
   .print-shell-head {
     display: table-header-group !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   .print-shell-foot {
@@ -110,8 +122,18 @@
   .print-report-body {
     width: 100% !important;
     overflow: visible !important;
+  }
+
+  .print-flow-group {
     break-inside: auto !important;
     page-break-inside: auto !important;
+  }
+
+  .print-keep-intact,
+  .print-keep-intact > tr,
+  .print-keep-intact > tr > td {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   .print-report-footer {

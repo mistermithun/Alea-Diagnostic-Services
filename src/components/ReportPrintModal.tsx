@@ -27,7 +27,26 @@ function isCbcTest(test: InvoiceTestItem): boolean {
 
 function isUrineReTest(test: InvoiceTestItem): boolean {
   const n = test.test_name.toLowerCase();
-  return n.includes('urine r/e') || n.includes('urine routine');
+  return n.includes('urine r/e') || n.includes('urine routine') || n.includes('urine r/m/e');
+}
+
+function isSemenAnalysisTest(test: InvoiceTestItem): boolean {
+  const n = test.test_name.toLowerCase();
+  return n.includes('semen');
+}
+
+function isStoolReTest(test: InvoiceTestItem): boolean {
+  const n = test.test_name.toLowerCase();
+  return n.includes('stool');
+}
+
+function isLargeIntactPanel(test: InvoiceTestItem): boolean {
+  return (
+    isCbcTest(test) ||
+    isUrineReTest(test) ||
+    isSemenAnalysisTest(test) ||
+    isStoolReTest(test)
+  );
 }
 
 function formatDepartmentHeading(categoryName: string): string {
@@ -350,7 +369,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
 
   // Dynamic parameter table typography tuned across all combined tests on the report
   const tableTypography = (() => {
-    const hasSpecialDenseTest = selectedTests.some((t) => isCbcTest(t) || isUrineReTest(t));
+    const hasSpecialDenseTest = selectedTests.some((t) => isLargeIntactPanel(t));
     if (hasSpecialDenseTest && selectedTests.length === 1) {
       const onlyCbc = isCbcTest(selectedTests[0]);
       return onlyCbc
@@ -429,25 +448,32 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     }, 1000);
   };
 
-  // Helper to segment tests inside a department into consecutive 4-col standard batches vs special 3-col tests (CBC / Urine R/E)
+  /**
+   * Build discrete print-shell <tbody> segments inside a department:
+   * - Large intact panels (CBC, Urine R/E, Semen Analysis, Stool R/E) are NEVER batched with other tests
+   *   and get their own atomic `keepIntact: true` block so they NEVER break mid-test across A4 pages.
+   * - Consecutive compact standard 4-col tests in the same department batch smoothly onto one page.
+   */
   const buildDepartmentSegments = (deptTests: InvoiceTestItem[]) => {
     const segments: Array<
-      | { kind: 'cbc'; test: InvoiceTestItem }
-      | { kind: 'urine'; test: InvoiceTestItem }
-      | { kind: 'standard'; tests: InvoiceTestItem[] }
+      | { kind: 'cbc'; test: InvoiceTestItem; keepIntact: boolean }
+      | { kind: 'urine'; test: InvoiceTestItem; keepIntact: boolean }
+      | { kind: 'standard'; tests: InvoiceTestItem[]; keepIntact: boolean }
     > = [];
 
     for (const test of deptTests) {
       if (isCbcTest(test)) {
-        segments.push({ kind: 'cbc', test });
+        segments.push({ kind: 'cbc', test, keepIntact: true });
       } else if (isUrineReTest(test)) {
-        segments.push({ kind: 'urine', test });
+        segments.push({ kind: 'urine', test, keepIntact: true });
+      } else if (isSemenAnalysisTest(test) || isStoolReTest(test)) {
+        segments.push({ kind: 'standard', tests: [test], keepIntact: true });
       } else {
         const last = segments[segments.length - 1];
-        if (last && last.kind === 'standard') {
+        if (last && last.kind === 'standard' && !last.keepIntact) {
           last.tests.push(test);
         } else {
-          segments.push({ kind: 'standard', tests: [test] });
+          segments.push({ kind: 'standard', tests: [test], keepIntact: false });
         }
       }
     }
@@ -463,12 +489,12 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     <div
       className={
         inlinePageMode
-          ? 'w-full flex flex-col items-center px-3 py-4 sm:p-6 print:block print:p-0 print:bg-white'
-          : 'fixed inset-0 z-50 bg-slate-900/75 overflow-y-auto p-4 sm:p-6 flex flex-col items-center print:block print:static print:inset-auto print:h-auto print:min-h-0 print:overflow-visible print:p-0 print:bg-white'
+          ? 'w-full min-h-screen bg-white flex flex-col items-center px-3 py-4 sm:p-6 print:block print:min-h-0 print:p-0 print:bg-white'
+          : 'fixed inset-0 z-50 bg-white overflow-y-auto px-3 py-4 sm:p-6 flex flex-col items-center print:block print:static print:inset-auto print:h-auto print:min-h-0 print:overflow-visible print:p-0 print:bg-white'
       }
     >
       {/* Print Controls Toolbar (Hidden on Paper) */}
-      <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-xl px-4 py-3 mb-4 space-y-2.5 no-print shadow-sm">
+      <div className="w-full max-w-4xl bg-slate-50/80 border border-slate-200 rounded-xl px-4 py-3 mb-4 space-y-2.5 no-print">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs font-semibold text-slate-800">
             {portalMode ? (
@@ -491,7 +517,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
                   blankConsultantOverride
                     ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                 }`}
               >
                 {blankConsultantOverride ? 'Doctor Sign: Blank Line' : 'Doctor Sign: Assigned / Auto'}
@@ -501,7 +527,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
               <button
                 type="button"
                 onClick={onViewAllArchive}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors whitespace-nowrap shrink-0"
               >
                 <FolderOpen className="w-4 h-4 text-teal-700" />
                 All Reports Archive
@@ -523,7 +549,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors whitespace-nowrap shrink-0"
               >
                 <X className="w-4 h-4" />
                 Close
@@ -574,7 +600,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors whitespace-nowrap ${
                     checked
                       ? 'bg-slate-900 text-white border-slate-900'
-                      : 'bg-slate-50 text-slate-600 border-slate-300 hover:bg-slate-100'
+                      : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'
                   }`}
                 >
                   {checked && <Check className="w-3 h-3 shrink-0" />}
@@ -586,10 +612,10 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
         )}
       </div>
 
-      {/* A4 Report Sheet — Smart Multi-Test Department Flow, Repeating Header & Repeating Bottom-Pinned Signatures */}
+      {/* Clean White A4 Report Sheet — Repeating Patient Header on Every Page, Intact Large Test Blocks, Swapped Footer */}
       <div
-        className={`w-full max-w-[210mm] min-h-[295.5mm] flex flex-col justify-between bg-white border border-slate-300 rounded-xl shadow-lg text-black print-pure-black print-a4-page ${
-          portalMode ? 'p-5 sm:p-8 print-digital-report' : 'px-6 sm:px-10 py-0 print-report-pad'
+        className={`w-full max-w-[210mm] min-h-0 sm:min-h-[295.5mm] flex flex-col justify-between bg-white border border-slate-200 sm:rounded-lg shadow-none text-black print-pure-black print-a4-page ${
+          portalMode ? 'p-4 sm:p-8 print-digital-report' : 'px-4 sm:px-10 py-0 print-report-pad'
         }`}
       >
         {/* Outer Table Shell: guarantees <thead> (Pad Header + Patient Header + QR) and <tfoot> (Bottom Clearance Spacer) repeat on EVERY printed A4 page */}
@@ -651,8 +677,8 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                   </header>
                 )}
 
-                {/* Modern Borderless Two-Column Patient Info Header + Far-Right Dynamic QR Code */}
-                <section className="print-row-avoid mt-1 mb-2.5 pb-2 border-b border-slate-300 print:border-black/35 bg-white text-black flex flex-col sm:flex-row print:flex-row items-start sm:items-center print:items-center justify-between gap-3 sm:gap-4 print:gap-3.5">
+                {/* Modern Borderless Two-Column Patient Info Header + Far-Right Dynamic QR Code (Repeats on EVERY Printed Page) */}
+                <section className="mt-1 mb-2.5 pb-2 border-b border-slate-300 print:border-black/35 bg-white text-black flex flex-col sm:flex-row print:flex-row items-start sm:items-center print:items-center justify-between gap-3 sm:gap-4 print:gap-3.5">
                   <div className="flex-1 min-w-0 w-full grid grid-cols-1 sm:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] print:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] gap-x-5 print:gap-x-4 gap-y-1.5 text-[11px] leading-[1.35]">
                     {/* Left Column: Patient Name, Age/Sex, ID/Invoice No, Specimen */}
                     <div className="space-y-1 min-w-0">
@@ -756,22 +782,34 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
             </tr>
           </thead>
 
-          {/* REPORT BODY: Grouped by Department & Flowing Sequentially Across A4 Pages */}
-          <tbody className="print-report-body">
-            <tr>
-              <td className="p-0 align-top">
-                <div className="space-y-3.5">
-                  {departmentGroups.map((dept) => {
-                    const segments = buildDepartmentSegments(dept.tests);
-                    const isSingleStandardTestInReport =
-                      selectedTests.length === 1 &&
-                      segments.length === 1 &&
-                      segments[0].kind === 'standard';
+          {/* DISCRETE DEPARTMENT & TEST TBODY BLOCKS:
+              Native table-row/tbody breaks allow <thead> Patient Header to repeat cleanly on EVERY page,
+              while keepIntact prevents CBC, Urine R/E, Semen Analysis, and Stool R/E from splitting mid-test. */}
+          {departmentGroups.map((dept) => {
+            const segments = buildDepartmentSegments(dept.tests);
+            const isSingleStandardTestInReport =
+              selectedTests.length === 1 &&
+              segments.length === 1 &&
+              segments[0].kind === 'standard';
 
-                    return (
-                      <section key={dept.categoryName} className="space-y-2">
-                        {/* Centered Boxed Department Heading */}
-                        <div className="print-keep-with-next flex flex-col items-center">
+            return segments.map((seg, segIdx) => {
+              const showDeptHeaderInBlock = segIdx === 0;
+              const useAtomicBlock = seg.keepIntact;
+
+              return (
+                <tbody
+                  key={`${dept.categoryName}-seg-${segIdx}`}
+                  className={
+                    useAtomicBlock
+                      ? 'print-report-body print-keep-intact'
+                      : 'print-report-body print-flow-group'
+                  }
+                >
+                  <tr className={useAtomicBlock ? 'print-row-avoid' : undefined}>
+                    <td className="p-0 pb-3 align-top">
+                      {/* Centered Boxed Department Heading bound directly with its first test block */}
+                      {showDeptHeaderInBlock && (
+                        <div className="print-keep-with-next mb-2 flex flex-col items-center">
                           <div className="border border-black px-7 py-0.5 bg-white shadow-[2px_2px_0_#000000]">
                             <h2 className="text-sm font-bold tracking-wide text-black">
                               {dept.departmentHeading}
@@ -783,209 +821,21 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                             </div>
                           )}
                         </div>
+                      )}
 
-                        {segments.map((seg, segIdx) => {
-                          if (seg.kind === 'cbc') {
-                            const orderedCbc = getOrderedCbcRows(seg.test.results || []);
-                            let lastSection: string | undefined;
+                      {seg.kind === 'cbc' &&
+                        (() => {
+                          const orderedCbc = getOrderedCbcRows(seg.test.results || []);
+                          let lastSection: string | undefined;
 
-                            return (
-                              <table
-                                key={`cbc-${seg.test.id}`}
-                                className="w-full border-collapse print-layout-table font-sans text-black"
-                              >
-                                <colgroup>
-                                  <col className="w-[34%]" />
-                                  <col className="w-[22%]" />
-                                  <col className="w-[44%]" />
-                                </colgroup>
-                                <thead className="print-spacer-head">
-                                  <tr
-                                    className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
-                                  >
-                                    <th className="py-1.5 px-2.5 border-y border-l border-[#e0e0e0]">
-                                      Parameter Name
-                                    </th>
-                                    <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">Result</th>
-                                    <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0]">
-                                      Normal Value
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody className={`${tableTypography.tbodyClass} font-sans text-black`}>
-                                  {dept.tests.length > 1 && (
-                                    <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/80 print:bg-[#f8fafc]">
-                                      <td
-                                        colSpan={3}
-                                        className="py-1 px-2.5 text-[11px] font-bold text-black"
-                                      >
-                                        {seg.test.test_name}
-                                      </td>
-                                    </tr>
-                                  )}
-                                  {orderedCbc.map(({ row: r, section }) => {
-                                    const showSection = Boolean(section && section !== lastSection);
-                                    if (section) lastSection = section;
-                                    const isHb =
-                                      r.parameter_name.toLowerCase().includes('hemoglobin') ||
-                                      r.parameter_name.toLowerCase() === 'hb';
-                                    const isEsr = r.parameter_name.toLowerCase().startsWith('esr');
-
-                                    return (
-                                      <React.Fragment key={r.id}>
-                                        {showSection && (
-                                          <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
-                                            <td
-                                              colSpan={3}
-                                              className={`${tableTypography.sectionPadClass} px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-600`}
-                                            >
-                                              {section}
-                                            </td>
-                                          </tr>
-                                        )}
-                                        <tr className="print-row-avoid border-b border-[#e8ecf0]">
-                                          <td
-                                            className={`${tableTypography.rowPadClass} px-2.5 align-top text-black ${
-                                              isHb ? 'font-bold pt-1.5' : 'font-medium'
-                                            }`}
-                                          >
-                                            {r.parameter_name}
-                                          </td>
-                                          <td
-                                            className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
-                                          >
-                                            <span
-                                              className={`tabular-nums ${
-                                                isHb || isEsr ? 'font-bold' : 'font-semibold'
-                                              }`}
-                                            >
-                                              {formatNumericResultDisplay(r.result_value, r.parameter_name)}
-                                            </span>
-                                            {r.result_value && r.unit && (
-                                              <span
-                                                className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
-                                              >
-                                                {r.unit}
-                                              </span>
-                                            )}
-                                          </td>
-                                          <td
-                                            className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
-                                          >
-                                            {r.normal_text || r.reference_range_text || '—'}
-                                          </td>
-                                        </tr>
-                                      </React.Fragment>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            );
-                          }
-
-                          if (seg.kind === 'urine') {
-                            let lastSection = '';
-                            return (
-                              <table
-                                key={`urine-${seg.test.id}`}
-                                className="w-full border-collapse print-layout-table font-sans text-black"
-                              >
-                                <colgroup>
-                                  <col className="w-[34%]" />
-                                  <col className="w-[22%]" />
-                                  <col className="w-[44%]" />
-                                </colgroup>
-                                <thead className="print-spacer-head">
-                                  <tr
-                                    className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
-                                  >
-                                    <th className="py-1.5 px-2.5 border-y border-l border-[#e0e0e0]">
-                                      Parameter Name
-                                    </th>
-                                    <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">Result</th>
-                                    <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0]">
-                                      Normal Value
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody className={`${tableTypography.tbodyClass} font-sans text-black`}>
-                                  {dept.tests.length > 1 && (
-                                    <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/80 print:bg-[#f8fafc]">
-                                      <td
-                                        colSpan={3}
-                                        className="py-1 px-2.5 text-[11px] font-bold text-black"
-                                      >
-                                        {seg.test.test_name}
-                                      </td>
-                                    </tr>
-                                  )}
-                                  {(seg.test.results || []).map((r) => {
-                                    const sec = getUrineSection(r.parameter_name);
-                                    const showSection = sec !== lastSection;
-                                    lastSection = sec;
-                                    const isAbn = r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
-
-                                    return (
-                                      <React.Fragment key={r.id}>
-                                        {showSection && (
-                                          <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
-                                            <td
-                                              colSpan={3}
-                                              className={`${tableTypography.sectionPadClass} px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-600`}
-                                            >
-                                              {sec}
-                                            </td>
-                                          </tr>
-                                        )}
-                                        <tr className="print-row-avoid border-b border-[#e8ecf0]">
-                                          <td
-                                            className={`${tableTypography.rowPadClass} px-2.5 align-top font-medium text-black`}
-                                          >
-                                            {r.parameter_name}
-                                          </td>
-                                          <td
-                                            className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
-                                          >
-                                            <span
-                                              className={`tabular-nums ${isAbn ? 'font-bold' : 'font-semibold'}`}
-                                            >
-                                              {r.result_value || 'Pending'}
-                                            </span>
-                                            {r.result_value && r.unit && (
-                                              <span
-                                                className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
-                                              >
-                                                {r.unit}
-                                              </span>
-                                            )}
-                                          </td>
-                                          <td
-                                            className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
-                                          >
-                                            {r.normal_text || r.reference_range_text || '—'}
-                                          </td>
-                                        </tr>
-                                      </React.Fragment>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            );
-                          }
-
-                          // Standard 4-column sequential tests grouped neatly in one department table
                           return (
-                            <table
-                              key={`std-${dept.categoryName}-${segIdx}`}
-                              className="w-full border-collapse print-layout-table font-sans text-black"
-                            >
+                            <table className="w-full border-collapse font-sans text-black">
                               <colgroup>
-                                <col className="w-[32%]" />
-                                <col className="w-[20%]" />
                                 <col className="w-[34%]" />
-                                <col className="w-[14%]" />
+                                <col className="w-[22%]" />
+                                <col className="w-[44%]" />
                               </colgroup>
-                              <thead className="print-spacer-head">
+                              <thead>
                                 <tr
                                   className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
                                 >
@@ -993,102 +843,284 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                     Parameter Name
                                   </th>
                                   <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">Result</th>
-                                  <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">
+                                  <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0]">
                                     Normal Value
-                                  </th>
-                                  <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0] text-center">
-                                    Remark
                                   </th>
                                 </tr>
                               </thead>
+                              <tbody className={`${tableTypography.tbodyClass} font-sans text-black`}>
+                                {dept.tests.length > 1 && (
+                                  <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/80 print:bg-[#f8fafc]">
+                                    <td
+                                      colSpan={3}
+                                      className="py-1 px-2.5 text-[11px] font-bold text-black"
+                                    >
+                                      {seg.test.test_name}
+                                    </td>
+                                  </tr>
+                                )}
+                                {orderedCbc.map(({ row: r, section }) => {
+                                  const showSection = Boolean(section && section !== lastSection);
+                                  if (section) lastSection = section;
+                                  const isHb =
+                                    r.parameter_name.toLowerCase().includes('hemoglobin') ||
+                                    r.parameter_name.toLowerCase() === 'hb';
+                                  const isEsr = r.parameter_name.toLowerCase().startsWith('esr');
 
-                              {seg.tests.map((test) => {
-                                const rows = test.results || [];
-                                const showSubHeading = !isSingleStandardTestInReport;
-                                return (
-                                  <tbody
-                                    key={test.id}
-                                    className={`${tableTypography.tbodyClass} font-sans text-black ${
-                                      rows.length <= 5 ? 'print-row-avoid' : ''
-                                    }`}
-                                  >
-                                    {showSubHeading && (
-                                      <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/70 print:bg-[#f8fafc]">
-                                        <td
-                                          colSpan={4}
-                                          className="py-1 px-2.5 text-[11px] font-bold tracking-tight text-black"
-                                        >
-                                          {test.test_name}
-                                        </td>
-                                      </tr>
-                                    )}
-                                    {rows.map((r) => {
-                                      const isAbnormal =
-                                        r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
-                                      return (
-                                        <tr
-                                          key={r.id}
-                                          className="print-row-avoid border-b border-[#e8ecf0]"
-                                        >
+                                  return (
+                                    <React.Fragment key={r.id}>
+                                      {showSection && (
+                                        <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
                                           <td
-                                            className={`${tableTypography.rowPadClass} px-2.5 align-top font-medium text-black`}
+                                            colSpan={3}
+                                            className={`${tableTypography.sectionPadClass} px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-600`}
                                           >
-                                            {r.parameter_name}
-                                          </td>
-                                          <td
-                                            className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
-                                          >
-                                            <span
-                                              className={`tabular-nums ${
-                                                isAbnormal
-                                                  ? 'font-bold underline decoration-1 underline-offset-2'
-                                                  : 'font-semibold'
-                                              }`}
-                                            >
-                                              {r.result_value || 'Pending'}
-                                            </span>
-                                            {r.result_value && r.unit && (
-                                              <span
-                                                className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
-                                              >
-                                                {r.unit}
-                                              </span>
-                                            )}
-                                          </td>
-                                          <td
-                                            className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
-                                          >
-                                            {r.reference_range_text || r.normal_text || '—'}
-                                          </td>
-                                          <td
-                                            className={`${tableTypography.rowPadClass} px-2.5 align-top text-center ${
-                                              isAbnormal
-                                                ? 'font-bold text-black'
-                                                : 'font-medium text-slate-700'
-                                            }`}
-                                          >
-                                            {r.result_value
-                                              ? isAbnormal
-                                                ? r.flag.toUpperCase()
-                                                : 'Normal'
-                                              : '—'}
+                                            {section}
                                           </td>
                                         </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                );
-                              })}
+                                      )}
+                                      <tr className="print-row-avoid border-b border-[#e8ecf0]">
+                                        <td
+                                          className={`${tableTypography.rowPadClass} px-2.5 align-top text-black ${
+                                            isHb ? 'font-bold pt-1.5' : 'font-medium'
+                                          }`}
+                                        >
+                                          {r.parameter_name}
+                                        </td>
+                                        <td
+                                          className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
+                                        >
+                                          <span
+                                            className={`tabular-nums ${
+                                              isHb || isEsr ? 'font-bold' : 'font-semibold'
+                                            }`}
+                                          >
+                                            {formatNumericResultDisplay(r.result_value, r.parameter_name)}
+                                          </span>
+                                          {r.result_value && r.unit && (
+                                            <span
+                                              className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
+                                            >
+                                              {r.unit}
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td
+                                          className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
+                                        >
+                                          {r.normal_text || r.reference_range_text || '—'}
+                                        </td>
+                                      </tr>
+                                    </React.Fragment>
+                                  );
+                                })}
+                              </tbody>
                             </table>
                           );
-                        })}
-                      </section>
-                    );
-                  })}
-                </div>
-              </td>
-            </tr>
-          </tbody>
+                        })()}
+
+                      {seg.kind === 'urine' &&
+                        (() => {
+                          let lastSection = '';
+                          return (
+                            <table className="w-full border-collapse font-sans text-black">
+                              <colgroup>
+                                <col className="w-[34%]" />
+                                <col className="w-[22%]" />
+                                <col className="w-[44%]" />
+                              </colgroup>
+                              <thead>
+                                <tr
+                                  className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
+                                >
+                                  <th className="py-1.5 px-2.5 border-y border-l border-[#e0e0e0]">
+                                    Parameter Name
+                                  </th>
+                                  <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">Result</th>
+                                  <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0]">
+                                    Normal Value
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody className={`${tableTypography.tbodyClass} font-sans text-black`}>
+                                {dept.tests.length > 1 && (
+                                  <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/80 print:bg-[#f8fafc]">
+                                    <td
+                                      colSpan={3}
+                                      className="py-1 px-2.5 text-[11px] font-bold text-black"
+                                    >
+                                      {seg.test.test_name}
+                                    </td>
+                                  </tr>
+                                )}
+                                {(seg.test.results || []).map((r) => {
+                                  const sec = getUrineSection(r.parameter_name);
+                                  const showSection = sec !== lastSection;
+                                  lastSection = sec;
+                                  const isAbn = r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
+
+                                  return (
+                                    <React.Fragment key={r.id}>
+                                      {showSection && (
+                                        <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
+                                          <td
+                                            colSpan={3}
+                                            className={`${tableTypography.sectionPadClass} px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-600`}
+                                          >
+                                            {sec}
+                                          </td>
+                                        </tr>
+                                      )}
+                                      <tr className="print-row-avoid border-b border-[#e8ecf0]">
+                                        <td
+                                          className={`${tableTypography.rowPadClass} px-2.5 align-top font-medium text-black`}
+                                        >
+                                          {r.parameter_name}
+                                        </td>
+                                        <td
+                                          className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
+                                        >
+                                          <span
+                                            className={`tabular-nums ${isAbn ? 'font-bold' : 'font-semibold'}`}
+                                          >
+                                            {r.result_value || 'Pending'}
+                                          </span>
+                                          {r.result_value && r.unit && (
+                                            <span
+                                              className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
+                                            >
+                                              {r.unit}
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td
+                                          className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
+                                        >
+                                          {r.normal_text || r.reference_range_text || '—'}
+                                        </td>
+                                      </tr>
+                                    </React.Fragment>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          );
+                        })()}
+
+                      {seg.kind === 'standard' && (
+                        <table
+                          className={`w-full border-collapse font-sans text-black ${
+                            useAtomicBlock ? '' : 'print-layout-table'
+                          }`}
+                        >
+                          <colgroup>
+                            <col className="w-[32%]" />
+                            <col className="w-[20%]" />
+                            <col className="w-[34%]" />
+                            <col className="w-[14%]" />
+                          </colgroup>
+                          <thead className={useAtomicBlock ? undefined : 'print-spacer-head'}>
+                            <tr
+                              className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
+                            >
+                              <th className="py-1.5 px-2.5 border-y border-l border-[#e0e0e0]">
+                                Parameter Name
+                              </th>
+                              <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">Result</th>
+                              <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">
+                                Normal Value
+                              </th>
+                              <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0] text-center">
+                                Remark
+                              </th>
+                            </tr>
+                          </thead>
+
+                          {seg.tests.map((test) => {
+                            const rows = test.results || [];
+                            const showSubHeading = !isSingleStandardTestInReport;
+                            return (
+                              <tbody
+                                key={test.id}
+                                className={`${tableTypography.tbodyClass} font-sans text-black ${
+                                  useAtomicBlock || rows.length <= 6 ? 'print-row-avoid' : ''
+                                }`}
+                              >
+                                {showSubHeading && (
+                                  <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/70 print:bg-[#f8fafc]">
+                                    <td
+                                      colSpan={4}
+                                      className="py-1 px-2.5 text-[11px] font-bold tracking-tight text-black"
+                                    >
+                                      {test.test_name}
+                                    </td>
+                                  </tr>
+                                )}
+                                {rows.map((r) => {
+                                  const isAbnormal =
+                                    r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
+                                  return (
+                                    <tr
+                                      key={r.id}
+                                      className="print-row-avoid border-b border-[#e8ecf0]"
+                                    >
+                                      <td
+                                        className={`${tableTypography.rowPadClass} px-2.5 align-top font-medium text-black`}
+                                      >
+                                        {r.parameter_name}
+                                      </td>
+                                      <td
+                                        className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
+                                      >
+                                        <span
+                                          className={`tabular-nums ${
+                                            isAbnormal
+                                              ? 'font-bold underline decoration-1 underline-offset-2'
+                                              : 'font-semibold'
+                                          }`}
+                                        >
+                                          {r.result_value || 'Pending'}
+                                        </span>
+                                        {r.result_value && r.unit && (
+                                          <span
+                                            className={`ml-1.5 font-normal text-slate-600 ${tableTypography.unitClass}`}
+                                          >
+                                            {r.unit}
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td
+                                        className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
+                                      >
+                                        {r.reference_range_text || r.normal_text || '—'}
+                                      </td>
+                                      <td
+                                        className={`${tableTypography.rowPadClass} px-2.5 align-top text-center ${
+                                          isAbnormal
+                                            ? 'font-bold text-black'
+                                            : 'font-medium text-slate-700'
+                                        }`}
+                                      >
+                                        {r.result_value
+                                          ? isAbnormal
+                                            ? r.flag.toUpperCase()
+                                            : 'Normal'
+                                          : '—'}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            );
+                          })}
+                        </table>
+                      )}
+                    </td>
+                  </tr>
+                </tbody>
+              );
+            });
+          })}
 
           {/* Invisible Bottom Spacer repeated on EVERY printed page so overflowing tables break BEFORE the fixed signature footer */}
           <tfoot className="print-shell-foot hidden print:table-footer-group">

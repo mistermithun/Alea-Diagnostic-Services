@@ -7,6 +7,7 @@ export type NavTab =
   | 'dues'
   | 'catalog'
   | 'doctors'
+  | 'payouts'
   | 'expenses'
   | 'settings';
 
@@ -81,7 +82,18 @@ export interface Doctor {
   hospital: string;
   mobile: string;
   commission_pct?: number;
+  last_commission_paid_up_to?: string;
+  last_commission_settled_at?: string;
+  last_commission_paid_amount?: number;
+  unpaid_referrals_count?: number;
+  unpaid_commission_total?: number;
   is_active: number;
+}
+
+export interface TestCommissionOverride {
+  testId: number;
+  commissionType: 'percent' | 'flat';
+  commissionValue: number;
 }
 
 export interface InvoiceSummary {
@@ -93,12 +105,17 @@ export interface InvoiceSummary {
   discount_type: 'percent' | 'flat';
   discount_value: number;
   discount_amount: number;
+  discount_pct?: number;
   net_total: number;
   paid_amount: number;
   due_amount: number;
   payment_status: 'Paid' | 'Partial' | 'Due';
+  commission_type?: 'percent' | 'flat' | 'per_test';
+  commission_value?: number;
   commission_pct?: number;
   commission_amount?: number;
+  commission_paid?: number;
+  commission_paid_at?: string;
   notes: string;
   created_by: string;
   created_at: string;
@@ -190,6 +207,9 @@ export interface InvoiceTestItem {
   category_name: string;
   sample_type: string;
   price: number;
+  commission_type?: 'percent' | 'flat';
+  commission_value?: number;
+  commission_amount?: number;
   status: 'Sample Collected' | 'Processing' | 'Verified' | 'Ready';
   collected_at: string;
   verified_at: string | null;
@@ -291,4 +311,75 @@ export interface StaffOverviewData {
     gender: string;
     age_years: number;
   }>;
+}
+
+export interface DoctorStatementReferral {
+  id: number;
+  invoice_no: string;
+  created_at: string;
+  subtotal: number;
+  discount_type: 'percent' | 'flat';
+  discount_value: number;
+  discount_pct: number;
+  discount_amount: number;
+  net_total: number;
+  paid_amount: number;
+  due_amount: number;
+  commission_type: 'percent' | 'flat' | 'per_test';
+  commission_value: number;
+  commission_pct: number;
+  commission_amount: number;
+  is_commission_paid: boolean;
+  commission_paid_at: string;
+  is_accrued_after_last_paid: boolean;
+  patient_uid: string;
+  patient_name: string;
+  test_names: string;
+  test_items: Array<{
+    id: number;
+    test_id: number;
+    test_name: string;
+    price: number;
+    commission_type: 'percent' | 'flat';
+    commission_value: number;
+    commission_amount: number;
+  }>;
+}
+
+export interface DoctorPayoutHistoryItem {
+  id: number;
+  doctor_id: number;
+  from_date: string;
+  paid_up_to_date: string;
+  patients_count: number;
+  total_commission_paid: number;
+  note: string;
+  settled_by: string;
+  settled_at: string;
+}
+
+export interface DoctorStatementResponse {
+  doctor: Doctor;
+  from: string;
+  to: string;
+  status: 'unpaid' | 'all' | 'paid';
+  suggestedNextFrom: string;
+  allTimeUnpaid: {
+    count: number;
+    amount: number;
+  };
+  referrals: DoctorStatementReferral[];
+  totals: {
+    totalPatients: number;
+    totalGross: number;
+    totalDiscount: number;
+    totalNet: number;
+    totalPaid: number;
+    totalDue: number;
+    totalCommission: number;
+    unpaidPatients: number;
+    unpaidCommission: number;
+    paidCommission: number;
+  };
+  payoutHistory: DoctorPayoutHistoryItem[];
 }

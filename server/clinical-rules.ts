@@ -44,6 +44,155 @@ export function getLocalTimestampStr(): string {
   return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
 }
 
+export function addDaysToIsoDate(isoDate: string, days: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec((isoDate || '').trim());
+  if (!match) return getTodayDateStr();
+  const dt = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + days));
+  const y = dt.getUTCFullYear();
+  const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(dt.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function roundCurrency(val: number): number {
+  return Math.round(Number(val || 0) * 100) / 100;
+}
+
+export interface TestCommissionOverrideInput {
+  testId: number;
+  commissionType: 'percent' | 'flat';
+  commissionValue: number;
+}
+
+export function computeInvoiceCommission(params: {
+  tests: Array<{ test_id: number; price: number }>;
+  subtotal: number;
+  netTotal: number;
+  hasDoctor: boolean;
+  doctorCommissionPct: number;
+  commissionMode?: 'doctor_default' | 'custom_invoice' | 'custom_per_test';
+  commissionType?: 'percent' | 'flat';
+  commissionValue?: number;
+  testCommissions?: TestCommissionOverrideInput[];
+}): {
+  invoiceCommissionType: 'percent' | 'flat' | 'per_test';
+  invoiceCommissionValue: number;
+  invoiceCommissionPct: number;
+  invoiceCommissionAmount: number;
+  perTestMap: Map<
+    number,
+    { commission_type: 'percent' | 'flat'; commission_value: number; commission_amount: number }
+  >;
+} {
+  const perTestMap = new Map<
+    number,
+    { commission_type: 'percent' | 'flat'; commission_value: number; commission_amount: number }
+  >();
+
+  if (!params.hasDoctor) {
+    for (const t of params.tests) {
+      perTestMap.set(t.test_id, { commission_type: 'percent', commission_value: 0, commission_amount: 0 });
+    }
+    return {
+      invoiceCommissionType: 'percent',
+      invoiceCommissionValue: 0,
+      invoiceCommissionPct: 0,
+      invoiceCommissionAmount: 0,
+      perTestMap,
+    };
+  }
+
+  const mode = params.commissionMode || 'doctor_default';
+  const docDefaultPct = Math.max(0, roundCurrency(params.doctorCommissionPct));
+
+  if (mode === 'custom_per_test') {
+    const ovMap = new Map<number, TestCommissionOverrideInput>(
+      (params.testCommissions || []).map((tc) => [Number(tc.testId), tc])
+    );
+    let sumAmt = 0;
+    for (const t of params.tests) {
+      const ov = ovMap.get(t.test_id);
+      const tType: 'percent' | 'flat' = ov?.commissionType === 'flat' ? 'flat' : 'percent';
+      const tVal = ov ? Math.max(0, roundCurrency(Number(ov.commissionValue || 0))) : docDefaultPct;
+      const testNetShare = params.subtotal > 0 ? (Number(t.price) / params.subtotal) * params.netTotal : 0;
+      const tAmt = tType === 'flat' ? tVal : roundCurrency((testNetShare * tVal) / 100);
+      sumAmt += tAmt;
+      perTestMap.set(t.test_id, {
+        commission_type: tType,
+        commission_value: tVal,
+        commission_amount: tAmt,
+      });
+    }
+    const totalAmt = roundCurrency(sumAmt);
+    const effectivePct = params.netTotal > 0 ? roundCurrency((totalAmt / params.netTotal) * 100) : 0;
+    return {
+      invoiceCommissionType: 'per_test',
+      invoiceCommissionValue: totalAmt,
+      invoiceCommissionPct: effectivePct,
+      invoiceCommissionAmount: totalAmt,
+      perTestMap,
+    };
+  }
+
+  if (mode === 'custom_invoice') {
+    const cType: 'percent' | 'flat' = params.commissionType === 'flat' ? 'flat' : 'percent';
+    const cVal = Math.max(0, roundCurrency(Number(params.commissionValue ?? docDefaultPct)));
+    if (cType === 'flat') {
+      const effectivePct = params.netTotal > 0 ? roundCurrency((cVal / params.netTotal) * 100) : 0;
+      for (const t of params.tests) {
+        const shareAmt = params.subtotal > 0 ? roundCurrency((Number(t.price) / params.subtotal) * cVal) : 0;
+        perTestMap.set(t.test_id, {
+          commission_type: 'flat',
+          commission_value: shareAmt,
+          commission_amount: shareAmt,
+        });
+      }
+      return {
+        invoiceCommissionType: 'flat',
+        invoiceCommissionValue: cVal,
+        invoiceCommissionPct: effectivePct,
+        invoiceCommissionAmount: cVal,
+        perTestMap,
+      };
+    }
+
+    const amt = roundCurrency((params.netTotal * cVal) / 100);
+    for (const t of params.tests) {
+      const testNetShare = params.subtotal > 0 ? (Number(t.price) / params.subtotal) * params.netTotal : 0;
+      perTestMap.set(t.test_id, {
+        commission_type: 'percent',
+        commission_value: cVal,
+        commission_amount: roundCurrency((testNetShare * cVal) / 100),
+      });
+    }
+    return {
+      invoiceCommissionType: 'percent',
+      invoiceCommissionValue: cVal,
+      invoiceCommissionPct: cVal,
+      invoiceCommissionAmount: amt,
+      perTestMap,
+    };
+  }
+
+  // doctor_default
+  const amt = roundCurrency((params.netTotal * docDefaultPct) / 100);
+  for (const t of params.tests) {
+    const testNetShare = params.subtotal > 0 ? (Number(t.price) / params.subtotal) * params.netTotal : 0;
+    perTestMap.set(t.test_id, {
+      commission_type: 'percent',
+      commission_value: docDefaultPct,
+      commission_amount: roundCurrency((testNetShare * docDefaultPct) / 100),
+    });
+  }
+  return {
+    invoiceCommissionType: 'percent',
+    invoiceCommissionValue: docDefaultPct,
+    invoiceCommissionPct: docDefaultPct,
+    invoiceCommissionAmount: amt,
+    perTestMap,
+  };
+}
+
 export const CBC_DESIRED_PARAMS: Array<ParamSeed & { sort_order: number }> = [
   { name: 'Hemoglobin (Hb)', unit: 'g/dL', min_male: 13.0, max_male: 17.0, min_female: 12.0, max_female: 15.5, min_child: 11.0, max_child: 14.5, min_newborn: 14.0, max_newborn: 22.0, normal_text: 'M: 13.0–17.0 | F: 12.0–15.5\nChild: 11.0–14.5 | Newborn: 14.0–22.0', sort_order: 1 },
   { name: 'ESR (Erythrocyte Sedimentation Rate)', unit: 'mm/1st hr', min_male: 0, max_male: 15, min_female: 0, max_female: 20, min_child: 0, max_child: 10, min_newborn: 0, max_newborn: 2, normal_text: 'M: 0–15 | F: 0–20\nChild: 0–10 | Newborn: 0–2', sort_order: 2 },

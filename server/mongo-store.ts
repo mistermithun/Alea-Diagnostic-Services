@@ -10,10 +10,13 @@ import {
   verifyQrSecretMatch,
 } from './auth.ts';
 import {
+  addDaysToIsoDate,
   CBC_DESIRED_PARAMS,
+  computeInvoiceCommission,
   evaluateResultFlag,
   getLocalTimestampStr,
   getTodayDateStr,
+  roundCurrency,
   SEED_CATALOG,
   type ParamSeed,
   URINE_DESIRED_PARAMS,
@@ -23,6 +26,7 @@ import {
   type LimsStore,
   type ParamPayload,
   StoreError,
+  type TestCommissionOverride,
   type UpdateInvoicePayload,
   type UpdateLabResultsPayload,
 } from './store-types.ts';
@@ -81,8 +85,23 @@ interface DoctorDoc {
   hospital: string;
   mobile: string;
   commission_pct: number;
+  last_commission_paid_up_to?: string;
+  last_commission_settled_at?: string;
+  last_commission_paid_amount?: number;
   is_active: number;
   created_at: string;
+}
+
+interface DoctorCommissionPayoutDoc {
+  id: number;
+  doctor_id: number;
+  from_date: string;
+  paid_up_to_date: string;
+  patients_count: number;
+  total_commission_paid: number;
+  note: string;
+  settled_by: string;
+  settled_at: string;
 }
 
 interface PatientDoc {
@@ -111,12 +130,18 @@ interface InvoiceDoc {
   discount_type: 'percent' | 'flat';
   discount_value: number;
   discount_amount: number;
+  discount_pct?: number;
   net_total: number;
   paid_amount: number;
   due_amount: number;
   payment_status: 'Paid' | 'Partial' | 'Due';
   commission_pct: number;
   commission_amount: number;
+  commission_type?: 'percent' | 'flat' | 'per_test';
+  commission_value?: number;
+  commission_paid?: number;
+  commission_paid_at?: string;
+  commission_payout_id?: number | null;
   notes: string;
   created_by: string;
   created_at: string;
@@ -130,6 +155,9 @@ interface InvoiceTestDoc {
   category_name: string;
   sample_type: string;
   price: number;
+  commission_type?: 'percent' | 'flat';
+  commission_value?: number;
+  commission_amount?: number;
   status: 'Sample Collected' | 'Processing' | 'Verified' | 'Ready';
   collected_at: string;
   verified_at: string | null;
@@ -200,6 +228,7 @@ export class MongoLimsStore implements LimsStore {
   private invoiceTestsCol!: Collection<InvoiceTestDoc>;
   private testResultsCol!: Collection<TestResultDoc>;
   private duePaymentsCol!: Collection<DuePaymentDoc>;
+  private payoutsCol!: Collection<DoctorCommissionPayoutDoc>;
   private expensesCol!: Collection<ExpenseDoc>;
 
   constructor(mongoUri: string, dbNameOverride?: string) {
@@ -236,6 +265,7 @@ export class MongoLimsStore implements LimsStore {
     this.invoiceTestsCol = this.db.collection<InvoiceTestDoc>('invoice_tests');
     this.testResultsCol = this.db.collection<TestResultDoc>('test_results');
     this.duePaymentsCol = this.db.collection<DuePaymentDoc>('due_payments');
+    this.payoutsCol = this.db.collection<DoctorCommissionPayoutDoc>('doctor_commission_payouts');
     this.expensesCol = this.db.collection<ExpenseDoc>('expenses');
 
     await this.ensureIndexes();
@@ -289,6 +319,8 @@ export class MongoLimsStore implements LimsStore {
       this.testResultsCol.createIndex({ invoice_test_id: 1, parameter_id: 1 }, { unique: true }),
       this.duePaymentsCol.createIndex({ id: 1 }, { unique: true }),
       this.duePaymentsCol.createIndex({ invoice_id: 1 }),
+      this.payoutsCol.createIndex({ id: 1 }, { unique: true }),
+      this.payoutsCol.createIndex({ doctor_id: 1, settled_at: -1 }),
       this.expensesCol.createIndex({ id: 1 }, { unique: true }),
       this.expensesCol.createIndex({ expense_date: -1 }),
     ]);
@@ -1406,8 +1438,52 @@ export class MongoLimsStore implements LimsStore {
       is_active: 1,
       created_at: 1,
     };
-    if (includeCommission) projection.commission_pct = 1;
-    return this.doctorsCol.find({ is_active: 1 }, { projection }).sort({ name: 1 }).toArray();
+    if (includeCommission) {
+      projection.commission_pct = 1;
+      projection.last_commission_paid_up_to = 1;
+      projection.last_commission_settled_at = 1;
+      projection.last_commission_paid_amount = 1;
+    }
+    const docs = await this.doctorsCol.find({ is_active: 1 }, { projection }).sort({ name: 1 }).toArray();
+    if (!includeCommission) return docs;
+
+    const docIds = docs.map((d) => d.id);
+    const allRefInvoices = docIds.length
+      ? await this.invoicesCol
+          .find(
+            { doctor_id: { $in: docIds } },
+            { projection: { _id: 0, doctor_id: 1, created_at: 1, commission_amount: 1, commission_paid: 1 } }
+          )
+          .toArray()
+      : [];
+
+    const docMap = new Map(docs.map((d) => [d.id, d]));
+    const unpaidStats = new Map<number, { count: number; amount: number }>();
+    for (const inv of allRefInvoices) {
+      if (!inv.doctor_id) continue;
+      const doc = docMap.get(inv.doctor_id);
+      const lastPaidUpTo = doc?.last_commission_paid_up_to || '';
+      const isPaid =
+        inv.commission_paid === 1 || (Boolean(lastPaidUpTo) && datePart(inv.created_at) <= lastPaidUpTo);
+      if (!isPaid) {
+        const cur = unpaidStats.get(inv.doctor_id) || { count: 0, amount: 0 };
+        cur.count += 1;
+        cur.amount = roundCurrency(cur.amount + Number(inv.commission_amount || 0));
+        unpaidStats.set(inv.doctor_id, cur);
+      }
+    }
+
+    return docs.map((d) => {
+      const stats = unpaidStats.get(d.id) || { count: 0, amount: 0 };
+      return {
+        ...d,
+        last_commission_paid_up_to: d.last_commission_paid_up_to || '',
+        last_commission_settled_at: d.last_commission_settled_at || '',
+        last_commission_paid_amount: Number(d.last_commission_paid_amount || 0),
+        unpaid_referrals_count: stats.count,
+        unpaid_commission_total: stats.amount,
+      };
+    });
   }
 
   async createDoctor(payload: {
@@ -1425,6 +1501,9 @@ export class MongoLimsStore implements LimsStore {
       hospital: payload.hospital?.trim() || '',
       mobile: payload.mobile?.trim() || '',
       commission_pct: Number(payload.commission_pct || 0),
+      last_commission_paid_up_to: '',
+      last_commission_settled_at: '',
+      last_commission_paid_amount: 0,
       is_active: 1,
       created_at: getLocalTimestampStr(),
     });
@@ -1459,17 +1538,41 @@ export class MongoLimsStore implements LimsStore {
     await this.doctorsCol.updateOne({ id }, { $set: { is_active: 0 } });
   }
 
-  async getDoctorStatement(id: number, from: string, to: string): Promise<Record<string, unknown>> {
+  async getDoctorStatement(
+    id: number,
+    fromArg?: string,
+    toArg?: string,
+    status: 'unpaid' | 'all' | 'paid' = 'all'
+  ): Promise<Record<string, unknown>> {
     const doctor = await this.doctorsCol.findOne({ id }, { projection: { _id: 0 } });
     if (!doctor) throw new StoreError(404, 'Doctor not found.');
 
-    const invs = await this.invoicesCol
-      .find(
-        { doctor_id: id, created_at: { $gte: from, $lte: `${to}\uffff` } },
-        { projection: { _id: 0 } }
-      )
-      .sort({ created_at: -1 })
-      .toArray();
+    const lastPaidUpTo = (doctor.last_commission_paid_up_to || '').trim();
+    const today = getTodayDateStr();
+    const defaultFrom = lastPaidUpTo ? addDaysToIsoDate(lastPaidUpTo, 1) : `${today.slice(0, 7)}-01`;
+    const from = (fromArg || '').trim() || defaultFrom;
+    const to = (toArg || '').trim() || today;
+
+    const [invs, allDoctorInvs, payoutHistory] = await Promise.all([
+      this.invoicesCol
+        .find(
+          { doctor_id: id, created_at: { $gte: from, $lte: `${to}\uffff` } },
+          { projection: { _id: 0 } }
+        )
+        .sort({ created_at: -1 })
+        .toArray(),
+      this.invoicesCol
+        .find(
+          { doctor_id: id },
+          { projection: { _id: 0, id: 1, created_at: 1, commission_amount: 1, commission_paid: 1 } }
+        )
+        .toArray(),
+      this.payoutsCol
+        .find({ doctor_id: id }, { projection: { _id: 0 } })
+        .sort({ id: -1 })
+        .limit(20)
+        .toArray(),
+    ]);
 
     const patIds = Array.from(new Set(invs.map((i) => i.patient_id)));
     const invIds = invs.map((i) => i.id);
@@ -1478,41 +1581,89 @@ export class MongoLimsStore implements LimsStore {
       invIds.length > 0 ? this.invoiceTestsCol.find({ invoice_id: { $in: invIds } }).toArray() : Promise.resolve([]),
     ]);
     const patMap = new Map(pats.map((p) => [p.id, p]));
-    const testsByInv = new Map<number, string[]>();
+    const testsByInv = new Map<number, InvoiceTestDoc[]>();
     for (const it of invTests) {
       const list = testsByInv.get(it.invoice_id) || [];
-      list.push(it.test_name);
+      list.push(it);
       testsByInv.set(it.invoice_id, list);
     }
 
-    const referrals = invs.map((i) => {
+    const mapped = invs.map((i) => {
       const p = patMap.get(i.patient_id);
+      const its = testsByInv.get(i.id) || [];
+      const invDate = datePart(i.created_at);
+      const isPaid = i.commission_paid === 1 || (Boolean(lastPaidUpTo) && invDate <= lastPaidUpTo);
+      const isAfterLastPaid = Boolean(lastPaidUpTo) && invDate > lastPaidUpTo;
+      const discountPct =
+        typeof i.discount_pct === 'number'
+          ? i.discount_pct
+          : i.subtotal > 0
+          ? roundCurrency((i.discount_amount / i.subtotal) * 100)
+          : 0;
+      const commType = i.commission_type || 'percent';
+      const commVal = typeof i.commission_value === 'number' ? i.commission_value : i.commission_pct;
+
       return {
         id: i.id,
         invoice_no: i.invoice_no,
         created_at: i.created_at,
         subtotal: i.subtotal,
+        discount_type: i.discount_type,
+        discount_value: i.discount_value,
+        discount_pct: discountPct,
         discount_amount: i.discount_amount,
         net_total: i.net_total,
         paid_amount: i.paid_amount,
         due_amount: i.due_amount,
+        commission_type: commType,
+        commission_value: commVal,
         commission_pct: i.commission_pct,
         commission_amount: i.commission_amount,
+        is_commission_paid: isPaid,
+        commission_paid_at: i.commission_paid_at || '',
+        is_accrued_after_last_paid: isAfterLastPaid,
         patient_uid: p?.patient_uid || '',
         patient_name: p?.name || '',
-        test_names: (testsByInv.get(i.id) || []).join(', '),
+        test_names: its.map((t) => t.test_name).join(', '),
+        test_items: its.map((t) => ({
+          id: t.id,
+          test_id: t.test_id,
+          test_name: t.test_name,
+          price: t.price,
+          commission_type: t.commission_type || 'percent',
+          commission_value:
+            typeof t.commission_value === 'number' ? t.commission_value : Number(i.commission_pct || 0),
+          commission_amount:
+            typeof t.commission_amount === 'number'
+              ? t.commission_amount
+              : i.subtotal > 0
+              ? roundCurrency((t.price / i.subtotal) * i.commission_amount)
+              : 0,
+        })),
       };
+    });
+
+    const referrals = mapped.filter((r) => {
+      if (status === 'unpaid') return !r.is_commission_paid;
+      if (status === 'paid') return r.is_commission_paid;
+      return true;
     });
 
     const totals = referrals.reduce(
       (acc, r) => {
         acc.totalPatients += 1;
-        acc.totalGross += r.subtotal;
-        acc.totalDiscount += r.discount_amount;
-        acc.totalNet += r.net_total;
-        acc.totalPaid += r.paid_amount;
-        acc.totalDue += r.due_amount;
-        acc.totalCommission += r.commission_amount;
+        acc.totalGross = roundCurrency(acc.totalGross + r.subtotal);
+        acc.totalDiscount = roundCurrency(acc.totalDiscount + r.discount_amount);
+        acc.totalNet = roundCurrency(acc.totalNet + r.net_total);
+        acc.totalPaid = roundCurrency(acc.totalPaid + r.paid_amount);
+        acc.totalDue = roundCurrency(acc.totalDue + r.due_amount);
+        acc.totalCommission = roundCurrency(acc.totalCommission + r.commission_amount);
+        if (!r.is_commission_paid) {
+          acc.unpaidPatients += 1;
+          acc.unpaidCommission = roundCurrency(acc.unpaidCommission + r.commission_amount);
+        } else {
+          acc.paidCommission = roundCurrency(acc.paidCommission + r.commission_amount);
+        }
         return acc;
       },
       {
@@ -1523,10 +1674,186 @@ export class MongoLimsStore implements LimsStore {
         totalPaid: 0,
         totalDue: 0,
         totalCommission: 0,
+        unpaidPatients: 0,
+        unpaidCommission: 0,
+        paidCommission: 0,
       }
     );
 
-    return { doctor, from, to, referrals, totals };
+    const allTimeUnpaid = allDoctorInvs.reduce(
+      (acc, inv) => {
+        const isPaid =
+          inv.commission_paid === 1 || (Boolean(lastPaidUpTo) && datePart(inv.created_at) <= lastPaidUpTo);
+        if (!isPaid) {
+          acc.count += 1;
+          acc.amount = roundCurrency(acc.amount + Number(inv.commission_amount || 0));
+        }
+        return acc;
+      },
+      { count: 0, amount: 0 }
+    );
+
+    return {
+      doctor: {
+        ...doctor,
+        last_commission_paid_up_to: lastPaidUpTo,
+        last_commission_settled_at: doctor.last_commission_settled_at || '',
+        last_commission_paid_amount: Number(doctor.last_commission_paid_amount || 0),
+      },
+      from,
+      to,
+      status,
+      suggestedNextFrom: lastPaidUpTo ? addDaysToIsoDate(lastPaidUpTo, 1) : '',
+      allTimeUnpaid,
+      referrals,
+      totals,
+      payoutHistory,
+    };
+  }
+
+  async settleDoctorCommission(payload: {
+    doctorId: number;
+    paidUpToDate: string;
+    fromDate?: string;
+    note?: string;
+    settledBy?: string;
+  }): Promise<Record<string, unknown>> {
+    const doctor = await this.doctorsCol.findOne({ id: payload.doctorId });
+    if (!doctor) throw new StoreError(404, 'Doctor not found.');
+
+    const cutoff = (payload.paidUpToDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cutoff)) {
+      throw new StoreError(400, 'Valid Paid Up To Date (YYYY-MM-DD) is required.');
+    }
+
+    const lastPaidUpTo = (doctor.last_commission_paid_up_to || '').trim();
+    const candidateInvs = await this.invoicesCol
+      .find({
+        doctor_id: payload.doctorId,
+        created_at: { $lte: `${cutoff}\uffff` },
+      })
+      .toArray();
+
+    const unpaidInvs = candidateInvs.filter(
+      (inv) => !(inv.commission_paid === 1 || (Boolean(lastPaidUpTo) && datePart(inv.created_at) <= lastPaidUpTo))
+    );
+
+    const totalCommissionPaid = roundCurrency(
+      unpaidInvs.reduce((sum, inv) => sum + Number(inv.commission_amount || 0), 0)
+    );
+    const nowTs = getLocalTimestampStr();
+    const payoutId = await this.nextSeq('doctor_commission_payouts');
+
+    const effectiveFrom =
+      (payload.fromDate || '').trim() ||
+      (lastPaidUpTo ? addDaysToIsoDate(lastPaidUpTo, 1) : unpaidInvs.length > 0 ? datePart(unpaidInvs[unpaidInvs.length - 1].created_at) : cutoff);
+
+    await this.payoutsCol.insertOne({
+      id: payoutId,
+      doctor_id: payload.doctorId,
+      from_date: effectiveFrom,
+      paid_up_to_date: cutoff,
+      patients_count: unpaidInvs.length,
+      total_commission_paid: totalCommissionPaid,
+      note: payload.note?.trim() || '',
+      settled_by: payload.settledBy?.trim() || 'Admin',
+      settled_at: nowTs,
+    });
+
+    if (unpaidInvs.length > 0) {
+      const invIds = unpaidInvs.map((i) => i.id);
+      await this.invoicesCol.updateMany(
+        { id: { $in: invIds } },
+        {
+          $set: {
+            commission_paid: 1,
+            commission_paid_at: nowTs,
+            commission_payout_id: payoutId,
+          },
+        }
+      );
+    }
+
+    const nextCutoff = !lastPaidUpTo || cutoff > lastPaidUpTo ? cutoff : lastPaidUpTo;
+    await this.doctorsCol.updateOne(
+      { id: payload.doctorId },
+      {
+        $set: {
+          last_commission_paid_up_to: nextCutoff,
+          last_commission_settled_at: nowTs,
+          last_commission_paid_amount: totalCommissionPaid,
+        },
+      }
+    );
+
+    return {
+      success: true,
+      payoutId,
+      doctorId: payload.doctorId,
+      paidUpToDate: nextCutoff,
+      patientsCount: unpaidInvs.length,
+      totalCommissionPaid,
+      settledAt: nowTs,
+    };
+  }
+
+  async updateInvoiceCommission(payload: {
+    invoiceId: number;
+    commissionMode: 'doctor_default' | 'custom_invoice' | 'custom_per_test';
+    commissionType?: 'percent' | 'flat';
+    commissionValue?: number;
+    testCommissions?: TestCommissionOverride[];
+  }): Promise<Record<string, unknown>> {
+    const inv = await this.invoicesCol.findOne({ id: payload.invoiceId });
+    if (!inv) throw new StoreError(404, 'Invoice not found.');
+
+    const doc = inv.doctor_id ? await this.doctorsCol.findOne({ id: inv.doctor_id }) : null;
+    const invTests = await this.invoiceTestsCol
+      .find({ invoice_id: payload.invoiceId })
+      .sort({ id: 1 })
+      .toArray();
+
+    const computed = computeInvoiceCommission({
+      tests: invTests.map((it) => ({ test_id: it.test_id, price: Number(it.price) })),
+      subtotal: Number(inv.subtotal),
+      netTotal: Number(inv.net_total),
+      hasDoctor: Boolean(inv.doctor_id),
+      doctorCommissionPct: Number(doc?.commission_pct || 0),
+      commissionMode: payload.commissionMode,
+      commissionType: payload.commissionType,
+      commissionValue: payload.commissionValue,
+      testCommissions: payload.testCommissions,
+    });
+
+    await this.invoicesCol.updateOne(
+      { id: payload.invoiceId },
+      {
+        $set: {
+          commission_type: computed.invoiceCommissionType,
+          commission_value: computed.invoiceCommissionValue,
+          commission_pct: computed.invoiceCommissionPct,
+          commission_amount: computed.invoiceCommissionAmount,
+        },
+      }
+    );
+
+    for (const it of invTests) {
+      const tc = computed.perTestMap.get(it.test_id);
+      if (tc) {
+        await this.invoiceTestsCol.updateOne(
+          { id: it.id },
+          {
+            $set: {
+              commission_type: tc.commission_type,
+              commission_value: tc.commission_value,
+              commission_amount: tc.commission_amount,
+            },
+          }
+        );
+      }
+    }
+
+    return (await this.getFullInvoice(payload.invoiceId, true, true))!;
   }
 
   async listInvoices(filters: {
@@ -1594,6 +1921,12 @@ export class MongoLimsStore implements LimsStore {
         discount_type: i.discount_type,
         discount_value: i.discount_value,
         discount_amount: i.discount_amount,
+        discount_pct:
+          typeof i.discount_pct === 'number'
+            ? i.discount_pct
+            : i.subtotal > 0
+            ? roundCurrency((i.discount_amount / i.subtotal) * 100)
+            : 0,
         net_total: i.net_total,
         paid_amount: i.paid_amount,
         due_amount: i.due_amount,
@@ -1617,6 +1950,9 @@ export class MongoLimsStore implements LimsStore {
       if (filters.includeCommission) {
         out.commission_pct = i.commission_pct;
         out.commission_amount = i.commission_amount;
+        out.commission_type = i.commission_type || 'percent';
+        out.commission_value = typeof i.commission_value === 'number' ? i.commission_value : i.commission_pct;
+        out.commission_paid = i.commission_paid === 1 ? 1 : 0;
       }
       return out;
     });
@@ -1708,6 +2044,12 @@ export class MongoLimsStore implements LimsStore {
       discount_type: inv.discount_type,
       discount_value: inv.discount_value,
       discount_amount: inv.discount_amount,
+      discount_pct:
+        typeof inv.discount_pct === 'number'
+          ? inv.discount_pct
+          : inv.subtotal > 0
+          ? roundCurrency((inv.discount_amount / inv.subtotal) * 100)
+          : 0,
       net_total: inv.net_total,
       paid_amount: inv.paid_amount,
       due_amount: inv.due_amount,
@@ -1745,6 +2087,11 @@ export class MongoLimsStore implements LimsStore {
     if (includeCommission) {
       invoiceOut.commission_pct = inv.commission_pct;
       invoiceOut.commission_amount = inv.commission_amount;
+      invoiceOut.commission_type = inv.commission_type || 'percent';
+      invoiceOut.commission_value =
+        typeof inv.commission_value === 'number' ? inv.commission_value : inv.commission_pct;
+      invoiceOut.commission_paid = inv.commission_paid === 1 ? 1 : 0;
+      invoiceOut.commission_paid_at = inv.commission_paid_at || '';
     }
 
     if (includePortalPassword) {
@@ -1752,10 +2099,18 @@ export class MongoLimsStore implements LimsStore {
       invoiceOut.patient_portal_password = enc ? decryptPortalPassword(enc, this.getAuthSecret()) : '';
     }
 
-    const enrichedTests = tests.map((t) => ({
-      ...t,
-      results: resultsByTest.get(t.id) || [],
-    }));
+    const enrichedTests = tests.map((t) => {
+      const outTest: Record<string, unknown> = {
+        ...t,
+        results: resultsByTest.get(t.id) || [],
+      };
+      if (!includeCommission) {
+        delete outTest.commission_type;
+        delete outTest.commission_value;
+        delete outTest.commission_amount;
+      }
+      return outTest;
+    });
 
     return {
       invoice: invoiceOut,
@@ -1791,16 +2146,28 @@ export class MongoLimsStore implements LimsStore {
     }
 
     const netTotal = Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100);
+    const discountPct = subtotal > 0 ? roundCurrency((discountAmount / subtotal) * 100) : 0;
     const paid = Math.min(netTotal, Math.max(0, Math.round(Number(payload.paidAmount || 0) * 100) / 100));
     const due = Math.max(0, Math.round((netTotal - paid) * 100) / 100);
     const paymentStatus = due <= 0 ? 'Paid' : paid > 0 ? 'Partial' : 'Due';
 
-    let commissionPct = 0;
+    let docCommissionPct = 0;
     if (payload.doctorId) {
       const doc = await this.doctorsCol.findOne({ id: Number(payload.doctorId) });
-      if (doc) commissionPct = Number(doc.commission_pct || 0);
+      if (doc) docCommissionPct = Number(doc.commission_pct || 0);
     }
-    const commissionAmount = Math.round(((netTotal * commissionPct) / 100) * 100) / 100;
+
+    const computedComm = computeInvoiceCommission({
+      tests: selectedTestDocs.map((t) => ({ test_id: t.id, price: Number(t.price) })),
+      subtotal,
+      netTotal,
+      hasDoctor: Boolean(payload.doctorId),
+      doctorCommissionPct: docCommissionPct,
+      commissionMode: payload.isAdmin ? payload.commissionMode || 'doctor_default' : 'doctor_default',
+      commissionType: payload.commissionType,
+      commissionValue: payload.commissionValue,
+      testCommissions: payload.testCommissions,
+    });
     const nowTs = getLocalTimestampStr();
 
     let patientId = 0;
@@ -1862,12 +2229,18 @@ export class MongoLimsStore implements LimsStore {
       discount_type: dType,
       discount_value: dVal,
       discount_amount: discountAmount,
+      discount_pct: discountPct,
       net_total: netTotal,
       paid_amount: paid,
       due_amount: due,
       payment_status: paymentStatus,
-      commission_pct: commissionPct,
-      commission_amount: commissionAmount,
+      commission_pct: computedComm.invoiceCommissionPct,
+      commission_amount: computedComm.invoiceCommissionAmount,
+      commission_type: computedComm.invoiceCommissionType,
+      commission_value: computedComm.invoiceCommissionValue,
+      commission_paid: 0,
+      commission_paid_at: '',
+      commission_payout_id: null,
       notes: payload.notes?.trim() || '',
       created_by: payload.isAdmin ? 'Admin' : 'Staff',
       created_at: nowTs,
@@ -1875,6 +2248,7 @@ export class MongoLimsStore implements LimsStore {
 
     for (const t of selectedTestDocs) {
       const invoiceTestId = await this.nextSeq('invoice_tests');
+      const tc = computedComm.perTestMap.get(t.id);
       await this.invoiceTestsCol.insertOne({
         id: invoiceTestId,
         invoice_id: invoiceId,
@@ -1883,6 +2257,9 @@ export class MongoLimsStore implements LimsStore {
         category_name: catMap.get(t.category_id) || '',
         sample_type: t.sample_type,
         price: t.price,
+        commission_type: tc?.commission_type || 'percent',
+        commission_value: tc?.commission_value ?? docCommissionPct,
+        commission_amount: tc?.commission_amount ?? 0,
         status: 'Sample Collected',
         collected_at: nowTs,
         verified_at: null,
@@ -1989,13 +2366,70 @@ export class MongoLimsStore implements LimsStore {
     }
 
     const netTotal = Math.max(0, Math.round((newSubtotal - discountAmount) * 100) / 100);
+    const discountPct = newSubtotal > 0 ? roundCurrency((discountAmount / newSubtotal) * 100) : 0;
     const nextDoctorId = payload.doctorId !== undefined ? payload.doctorId : existingInv.doctor_id;
-    let commissionPct = 0;
+    let docCommissionPct = 0;
     if (nextDoctorId) {
       const doc = await this.doctorsCol.findOne({ id: Number(nextDoctorId) });
-      if (doc) commissionPct = Number(doc.commission_pct || 0);
+      if (doc) docCommissionPct = Number(doc.commission_pct || 0);
     }
-    const commissionAmount = Math.round(((netTotal * commissionPct) / 100) * 100) / 100;
+
+    const doctorChanged = Number(nextDoctorId || 0) !== Number(existingInv.doctor_id || 0);
+    const resolvedMode: 'doctor_default' | 'custom_invoice' | 'custom_per_test' =
+      payload.isAdmin && payload.commissionMode
+        ? payload.commissionMode
+        : doctorChanged
+        ? 'doctor_default'
+        : existingInv.commission_type === 'per_test'
+        ? 'custom_per_test'
+        : existingInv.commission_type === 'flat' ||
+          (typeof existingInv.commission_value === 'number' &&
+            Math.abs(existingInv.commission_value - docCommissionPct) > 0.01)
+        ? 'custom_invoice'
+        : 'doctor_default';
+
+    const resolvedType: 'percent' | 'flat' =
+      payload.isAdmin && payload.commissionMode
+        ? payload.commissionType === 'flat'
+          ? 'flat'
+          : 'percent'
+        : existingInv.commission_type === 'flat'
+        ? 'flat'
+        : 'percent';
+
+    const resolvedValue =
+      payload.isAdmin && payload.commissionMode
+        ? payload.commissionValue
+        : typeof existingInv.commission_value === 'number'
+        ? existingInv.commission_value
+        : existingInv.commission_pct;
+
+    const resolvedTestCommissions: TestCommissionOverride[] =
+      payload.isAdmin && payload.commissionMode === 'custom_per_test' && Array.isArray(payload.testCommissions)
+        ? payload.testCommissions
+        : existingInvTests.map((it) => ({
+            testId: it.test_id,
+            commissionType: it.commission_type === 'flat' ? 'flat' : 'percent',
+            commissionValue:
+              typeof it.commission_value === 'number' ? it.commission_value : docCommissionPct,
+          }));
+
+    const allCombinedTests = [
+      ...existingInvTests.map((r) => ({ test_id: r.test_id, price: Number(r.price) })),
+      ...testsToAdd.map((t) => ({ test_id: t.id, price: Number(t.price) })),
+    ];
+
+    const computedComm = computeInvoiceCommission({
+      tests: allCombinedTests,
+      subtotal: newSubtotal,
+      netTotal,
+      hasDoctor: Boolean(nextDoctorId),
+      doctorCommissionPct: docCommissionPct,
+      commissionMode: resolvedMode,
+      commissionType: resolvedType,
+      commissionValue: resolvedValue,
+      testCommissions: resolvedTestCommissions,
+    });
 
     const extraPayRaw = Math.max(0, Math.round(Number(payload.additionalPayment || 0) * 100) / 100);
     const maxCollectable = Math.max(0, Math.round((netTotal - Number(existingInv.paid_amount)) * 100) / 100);
@@ -2051,6 +2485,7 @@ export class MongoLimsStore implements LimsStore {
 
     for (const t of testsToAdd) {
       const invoiceTestId = await this.nextSeq('invoice_tests');
+      const tc = computedComm.perTestMap.get(t.id);
       await this.invoiceTestsCol.insertOne({
         id: invoiceTestId,
         invoice_id: payload.invoiceId,
@@ -2059,6 +2494,9 @@ export class MongoLimsStore implements LimsStore {
         category_name: catMap.get(t.category_id) || '',
         sample_type: t.sample_type,
         price: t.price,
+        commission_type: tc?.commission_type || 'percent',
+        commission_value: tc?.commission_value ?? docCommissionPct,
+        commission_amount: tc?.commission_amount ?? 0,
         status: 'Sample Collected',
         collected_at: nowTs,
         verified_at: null,
@@ -2097,6 +2535,22 @@ export class MongoLimsStore implements LimsStore {
       }
     }
 
+    for (const existingIt of existingInvTests) {
+      const tc = computedComm.perTestMap.get(existingIt.test_id);
+      if (tc) {
+        await this.invoiceTestsCol.updateOne(
+          { id: existingIt.id },
+          {
+            $set: {
+              commission_type: tc.commission_type,
+              commission_value: tc.commission_value,
+              commission_amount: tc.commission_amount,
+            },
+          }
+        );
+      }
+    }
+
     if (appliedExtraPay > 0) {
       const dpId = await this.nextSeq('due_payments');
       await this.duePaymentsCol.insertOne({
@@ -2119,12 +2573,15 @@ export class MongoLimsStore implements LimsStore {
           discount_type: dType,
           discount_value: dVal,
           discount_amount: discountAmount,
+          discount_pct: discountPct,
           net_total: netTotal,
           paid_amount: newPaid,
           due_amount: newDue,
           payment_status: newStatus,
-          commission_pct: commissionPct,
-          commission_amount: commissionAmount,
+          commission_pct: computedComm.invoiceCommissionPct,
+          commission_amount: computedComm.invoiceCommissionAmount,
+          commission_type: computedComm.invoiceCommissionType,
+          commission_value: computedComm.invoiceCommissionValue,
           notes: payload.notes !== undefined ? payload.notes.trim() : existingInv.notes,
         },
       }

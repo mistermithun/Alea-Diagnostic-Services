@@ -9,7 +9,13 @@ import {
   hashPassword,
   verifyQrSecretMatch,
 } from './auth.ts';
-import { getLocalTimestampStr, getTodayDateStr } from './clinical-rules.ts';
+import {
+  addDaysToIsoDate,
+  computeInvoiceCommission,
+  getLocalTimestampStr,
+  getTodayDateStr,
+  roundCurrency,
+} from './clinical-rules.ts';
 import {
   db,
   evaluateResultFlag,
@@ -22,6 +28,7 @@ import {
   type LimsStore,
   type ParamPayload,
   StoreError,
+  type TestCommissionOverride,
   type UpdateInvoicePayload,
   type UpdateLabResultsPayload,
 } from './store-types.ts';
@@ -405,12 +412,62 @@ export class SqliteLimsStore implements LimsStore {
   }
 
   async listDoctors(includeCommission: boolean): Promise<unknown[]> {
-    return db
+    const docs = db
       .prepare(
-        `SELECT id, name, degree, hospital, mobile, ${includeCommission ? 'commission_pct,' : ''} is_active, created_at
+        `SELECT id, name, degree, hospital, mobile,
+                ${
+                  includeCommission
+                    ? 'commission_pct, last_commission_paid_up_to, last_commission_settled_at, last_commission_paid_amount,'
+                    : ''
+                }
+                is_active, created_at
          FROM doctors WHERE is_active = 1 ORDER BY name ASC`
       )
-      .all();
+      .all() as Array<{
+      id: number;
+      last_commission_paid_up_to?: string;
+      last_commission_settled_at?: string;
+      last_commission_paid_amount?: number;
+      [key: string]: unknown;
+    }>;
+
+    if (!includeCommission) return docs;
+
+    const allInvs = db
+      .prepare(`SELECT doctor_id, created_at, commission_amount, commission_paid FROM invoices WHERE doctor_id IS NOT NULL`)
+      .all() as Array<{
+      doctor_id: number;
+      created_at: string;
+      commission_amount: number;
+      commission_paid: number;
+    }>;
+
+    const docMap = new Map(docs.map((d) => [d.id, d]));
+    const unpaidStats = new Map<number, { count: number; amount: number }>();
+    for (const inv of allInvs) {
+      const doc = docMap.get(inv.doctor_id);
+      const lastPaidUpTo = String(doc?.last_commission_paid_up_to || '').trim();
+      const invDate = String(inv.created_at || '').slice(0, 10);
+      const isPaid = inv.commission_paid === 1 || (Boolean(lastPaidUpTo) && invDate <= lastPaidUpTo);
+      if (!isPaid) {
+        const cur = unpaidStats.get(inv.doctor_id) || { count: 0, amount: 0 };
+        cur.count += 1;
+        cur.amount = roundCurrency(cur.amount + Number(inv.commission_amount || 0));
+        unpaidStats.set(inv.doctor_id, cur);
+      }
+    }
+
+    return docs.map((d) => {
+      const stats = unpaidStats.get(d.id) || { count: 0, amount: 0 };
+      return {
+        ...d,
+        last_commission_paid_up_to: d.last_commission_paid_up_to || '',
+        last_commission_settled_at: d.last_commission_settled_at || '',
+        last_commission_paid_amount: Number(d.last_commission_paid_amount || 0),
+        unpaid_referrals_count: stats.count,
+        unpaid_commission_total: stats.amount,
+      };
+    });
   }
 
   async createDoctor(payload: {
@@ -444,39 +501,155 @@ export class SqliteLimsStore implements LimsStore {
     db.prepare('UPDATE doctors SET is_active = 0 WHERE id = ?').run(id);
   }
 
-  async getDoctorStatement(id: number, from: string, to: string): Promise<Record<string, unknown>> {
-    const doctor = db.prepare('SELECT * FROM doctors WHERE id = ?').get(id);
+  async getDoctorStatement(
+    id: number,
+    fromArg?: string,
+    toArg?: string,
+    status: 'unpaid' | 'all' | 'paid' = 'all'
+  ): Promise<Record<string, unknown>> {
+    const doctor = db.prepare('SELECT * FROM doctors WHERE id = ?').get(id) as
+      | {
+          id: number;
+          name: string;
+          degree: string;
+          hospital: string;
+          mobile: string;
+          commission_pct: number;
+          last_commission_paid_up_to?: string;
+          last_commission_settled_at?: string;
+          last_commission_paid_amount?: number;
+          [key: string]: unknown;
+        }
+      | undefined;
     if (!doctor) throw new StoreError(404, 'Doctor not found.');
 
-    const referrals = db
+    const lastPaidUpTo = String(doctor.last_commission_paid_up_to || '').trim();
+    const today = getTodayDateStr();
+    const defaultFrom = lastPaidUpTo ? addDaysToIsoDate(lastPaidUpTo, 1) : `${today.slice(0, 7)}-01`;
+    const from = (fromArg || '').trim() || defaultFrom;
+    const to = (toArg || '').trim() || today;
+
+    const invRows = db
       .prepare(
-        `SELECT i.id, i.invoice_no, i.created_at, i.subtotal, i.discount_amount, i.net_total,
-                i.paid_amount, i.due_amount, i.commission_pct, i.commission_amount,
-                p.patient_uid, p.name as patient_name,
-                (SELECT GROUP_CONCAT(it.test_name, ', ') FROM invoice_tests it WHERE it.invoice_id = i.id) as test_names
+        `SELECT i.id, i.invoice_no, i.created_at, i.subtotal, i.discount_type, i.discount_value,
+                i.discount_amount, i.discount_pct, i.net_total, i.paid_amount, i.due_amount,
+                i.commission_type, i.commission_value, i.commission_pct, i.commission_amount,
+                i.commission_paid, i.commission_paid_at,
+                p.patient_uid, p.name as patient_name
          FROM invoices i
          JOIN patients p ON p.id = i.patient_id
          WHERE i.doctor_id = ? AND substr(i.created_at, 1, 10) BETWEEN ? AND ?
          ORDER BY i.created_at DESC`
       )
       .all(id, from, to) as Array<{
+      id: number;
+      invoice_no: string;
+      created_at: string;
       subtotal: number;
+      discount_type: 'percent' | 'flat';
+      discount_value: number;
       discount_amount: number;
+      discount_pct: number;
       net_total: number;
       paid_amount: number;
       due_amount: number;
+      commission_type: string;
+      commission_value: number;
+      commission_pct: number;
       commission_amount: number;
+      commission_paid: number;
+      commission_paid_at: string;
+      patient_uid: string;
+      patient_name: string;
     }>;
+
+    const testStmt = db.prepare(
+      `SELECT id, test_id, test_name, price, commission_type, commission_value, commission_amount
+       FROM invoice_tests WHERE invoice_id = ? ORDER BY id ASC`
+    );
+
+    const mapped = invRows.map((i) => {
+      const its = testStmt.all(i.id) as Array<{
+        id: number;
+        test_id: number;
+        test_name: string;
+        price: number;
+        commission_type: string;
+        commission_value: number;
+        commission_amount: number;
+      }>;
+      const invDate = String(i.created_at || '').slice(0, 10);
+      const isPaid = i.commission_paid === 1 || (Boolean(lastPaidUpTo) && invDate <= lastPaidUpTo);
+      const isAfterLastPaid = Boolean(lastPaidUpTo) && invDate > lastPaidUpTo;
+      const discountPct =
+        Number(i.discount_pct) > 0 || i.discount_amount === 0
+          ? Number(i.discount_pct || 0)
+          : i.subtotal > 0
+          ? roundCurrency((i.discount_amount / i.subtotal) * 100)
+          : 0;
+      const commType = i.commission_type || 'percent';
+      const commVal = Number(i.commission_value ?? i.commission_pct ?? 0);
+
+      return {
+        id: i.id,
+        invoice_no: i.invoice_no,
+        created_at: i.created_at,
+        subtotal: i.subtotal,
+        discount_type: i.discount_type,
+        discount_value: i.discount_value,
+        discount_pct: discountPct,
+        discount_amount: i.discount_amount,
+        net_total: i.net_total,
+        paid_amount: i.paid_amount,
+        due_amount: i.due_amount,
+        commission_type: commType,
+        commission_value: commVal,
+        commission_pct: i.commission_pct,
+        commission_amount: i.commission_amount,
+        is_commission_paid: isPaid,
+        commission_paid_at: i.commission_paid_at || '',
+        is_accrued_after_last_paid: isAfterLastPaid,
+        patient_uid: i.patient_uid,
+        patient_name: i.patient_name,
+        test_names: its.map((t) => t.test_name).join(', '),
+        test_items: its.map((t) => ({
+          id: t.id,
+          test_id: t.test_id,
+          test_name: t.test_name,
+          price: t.price,
+          commission_type: t.commission_type || 'percent',
+          commission_value: Number(t.commission_value ?? i.commission_pct ?? 0),
+          commission_amount:
+            Number(t.commission_amount || 0) > 0 || i.commission_amount === 0
+              ? Number(t.commission_amount || 0)
+              : i.subtotal > 0
+              ? roundCurrency((t.price / i.subtotal) * i.commission_amount)
+              : 0,
+        })),
+      };
+    });
+
+    const referrals = mapped.filter((r) => {
+      if (status === 'unpaid') return !r.is_commission_paid;
+      if (status === 'paid') return r.is_commission_paid;
+      return true;
+    });
 
     const totals = referrals.reduce(
       (acc, r) => {
         acc.totalPatients += 1;
-        acc.totalGross += r.subtotal;
-        acc.totalDiscount += r.discount_amount;
-        acc.totalNet += r.net_total;
-        acc.totalPaid += r.paid_amount;
-        acc.totalDue += r.due_amount;
-        acc.totalCommission += r.commission_amount;
+        acc.totalGross = roundCurrency(acc.totalGross + r.subtotal);
+        acc.totalDiscount = roundCurrency(acc.totalDiscount + r.discount_amount);
+        acc.totalNet = roundCurrency(acc.totalNet + r.net_total);
+        acc.totalPaid = roundCurrency(acc.totalPaid + r.paid_amount);
+        acc.totalDue = roundCurrency(acc.totalDue + r.due_amount);
+        acc.totalCommission = roundCurrency(acc.totalCommission + r.commission_amount);
+        if (!r.is_commission_paid) {
+          acc.unpaidPatients += 1;
+          acc.unpaidCommission = roundCurrency(acc.unpaidCommission + r.commission_amount);
+        } else {
+          acc.paidCommission = roundCurrency(acc.paidCommission + r.commission_amount);
+        }
         return acc;
       },
       {
@@ -487,10 +660,205 @@ export class SqliteLimsStore implements LimsStore {
         totalPaid: 0,
         totalDue: 0,
         totalCommission: 0,
+        unpaidPatients: 0,
+        unpaidCommission: 0,
+        paidCommission: 0,
       }
     );
 
-    return { doctor, from, to, referrals, totals };
+    const allDocInvs = db
+      .prepare(`SELECT created_at, commission_amount, commission_paid FROM invoices WHERE doctor_id = ?`)
+      .all(id) as Array<{ created_at: string; commission_amount: number; commission_paid: number }>;
+
+    const allTimeUnpaid = allDocInvs.reduce(
+      (acc, inv) => {
+        const isPaid =
+          inv.commission_paid === 1 || (Boolean(lastPaidUpTo) && String(inv.created_at || '').slice(0, 10) <= lastPaidUpTo);
+        if (!isPaid) {
+          acc.count += 1;
+          acc.amount = roundCurrency(acc.amount + Number(inv.commission_amount || 0));
+        }
+        return acc;
+      },
+      { count: 0, amount: 0 }
+    );
+
+    const payoutHistory = db
+      .prepare(`SELECT * FROM doctor_commission_payouts WHERE doctor_id = ? ORDER BY id DESC LIMIT 20`)
+      .all(id);
+
+    return {
+      doctor: {
+        ...doctor,
+        last_commission_paid_up_to: lastPaidUpTo,
+        last_commission_settled_at: doctor.last_commission_settled_at || '',
+        last_commission_paid_amount: Number(doctor.last_commission_paid_amount || 0),
+      },
+      from,
+      to,
+      status,
+      suggestedNextFrom: lastPaidUpTo ? addDaysToIsoDate(lastPaidUpTo, 1) : '',
+      allTimeUnpaid,
+      referrals,
+      totals,
+      payoutHistory,
+    };
+  }
+
+  async settleDoctorCommission(payload: {
+    doctorId: number;
+    paidUpToDate: string;
+    fromDate?: string;
+    note?: string;
+    settledBy?: string;
+  }): Promise<Record<string, unknown>> {
+    const doctor = db.prepare('SELECT * FROM doctors WHERE id = ?').get(payload.doctorId) as
+      | { id: number; last_commission_paid_up_to?: string }
+      | undefined;
+    if (!doctor) throw new StoreError(404, 'Doctor not found.');
+
+    const cutoff = (payload.paidUpToDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cutoff)) {
+      throw new StoreError(400, 'Valid Paid Up To Date (YYYY-MM-DD) is required.');
+    }
+
+    const lastPaidUpTo = String(doctor.last_commission_paid_up_to || '').trim();
+    const candidates = db
+      .prepare(
+        `SELECT id, created_at, commission_amount, commission_paid
+         FROM invoices
+         WHERE doctor_id = ? AND substr(created_at, 1, 10) <= ?
+         ORDER BY created_at ASC`
+      )
+      .all(payload.doctorId, cutoff) as Array<{
+      id: number;
+      created_at: string;
+      commission_amount: number;
+      commission_paid: number;
+    }>;
+
+    const unpaidInvs = candidates.filter(
+      (inv) => !(inv.commission_paid === 1 || (Boolean(lastPaidUpTo) && String(inv.created_at || '').slice(0, 10) <= lastPaidUpTo))
+    );
+
+    const totalCommissionPaid = roundCurrency(
+      unpaidInvs.reduce((sum, inv) => sum + Number(inv.commission_amount || 0), 0)
+    );
+    const nowTs = getLocalTimestampStr();
+    const effectiveFrom =
+      (payload.fromDate || '').trim() ||
+      (lastPaidUpTo
+        ? addDaysToIsoDate(lastPaidUpTo, 1)
+        : unpaidInvs.length > 0
+        ? String(unpaidInvs[0].created_at || '').slice(0, 10)
+        : cutoff);
+    const nextCutoff = !lastPaidUpTo || cutoff > lastPaidUpTo ? cutoff : lastPaidUpTo;
+
+    const payoutId = db.transaction(() => {
+      const pRes = db
+        .prepare(
+          `INSERT INTO doctor_commission_payouts (
+            doctor_id, from_date, paid_up_to_date, patients_count, total_commission_paid, note, settled_by, settled_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          payload.doctorId,
+          effectiveFrom,
+          cutoff,
+          unpaidInvs.length,
+          totalCommissionPaid,
+          payload.note?.trim() || '',
+          payload.settledBy?.trim() || 'Admin',
+          nowTs
+        );
+      const newPayoutId = Number(pRes.lastInsertRowid);
+
+      const markPaidStmt = db.prepare(
+        `UPDATE invoices SET commission_paid = 1, commission_paid_at = ?, commission_payout_id = ? WHERE id = ?`
+      );
+      for (const inv of unpaidInvs) {
+        markPaidStmt.run(nowTs, newPayoutId, inv.id);
+      }
+
+      db.prepare(
+        `UPDATE doctors
+         SET last_commission_paid_up_to = ?, last_commission_settled_at = ?, last_commission_paid_amount = ?
+         WHERE id = ?`
+      ).run(nextCutoff, nowTs, totalCommissionPaid, payload.doctorId);
+
+      return newPayoutId;
+    })();
+
+    return {
+      success: true,
+      payoutId,
+      doctorId: payload.doctorId,
+      paidUpToDate: nextCutoff,
+      patientsCount: unpaidInvs.length,
+      totalCommissionPaid,
+      settledAt: nowTs,
+    };
+  }
+
+  async updateInvoiceCommission(payload: {
+    invoiceId: number;
+    commissionMode: 'doctor_default' | 'custom_invoice' | 'custom_per_test';
+    commissionType?: 'percent' | 'flat';
+    commissionValue?: number;
+    testCommissions?: TestCommissionOverride[];
+  }): Promise<Record<string, unknown>> {
+    const inv = db.prepare(`SELECT * FROM invoices WHERE id = ?`).get(payload.invoiceId) as
+      | { id: number; doctor_id: number | null; subtotal: number; net_total: number }
+      | undefined;
+    if (!inv) throw new StoreError(404, 'Invoice not found.');
+
+    const doc = inv.doctor_id
+      ? (db.prepare(`SELECT commission_pct FROM doctors WHERE id = ?`).get(inv.doctor_id) as
+          | { commission_pct: number }
+          | undefined)
+      : undefined;
+
+    const invTests = db
+      .prepare(`SELECT id, test_id, price FROM invoice_tests WHERE invoice_id = ? ORDER BY id ASC`)
+      .all(payload.invoiceId) as Array<{ id: number; test_id: number; price: number }>;
+
+    const computed = computeInvoiceCommission({
+      tests: invTests.map((it) => ({ test_id: it.test_id, price: Number(it.price) })),
+      subtotal: Number(inv.subtotal),
+      netTotal: Number(inv.net_total),
+      hasDoctor: Boolean(inv.doctor_id),
+      doctorCommissionPct: Number(doc?.commission_pct || 0),
+      commissionMode: payload.commissionMode,
+      commissionType: payload.commissionType,
+      commissionValue: payload.commissionValue,
+      testCommissions: payload.testCommissions,
+    });
+
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE invoices
+         SET commission_type = ?, commission_value = ?, commission_pct = ?, commission_amount = ?
+         WHERE id = ?`
+      ).run(
+        computed.invoiceCommissionType,
+        computed.invoiceCommissionValue,
+        computed.invoiceCommissionPct,
+        computed.invoiceCommissionAmount,
+        payload.invoiceId
+      );
+
+      const updIt = db.prepare(
+        `UPDATE invoice_tests SET commission_type = ?, commission_value = ?, commission_amount = ? WHERE id = ?`
+      );
+      for (const it of invTests) {
+        const tc = computed.perTestMap.get(it.test_id);
+        if (tc) {
+          updIt.run(tc.commission_type, tc.commission_value, tc.commission_amount, it.id);
+        }
+      }
+    })();
+
+    return (await this.getFullInvoice(payload.invoiceId, true, true))!;
   }
 
   async listInvoices(filters: {
@@ -522,8 +890,16 @@ export class SqliteLimsStore implements LimsStore {
     return db
       .prepare(
         `SELECT i.id, i.invoice_no, i.patient_id, i.doctor_id, i.subtotal, i.discount_type, i.discount_value,
-                i.discount_amount, i.net_total, i.paid_amount, i.due_amount, i.payment_status,
-                ${filters.includeCommission ? 'i.commission_pct, i.commission_amount,' : ''}
+                i.discount_amount,
+                CASE WHEN i.discount_pct > 0 OR i.discount_amount = 0 THEN i.discount_pct
+                     WHEN i.subtotal > 0 THEN ROUND((i.discount_amount / i.subtotal) * 100, 2)
+                     ELSE 0 END as discount_pct,
+                i.net_total, i.paid_amount, i.due_amount, i.payment_status,
+                ${
+                  filters.includeCommission
+                    ? 'i.commission_pct, i.commission_amount, i.commission_type, i.commission_value, i.commission_paid, i.commission_paid_at,'
+                    : ''
+                }
                 i.notes, i.created_by, i.created_at,
                 CASE WHEN substr(i.created_at, 1, 10) = ? THEN 1 ELSE 0 END as is_today,
                 p.patient_uid, p.name as patient_name, p.age_years, p.age_months, p.age_days, p.gender, p.mobile as patient_mobile,
@@ -563,8 +939,16 @@ export class SqliteLimsStore implements LimsStore {
     const invoice = db
       .prepare(
         `SELECT i.id, i.invoice_no, i.patient_id, i.doctor_id, i.subtotal, i.discount_type, i.discount_value,
-                i.discount_amount, i.net_total, i.paid_amount, i.due_amount, i.payment_status,
-                ${includeCommission ? 'i.commission_pct, i.commission_amount,' : ''}
+                i.discount_amount,
+                CASE WHEN i.discount_pct > 0 OR i.discount_amount = 0 THEN i.discount_pct
+                     WHEN i.subtotal > 0 THEN ROUND((i.discount_amount / i.subtotal) * 100, 2)
+                     ELSE 0 END as discount_pct,
+                i.net_total, i.paid_amount, i.due_amount, i.payment_status,
+                ${
+                  includeCommission
+                    ? 'i.commission_pct, i.commission_amount, i.commission_type, i.commission_value, i.commission_paid, i.commission_paid_at,'
+                    : ''
+                }
                 i.notes, i.created_by, i.created_at,
                 CASE WHEN substr(i.created_at, 1, 10) = ? THEN 1 ELSE 0 END as is_today,
                 p.patient_uid, p.name as patient_name, p.age_years, p.age_months, p.age_days, p.gender,
@@ -613,10 +997,18 @@ export class SqliteLimsStore implements LimsStore {
        WHERE tr.invoice_test_id = ?
        ORDER BY tr.sort_order ASC, tr.id ASC`
     );
-    const enrichedTests = tests.map((t) => ({
-      ...t,
-      results: resultsStmt.all(t.id),
-    }));
+    const enrichedTests = tests.map((t) => {
+      const outTest: Record<string, unknown> = {
+        ...t,
+        results: resultsStmt.all(t.id),
+      };
+      if (!includeCommission) {
+        delete outTest.commission_type;
+        delete outTest.commission_value;
+        delete outTest.commission_amount;
+      }
+      return outTest;
+    });
 
     const duePayments = db.prepare(`SELECT * FROM due_payments WHERE invoice_id = ? ORDER BY id ASC`).all(invoiceId);
 
@@ -658,16 +1050,30 @@ export class SqliteLimsStore implements LimsStore {
     }
 
     const netTotal = Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100);
+    const discountPct = subtotal > 0 ? roundCurrency((discountAmount / subtotal) * 100) : 0;
     const paid = Math.min(netTotal, Math.max(0, Math.round(Number(payload.paidAmount || 0) * 100) / 100));
     const due = Math.max(0, Math.round((netTotal - paid) * 100) / 100);
     const paymentStatus = due <= 0 ? 'Paid' : paid > 0 ? 'Partial' : 'Due';
 
-    let commissionPct = 0;
+    let docCommissionPct = 0;
     if (payload.doctorId) {
-      const doc = db.prepare('SELECT commission_pct FROM doctors WHERE id = ?').get(payload.doctorId) as { commission_pct: number } | undefined;
-      if (doc) commissionPct = Number(doc.commission_pct || 0);
+      const doc = db.prepare('SELECT commission_pct FROM doctors WHERE id = ?').get(payload.doctorId) as
+        | { commission_pct: number }
+        | undefined;
+      if (doc) docCommissionPct = Number(doc.commission_pct || 0);
     }
-    const commissionAmount = Math.round(((netTotal * commissionPct) / 100) * 100) / 100;
+
+    const computedComm = computeInvoiceCommission({
+      tests: selectedTests.map((t) => ({ test_id: t.id, price: Number(t.price) })),
+      subtotal,
+      netTotal,
+      hasDoctor: Boolean(payload.doctorId),
+      doctorCommissionPct: docCommissionPct,
+      commissionMode: payload.isAdmin ? payload.commissionMode || 'doctor_default' : 'doctor_default',
+      commissionType: payload.commissionType,
+      commissionValue: payload.commissionValue,
+      testCommissions: payload.testCommissions,
+    });
     const nowTs = getLocalTimestampStr();
 
     const createdInvoiceId = db.transaction(() => {
@@ -734,10 +1140,11 @@ export class SqliteLimsStore implements LimsStore {
       const iRes = db
         .prepare(
           `INSERT INTO invoices (
-            invoice_no, patient_id, doctor_id, subtotal, discount_type, discount_value, discount_amount,
-            net_total, paid_amount, due_amount, payment_status, commission_pct, commission_amount,
+            invoice_no, patient_id, doctor_id, subtotal, discount_type, discount_value, discount_amount, discount_pct,
+            net_total, paid_amount, due_amount, payment_status,
+            commission_pct, commission_amount, commission_type, commission_value, commission_paid,
             notes, created_by, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
         )
         .run(
           invoiceNo,
@@ -747,12 +1154,15 @@ export class SqliteLimsStore implements LimsStore {
           dType,
           dVal,
           discountAmount,
+          discountPct,
           netTotal,
           paid,
           due,
           paymentStatus,
-          commissionPct,
-          commissionAmount,
+          computedComm.invoiceCommissionPct,
+          computedComm.invoiceCommissionAmount,
+          computedComm.invoiceCommissionType,
+          computedComm.invoiceCommissionValue,
           payload.notes?.trim() || '',
           payload.isAdmin ? 'Admin' : 'Staff',
           nowTs
@@ -760,8 +1170,10 @@ export class SqliteLimsStore implements LimsStore {
       const invoiceId = Number(iRes.lastInsertRowid);
 
       const insInvTest = db.prepare(
-        `INSERT INTO invoice_tests (invoice_id, test_id, test_name, category_name, sample_type, price, status, collected_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'Sample Collected', ?)`
+        `INSERT INTO invoice_tests (
+          invoice_id, test_id, test_name, category_name, sample_type, price,
+          commission_type, commission_value, commission_amount, status, collected_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Sample Collected', ?)`
       );
       const getParams = db.prepare(`SELECT * FROM test_parameters WHERE test_id = ? ORDER BY sort_order ASC, id ASC`);
       const insResult = db.prepare(
@@ -770,7 +1182,19 @@ export class SqliteLimsStore implements LimsStore {
       );
 
       for (const t of selectedTests) {
-        const itRes = insInvTest.run(invoiceId, t.id, t.name, t.category_name, t.sample_type, t.price, nowTs);
+        const tc = computedComm.perTestMap.get(t.id);
+        const itRes = insInvTest.run(
+          invoiceId,
+          t.id,
+          t.name,
+          t.category_name,
+          t.sample_type,
+          t.price,
+          tc?.commission_type || 'percent',
+          tc?.commission_value ?? docCommissionPct,
+          tc?.commission_amount ?? 0,
+          nowTs
+        );
         const invoiceTestId = Number(itRes.lastInsertRowid);
         const params = getParams.all(t.id) as Array<{
           id: number;
@@ -829,6 +1253,9 @@ export class SqliteLimsStore implements LimsStore {
           doctor_id: number | null;
           discount_type: 'percent' | 'flat';
           discount_value: number;
+          commission_type?: string;
+          commission_value?: number;
+          commission_pct: number;
           paid_amount: number;
           notes: string;
           created_at: string;
@@ -854,8 +1281,14 @@ export class SqliteLimsStore implements LimsStore {
       : [];
 
     const existingTestRows = db
-      .prepare('SELECT test_id, price FROM invoice_tests WHERE invoice_id = ?')
-      .all(payload.invoiceId) as Array<{ test_id: number; price: number }>;
+      .prepare('SELECT id, test_id, price, commission_type, commission_value FROM invoice_tests WHERE invoice_id = ?')
+      .all(payload.invoiceId) as Array<{
+      id: number;
+      test_id: number;
+      price: number;
+      commission_type?: string;
+      commission_value?: number;
+    }>;
     const existingTestIds = new Set(existingTestRows.map((r) => r.test_id));
     const newTestIds = requestedIds.filter((id) => !existingTestIds.has(id));
 
@@ -901,13 +1334,72 @@ export class SqliteLimsStore implements LimsStore {
     }
 
     const netTotal = Math.max(0, Math.round((newSubtotal - discountAmount) * 100) / 100);
+    const discountPct = newSubtotal > 0 ? roundCurrency((discountAmount / newSubtotal) * 100) : 0;
     const nextDoctorId = payload.doctorId !== undefined ? payload.doctorId : existingInv.doctor_id;
-    let commissionPct = 0;
+    let docCommissionPct = 0;
     if (nextDoctorId) {
-      const doc = db.prepare('SELECT commission_pct FROM doctors WHERE id = ?').get(nextDoctorId) as { commission_pct: number } | undefined;
-      if (doc) commissionPct = Number(doc.commission_pct || 0);
+      const doc = db.prepare('SELECT commission_pct FROM doctors WHERE id = ?').get(nextDoctorId) as
+        | { commission_pct: number }
+        | undefined;
+      if (doc) docCommissionPct = Number(doc.commission_pct || 0);
     }
-    const commissionAmount = Math.round(((netTotal * commissionPct) / 100) * 100) / 100;
+
+    const doctorChanged = Number(nextDoctorId || 0) !== Number(existingInv.doctor_id || 0);
+    const resolvedMode: 'doctor_default' | 'custom_invoice' | 'custom_per_test' =
+      payload.isAdmin && payload.commissionMode
+        ? payload.commissionMode
+        : doctorChanged
+        ? 'doctor_default'
+        : existingInv.commission_type === 'per_test'
+        ? 'custom_per_test'
+        : existingInv.commission_type === 'flat' ||
+          (typeof existingInv.commission_value === 'number' &&
+            Math.abs(existingInv.commission_value - docCommissionPct) > 0.01)
+        ? 'custom_invoice'
+        : 'doctor_default';
+
+    const resolvedType: 'percent' | 'flat' =
+      payload.isAdmin && payload.commissionMode
+        ? payload.commissionType === 'flat'
+          ? 'flat'
+          : 'percent'
+        : existingInv.commission_type === 'flat'
+        ? 'flat'
+        : 'percent';
+
+    const resolvedValue =
+      payload.isAdmin && payload.commissionMode
+        ? payload.commissionValue
+        : typeof existingInv.commission_value === 'number'
+        ? existingInv.commission_value
+        : existingInv.commission_pct;
+
+    const resolvedTestCommissions: TestCommissionOverride[] =
+      payload.isAdmin && payload.commissionMode === 'custom_per_test' && Array.isArray(payload.testCommissions)
+        ? payload.testCommissions
+        : existingTestRows.map((it) => ({
+            testId: it.test_id,
+            commissionType: it.commission_type === 'flat' ? 'flat' : 'percent',
+            commissionValue:
+              typeof it.commission_value === 'number' ? it.commission_value : docCommissionPct,
+          }));
+
+    const allCombinedTests = [
+      ...existingTestRows.map((r) => ({ test_id: r.test_id, price: Number(r.price) })),
+      ...testsToAdd.map((t) => ({ test_id: t.id, price: Number(t.price) })),
+    ];
+
+    const computedComm = computeInvoiceCommission({
+      tests: allCombinedTests,
+      subtotal: newSubtotal,
+      netTotal,
+      hasDoctor: Boolean(nextDoctorId),
+      doctorCommissionPct: docCommissionPct,
+      commissionMode: resolvedMode,
+      commissionType: resolvedType,
+      commissionValue: resolvedValue,
+      testCommissions: resolvedTestCommissions,
+    });
 
     const extraPayRaw = Math.max(0, Math.round(Number(payload.additionalPayment || 0) * 100) / 100);
     const maxCollectable = Math.max(0, Math.round((netTotal - Number(existingInv.paid_amount)) * 100) / 100);
@@ -985,8 +1477,10 @@ export class SqliteLimsStore implements LimsStore {
       }
 
       const insInvTest = db.prepare(
-        `INSERT INTO invoice_tests (invoice_id, test_id, test_name, category_name, sample_type, price, status, collected_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'Sample Collected', ?)`
+        `INSERT INTO invoice_tests (
+          invoice_id, test_id, test_name, category_name, sample_type, price,
+          commission_type, commission_value, commission_amount, status, collected_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Sample Collected', ?)`
       );
       const getParams = db.prepare(`SELECT * FROM test_parameters WHERE test_id = ? ORDER BY sort_order ASC, id ASC`);
       const insResult = db.prepare(
@@ -995,7 +1489,19 @@ export class SqliteLimsStore implements LimsStore {
       );
 
       for (const t of testsToAdd) {
-        const itRes = insInvTest.run(payload.invoiceId, t.id, t.name, t.category_name, t.sample_type, t.price, nowTs);
+        const tc = computedComm.perTestMap.get(t.id);
+        const itRes = insInvTest.run(
+          payload.invoiceId,
+          t.id,
+          t.name,
+          t.category_name,
+          t.sample_type,
+          t.price,
+          tc?.commission_type || 'percent',
+          tc?.commission_value ?? docCommissionPct,
+          tc?.commission_amount ?? 0,
+          nowTs
+        );
         const invoiceTestId = Number(itRes.lastInsertRowid);
         const params = getParams.all(t.id) as Array<{
           id: number;
@@ -1029,6 +1535,16 @@ export class SqliteLimsStore implements LimsStore {
         }
       }
 
+      const updExistingIt = db.prepare(
+        `UPDATE invoice_tests SET commission_type = ?, commission_value = ?, commission_amount = ? WHERE id = ?`
+      );
+      for (const existingIt of existingTestRows) {
+        const tc = computedComm.perTestMap.get(existingIt.test_id);
+        if (tc) {
+          updExistingIt.run(tc.commission_type, tc.commission_value, tc.commission_amount, existingIt.id);
+        }
+      }
+
       if (appliedExtraPay > 0) {
         db.prepare(
           `INSERT INTO due_payments (invoice_id, amount, payment_method, note, collected_by, collected_at)
@@ -1045,9 +1561,9 @@ export class SqliteLimsStore implements LimsStore {
 
       db.prepare(
         `UPDATE invoices
-         SET doctor_id = ?, subtotal = ?, discount_type = ?, discount_value = ?, discount_amount = ?,
+         SET doctor_id = ?, subtotal = ?, discount_type = ?, discount_value = ?, discount_amount = ?, discount_pct = ?,
              net_total = ?, paid_amount = ?, due_amount = ?, payment_status = ?,
-             commission_pct = ?, commission_amount = ?, notes = ?
+             commission_pct = ?, commission_amount = ?, commission_type = ?, commission_value = ?, notes = ?
          WHERE id = ?`
       ).run(
         nextDoctorId || null,
@@ -1055,12 +1571,15 @@ export class SqliteLimsStore implements LimsStore {
         dType,
         dVal,
         discountAmount,
+        discountPct,
         netTotal,
         newPaid,
         newDue,
         newStatus,
-        commissionPct,
-        commissionAmount,
+        computedComm.invoiceCommissionPct,
+        computedComm.invoiceCommissionAmount,
+        computedComm.invoiceCommissionType,
+        computedComm.invoiceCommissionValue,
         payload.notes !== undefined ? payload.notes.trim() : existingInv.notes,
         payload.invoiceId
       );

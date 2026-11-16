@@ -391,13 +391,66 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
     requireAdmin,
     asyncHandler(async (req, res) => {
       const id = Number(req.params.id);
-      const from =
-        typeof req.query.from === 'string' && req.query.from
-          ? req.query.from
-          : `${getTodayDateStr().slice(0, 7)}-01`;
-      const to = typeof req.query.to === 'string' && req.query.to ? req.query.to : getTodayDateStr();
-      const statement = await store.getDoctorStatement(id, from, to);
+      const from = typeof req.query.from === 'string' && req.query.from.trim() ? req.query.from.trim() : undefined;
+      const to = typeof req.query.to === 'string' && req.query.to.trim() ? req.query.to.trim() : undefined;
+      const rawStatus = typeof req.query.status === 'string' ? req.query.status.trim() : 'all';
+      const status: 'unpaid' | 'all' | 'paid' =
+        rawStatus === 'unpaid' || rawStatus === 'paid' ? rawStatus : 'all';
+      const statement = await store.getDoctorStatement(id, from, to, status);
       res.json(statement);
+    })
+  );
+
+  app.post(
+    '/api/admin/doctors/:id/settle-commission',
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const doctorId = Number(req.params.id);
+      const { paidUpToDate, fromDate, note } = req.body as {
+        paidUpToDate?: string;
+        fromDate?: string;
+        note?: string;
+      };
+      if (!paidUpToDate || !paidUpToDate.trim()) {
+        res.status(400).json({ error: 'Paid Up To Date is required.' });
+        return;
+      }
+      const token = extractTokenFromRequest(req);
+      const adminPayload = verifyAdminToken(token, getSecret());
+      const result = await store.settleDoctorCommission({
+        doctorId,
+        paidUpToDate: paidUpToDate.trim(),
+        fromDate: fromDate?.trim(),
+        note: note?.trim(),
+        settledBy: adminPayload?.name || 'Admin',
+      });
+      res.json(result);
+    })
+  );
+
+  app.put(
+    '/api/admin/invoices/:id/commission',
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const invoiceId = Number(req.params.id);
+      const { commissionMode, commissionType, commissionValue, testCommissions } = req.body as {
+        commissionMode?: 'doctor_default' | 'custom_invoice' | 'custom_per_test';
+        commissionType?: 'percent' | 'flat';
+        commissionValue?: number;
+        testCommissions?: Array<{ testId: number; commissionType: 'percent' | 'flat'; commissionValue: number }>;
+      };
+      if (!commissionMode) {
+        res.status(400).json({ error: 'Commission mode is required.' });
+        return;
+      }
+      const updated = await store.updateInvoiceCommission({
+        invoiceId,
+        commissionMode,
+        commissionType,
+        commissionValue,
+        testCommissions,
+      });
+      res.json(updated);
     })
   );
 

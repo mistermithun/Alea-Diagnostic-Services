@@ -161,6 +161,19 @@ export function initDatabase() {
       FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS doctor_commission_payouts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      doctor_id INTEGER NOT NULL,
+      from_date TEXT DEFAULT '',
+      paid_up_to_date TEXT NOT NULL,
+      patients_count INTEGER NOT NULL DEFAULT 0,
+      total_commission_paid REAL NOT NULL DEFAULT 0,
+      note TEXT DEFAULT '',
+      settled_by TEXT DEFAULT 'Admin',
+      settled_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS expenses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
@@ -176,12 +189,67 @@ export function initDatabase() {
   migratePatientPortalColumns();
   migrateTestParameterDefaults();
   migrateInvoiceTestConsultantColumns();
+  migrateCommissionTrackingColumns();
   seedDefaultSettings();
   seedCatalogIfEmpty();
   seedInitialOperationalDataIfEmpty();
   migrateCbcParameters();
   migrateUrineReParameters();
   ensurePatientPortalCredentials();
+}
+
+function migrateCommissionTrackingColumns() {
+  const docCols = new Set(
+    (db.prepare(`PRAGMA table_info(doctors)`).all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  if (!docCols.has('last_commission_paid_up_to')) {
+    db.exec(`ALTER TABLE doctors ADD COLUMN last_commission_paid_up_to TEXT DEFAULT ''`);
+  }
+  if (!docCols.has('last_commission_settled_at')) {
+    db.exec(`ALTER TABLE doctors ADD COLUMN last_commission_settled_at TEXT DEFAULT ''`);
+  }
+  if (!docCols.has('last_commission_paid_amount')) {
+    db.exec(`ALTER TABLE doctors ADD COLUMN last_commission_paid_amount REAL DEFAULT 0`);
+  }
+
+  const invCols = new Set(
+    (db.prepare(`PRAGMA table_info(invoices)`).all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  if (!invCols.has('discount_pct')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN discount_pct REAL NOT NULL DEFAULT 0`);
+    db.exec(
+      `UPDATE invoices SET discount_pct = CASE WHEN subtotal > 0 THEN ROUND((discount_amount / subtotal) * 100, 2) ELSE 0 END`
+    );
+  }
+  if (!invCols.has('commission_type')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN commission_type TEXT NOT NULL DEFAULT 'percent'`);
+  }
+  if (!invCols.has('commission_value')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN commission_value REAL NOT NULL DEFAULT 0`);
+    db.exec(`UPDATE invoices SET commission_value = commission_pct`);
+  }
+  if (!invCols.has('commission_paid')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN commission_paid INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!invCols.has('commission_paid_at')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN commission_paid_at TEXT DEFAULT ''`);
+  }
+  if (!invCols.has('commission_payout_id')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN commission_payout_id INTEGER`);
+  }
+
+  const itCols = new Set(
+    (db.prepare(`PRAGMA table_info(invoice_tests)`).all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  if (!itCols.has('commission_type')) {
+    db.exec(`ALTER TABLE invoice_tests ADD COLUMN commission_type TEXT NOT NULL DEFAULT 'percent'`);
+  }
+  if (!itCols.has('commission_value')) {
+    db.exec(`ALTER TABLE invoice_tests ADD COLUMN commission_value REAL NOT NULL DEFAULT 0`);
+  }
+  if (!itCols.has('commission_amount')) {
+    db.exec(`ALTER TABLE invoice_tests ADD COLUMN commission_amount REAL NOT NULL DEFAULT 0`);
+  }
 }
 
 function migrateTestParameterDefaults() {

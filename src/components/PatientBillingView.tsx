@@ -49,6 +49,14 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
   const [paidTouched, setPaidTouched] = useState(false);
   const [notes, setNotes] = useState('');
 
+  // Admin-only custom doctor commission setup (per-patient or per-test)
+  const [commissionMode, setCommissionMode] = useState<'doctor_default' | 'custom_invoice' | 'custom_per_test'>('doctor_default');
+  const [customCommType, setCustomCommType] = useState<'percent' | 'flat'>('percent');
+  const [customCommValue, setCustomCommValue] = useState<string>('0');
+  const [perTestCommMap, setPerTestCommMap] = useState<
+    Record<number, { type: 'percent' | 'flat'; value: string }>
+  >({});
+
   // List filter & Edit modal
   const [listSearch, setListSearch] = useState('');
   const [todayOnly, setTodayOnly] = useState(true);
@@ -131,8 +139,54 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
   const effectivePaid = Math.min(netTotal, Math.max(0, Number(paidAmount || 0)));
   const dueAmount = Math.max(0, Math.round((netTotal - effectivePaid) * 100) / 100);
   const maxStaffPct = Number(settings.max_staff_discount_pct || 15);
-  const currentDiscountPct = subtotal > 0 ? (discountAmount / subtotal) * 100 : 0;
+  const currentDiscountPct = subtotal > 0 ? Math.round(((discountAmount / subtotal) * 100) * 100) / 100 : 0;
   const exceedsStaffCap = !isAdmin && currentDiscountPct > maxStaffPct + 0.01;
+
+  const selectedDoctor = useMemo(
+    () => doctors.find((d) => d.id === selectedDoctorId) || null,
+    [doctors, selectedDoctorId]
+  );
+
+  const doctorDefaultPct = Number(selectedDoctor?.commission_pct ?? 0);
+
+  const previewCommission = useMemo(() => {
+    if (!selectedDoctorId) return { amount: 0, effectivePct: 0 };
+    if (commissionMode === 'custom_per_test') {
+      let total = 0;
+      for (const t of selectedTests) {
+        const entry = perTestCommMap[t.id];
+        const tType = entry?.type === 'flat' ? 'flat' : 'percent';
+        const tVal = entry ? Math.max(0, Number(entry.value || 0)) : doctorDefaultPct;
+        const netShare = subtotal > 0 ? (Number(t.price) / subtotal) * netTotal : 0;
+        total += tType === 'flat' ? tVal : Math.round(((netShare * tVal) / 100) * 100) / 100;
+      }
+      const amt = Math.round(total * 100) / 100;
+      const pct = netTotal > 0 ? Math.round(((amt / netTotal) * 100) * 100) / 100 : 0;
+      return { amount: amt, effectivePct: pct };
+    }
+    if (commissionMode === 'custom_invoice') {
+      const val = Math.max(0, Number(customCommValue || 0));
+      if (customCommType === 'flat') {
+        const amt = Math.round(val * 100) / 100;
+        const pct = netTotal > 0 ? Math.round(((amt / netTotal) * 100) * 100) / 100 : 0;
+        return { amount: amt, effectivePct: pct };
+      }
+      const amt = Math.round(((netTotal * val) / 100) * 100) / 100;
+      return { amount: amt, effectivePct: val };
+    }
+    const amt = Math.round(((netTotal * doctorDefaultPct) / 100) * 100) / 100;
+    return { amount: amt, effectivePct: doctorDefaultPct };
+  }, [
+    selectedDoctorId,
+    commissionMode,
+    customCommType,
+    customCommValue,
+    perTestCommMap,
+    selectedTests,
+    subtotal,
+    netTotal,
+    doctorDefaultPct,
+  ]);
 
   const filteredDoctors = useMemo(() => {
     const q = doctorSearch.trim().toLowerCase();
@@ -217,6 +271,10 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
     setPaidAmount('0');
     setPaidTouched(false);
     setNotes('');
+    setCommissionMode('doctor_default');
+    setCustomCommType('percent');
+    setCustomCommValue(String(doctorDefaultPct));
+    setPerTestCommMap({});
   };
 
   const handleSubmit = async (e: React.FormEvent, printAfter = true) => {
@@ -236,6 +294,18 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
       setError(`Staff discount limit is ${maxStaffPct}%. Reduce discount or switch to Admin mode.`);
       return;
     }
+
+    const testCommissionsPayload =
+      isAdmin && commissionMode === 'custom_per_test'
+        ? selectedTests.map((t) => {
+            const entry = perTestCommMap[t.id];
+            return {
+              testId: t.id,
+              commissionType: (entry?.type === 'flat' ? 'flat' : 'percent') as 'percent' | 'flat',
+              commissionValue: entry ? Math.max(0, Number(entry.value || 0)) : doctorDefaultPct,
+            };
+          })
+        : undefined;
 
     setSubmitting(true);
     try {
@@ -258,6 +328,14 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
           discountValue: Number(discountValue || 0),
           paidAmount: effectivePaid,
           notes: notes.trim(),
+          ...(isAdmin
+            ? {
+                commissionMode,
+                commissionType: customCommType,
+                commissionValue: Number(customCommValue || 0),
+                testCommissions: testCommissionsPayload,
+              }
+            : {}),
         }),
       });
       setSuccessMsg(
@@ -660,6 +738,12 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                   onChange={(e) => setDiscountValue(e.target.value)}
                   className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
                 />
+                <div className="flex items-center justify-between text-xs text-slate-600">
+                  <span>Recorded Discount</span>
+                  <span className="font-mono tabular-nums font-semibold text-amber-700">
+                    -{formatBDT(discountAmount)} ({currentDiscountPct}%)
+                  </span>
+                </div>
                 {exceedsStaffCap && (
                   <p className="text-xs font-medium text-red-600">
                     Exceeds Staff discount limit ({maxStaffPct}%). Admin approval required.
@@ -671,6 +755,140 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                 <span>Net Payable</span>
                 <span className="font-mono tabular-nums text-teal-700">{formatBDT(netTotal)}</span>
               </div>
+
+              {/* Admin-Only Patient/Test Doctor Commission Setup */}
+              {isAdmin && selectedDoctorId && (
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-800">Doctor Commission (Admin)</span>
+                    <span className="font-mono font-bold text-teal-700">
+                      {formatBDT(previewCommission.amount)} ({previewCommission.effectivePct}%)
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1 p-0.5 bg-slate-200/70 rounded-md">
+                    <button
+                      type="button"
+                      onClick={() => setCommissionMode('doctor_default')}
+                      className={`py-1 px-1.5 text-[11px] font-semibold rounded transition-colors ${
+                        commissionMode === 'doctor_default'
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Default ({doctorDefaultPct}%)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCommissionMode('custom_invoice');
+                        if (customCommValue === '0' && doctorDefaultPct > 0) {
+                          setCustomCommValue(String(doctorDefaultPct));
+                        }
+                      }}
+                      className={`py-1 px-1.5 text-[11px] font-semibold rounded transition-colors ${
+                        commissionMode === 'custom_invoice'
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Patient Custom
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCommissionMode('custom_per_test')}
+                      className={`py-1 px-1.5 text-[11px] font-semibold rounded transition-colors ${
+                        commissionMode === 'custom_per_test'
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Per-Test Rate
+                    </button>
+                  </div>
+
+                  {commissionMode === 'custom_invoice' && (
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={customCommType}
+                        onChange={(e) => setCustomCommType(e.target.value as 'percent' | 'flat')}
+                        className="px-2 py-1.5 text-xs border border-slate-300 rounded-md bg-white"
+                      >
+                        <option value="percent">% Pct</option>
+                        <option value="flat">৳ Flat</option>
+                      </select>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={customCommValue}
+                        onChange={(e) => setCustomCommValue(e.target.value)}
+                        placeholder={customCommType === 'percent' ? 'e.g. 25' : 'e.g. 200'}
+                        className="w-full px-2.5 py-1.5 text-xs font-mono tabular-nums border border-slate-300 rounded-md bg-white"
+                      />
+                    </div>
+                  )}
+
+                  {commissionMode === 'custom_per_test' && (
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
+                      {selectedTests.length === 0 ? (
+                        <div className="text-[11px] text-slate-500">Select tests first to set per-test rates.</div>
+                      ) : (
+                        selectedTests.map((t) => {
+                          const entry = perTestCommMap[t.id] || {
+                            type: 'percent' as const,
+                            value: String(doctorDefaultPct),
+                          };
+                          return (
+                            <div
+                              key={t.id}
+                              className="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded px-2 py-1.5"
+                            >
+                              <span className="truncate text-[11px] font-medium text-slate-700" title={t.name}>
+                                {t.name}
+                              </span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <select
+                                  value={entry.type}
+                                  onChange={(e) =>
+                                    setPerTestCommMap((prev) => ({
+                                      ...prev,
+                                      [t.id]: {
+                                        type: e.target.value as 'percent' | 'flat',
+                                        value: prev[t.id]?.value ?? String(doctorDefaultPct),
+                                      },
+                                    }))
+                                  }
+                                  className="px-1 py-0.5 text-[11px] border border-slate-300 rounded bg-white"
+                                >
+                                  <option value="percent">%</option>
+                                  <option value="flat">৳</option>
+                                </select>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="any"
+                                  value={entry.value}
+                                  onChange={(e) =>
+                                    setPerTestCommMap((prev) => ({
+                                      ...prev,
+                                      [t.id]: {
+                                        type: prev[t.id]?.type ?? 'percent',
+                                        value: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  className="w-16 px-1.5 py-0.5 text-[11px] font-mono tabular-nums border border-slate-300 rounded"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Paid Amount (BDT)</label>
@@ -801,6 +1019,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                   <th className="py-2.5 pr-3 font-medium">Patient</th>
                   <th className="py-2.5 pr-3 font-medium">Referred By</th>
                   <th className="py-2.5 pr-3 font-medium">Tests</th>
+                  <th className="py-2.5 pr-3 font-medium text-right">Discount</th>
                   <th className="py-2.5 pr-3 font-medium text-right">Net Bill</th>
                   <th className="py-2.5 pr-3 font-medium text-right">Paid</th>
                   <th className="py-2.5 pr-3 font-medium text-right">Due</th>
@@ -810,13 +1029,19 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
               <tbody className="divide-y divide-slate-200">
                 {invoices.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-sm text-slate-500">
+                    <td colSpan={9} className="py-8 text-center text-sm text-slate-500">
                       No matching invoices found.
                     </td>
                   </tr>
                 ) : (
                   invoices.map((inv) => {
                     const canEdit = inv.is_today === 1 || isAdmin;
+                    const discPct =
+                      inv.discount_pct !== undefined
+                        ? inv.discount_pct
+                        : inv.subtotal > 0
+                        ? Math.round(((inv.discount_amount / inv.subtotal) * 100) * 100) / 100
+                        : 0;
                     return (
                       <tr key={inv.id} className="hover:bg-slate-50">
                         <td className="py-3 pr-3 font-mono tabular-nums text-xs">
@@ -833,6 +1058,16 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                         <td className="py-3 pr-3 text-xs text-slate-700">{inv.doctor_name || 'Self'}</td>
                         <td className="py-3 pr-3 text-xs font-mono tabular-nums text-slate-700">
                           {inv.ready_tests ?? 0}/{inv.total_tests ?? 0} Ready
+                        </td>
+                        <td className="py-3 pr-3 text-right font-mono tabular-nums text-xs">
+                          {inv.discount_amount > 0 ? (
+                            <div>
+                              <div className="font-semibold text-amber-700">-{formatBDT(inv.discount_amount)}</div>
+                              <div className="text-[11px] text-slate-500">{discPct}% off</div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
                         </td>
                         <td className="py-3 pr-3 text-right font-mono tabular-nums font-medium">
                           {formatBDT(inv.net_total)}

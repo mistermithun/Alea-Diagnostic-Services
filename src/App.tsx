@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Banknote,
   CreditCard,
   FlaskConical,
   LayoutDashboard,
@@ -16,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { DashboardView } from './components/DashboardView.tsx';
+import { DoctorPayoutView } from './components/DoctorPayoutView.tsx';
 import { DoctorsView } from './components/DoctorsView.tsx';
 import { DueLedgerView } from './components/DueLedgerView.tsx';
 import { ExpensesView } from './components/ExpensesView.tsx';
@@ -82,6 +84,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'dues', label: 'Due Collection', adminOnly: false, icon: CreditCard },
   { id: 'catalog', label: 'Test Catalog', adminOnly: true, icon: TestTube2 },
   { id: 'doctors', label: 'Referral Doctors', adminOnly: true, icon: Stethoscope },
+  { id: 'payouts', label: 'Commission Payout', adminOnly: true, icon: Banknote },
   { id: 'expenses', label: 'Expense Tracker', adminOnly: true, icon: Wallet },
   { id: 'settings', label: 'Settings & Backup', adminOnly: true, icon: Settings },
 ];
@@ -179,6 +182,7 @@ export default function App() {
   );
 
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
+  const [selectedPayoutDoctorId, setSelectedPayoutDoctorId] = useState<number | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo>({
@@ -791,7 +795,18 @@ export default function App() {
           )}
 
           {resolvedTab === 'catalog' && isAdmin && <TestCatalogView />}
-          {resolvedTab === 'doctors' && isAdmin && <DoctorsView settings={settings} />}
+          {resolvedTab === 'doctors' && isAdmin && (
+            <DoctorsView
+              settings={settings}
+              onOpenPayout={(docId) => {
+                setSelectedPayoutDoctorId(docId);
+                setActiveTab('payouts');
+              }}
+            />
+          )}
+          {resolvedTab === 'payouts' && isAdmin && (
+            <DoctorPayoutView settings={settings} initialDoctorId={selectedPayoutDoctorId} />
+          )}
           {resolvedTab === 'expenses' && isAdmin && <ExpensesView />}
           {resolvedTab === 'settings' && isAdmin && (
             <SettingsBackupView

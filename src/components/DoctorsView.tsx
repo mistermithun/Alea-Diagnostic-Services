@@ -1,43 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Edit2, FileSpreadsheet, Plus, Printer, Trash2, X } from 'lucide-react';
+import { Banknote, Edit2, FileSpreadsheet, Plus, Printer, Trash2, X } from 'lucide-react';
 import { apiFetch, formatBDT, formatDateTime, getMonthStartISO, getTodayISO } from '../lib/api.ts';
-import type { Doctor, LabSettings } from '../types.ts';
+import type { Doctor, DoctorStatementResponse, LabSettings } from '../types.ts';
 
 interface DoctorsViewProps {
   settings: LabSettings;
+  onOpenPayout?: (doctorId: number) => void;
 }
 
-interface DoctorStatementResponse {
-  doctor: Doctor;
-  from: string;
-  to: string;
-  referrals: Array<{
-    id: number;
-    invoice_no: string;
-    created_at: string;
-    patient_uid: string;
-    patient_name: string;
-    test_names: string;
-    subtotal: number;
-    discount_amount: number;
-    net_total: number;
-    paid_amount: number;
-    due_amount: number;
-    commission_pct: number;
-    commission_amount: number;
-  }>;
-  totals: {
-    totalPatients: number;
-    totalGross: number;
-    totalDiscount: number;
-    totalNet: number;
-    totalPaid: number;
-    totalDue: number;
-    totalCommission: number;
-  };
-}
-
-export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings }) => {
+export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout }) => {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -249,9 +220,11 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings }) => {
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                <th className="py-2 pr-3 font-medium">Doctor & Degree</th>
+                <th className="py-2 pr-3 font-medium">Doctor &amp; Degree</th>
                 <th className="py-2 pr-3 font-medium">Hospital / Mobile</th>
-                <th className="py-2 pr-3 font-medium text-right">Commission</th>
+                <th className="py-2 pr-3 font-medium text-right">Default Rate</th>
+                <th className="py-2 pr-3 font-medium">Last Settled Date</th>
+                <th className="py-2 pr-3 font-medium text-right">Unpaid Accrued</th>
                 <th className="py-2 font-medium text-right">Actions</th>
               </tr>
             </thead>
@@ -269,8 +242,46 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings }) => {
                   <td className="py-3 pr-3 text-right font-mono tabular-nums font-bold text-teal-700">
                     {d.commission_pct ?? 0}%
                   </td>
+                  <td className="py-3 pr-3 text-xs font-mono tabular-nums">
+                    {d.last_commission_paid_up_to ? (
+                      <div>
+                        <span className="font-semibold text-emerald-700">{d.last_commission_paid_up_to}</span>
+                        {d.last_commission_paid_amount ? (
+                          <div className="text-[11px] text-slate-500">
+                            Paid {formatBDT(d.last_commission_paid_amount)}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span className="text-slate-400">Never settled</span>
+                    )}
+                  </td>
+                  <td className="py-3 pr-3 text-right text-xs font-mono tabular-nums">
+                    {(d.unpaid_commission_total || 0) > 0 ? (
+                      <div>
+                        <div className="font-bold text-amber-700">
+                          {formatBDT(d.unpaid_commission_total || 0)}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          {d.unpaid_referrals_count || 0} unpaid
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-emerald-700 font-medium">৳0 (Clear)</span>
+                    )}
+                  </td>
                   <td className="py-3 text-right">
                     <div className="inline-flex items-center gap-1.5">
+                      {onOpenPayout && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenPayout(d.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-white bg-teal-600 rounded-md hover:bg-teal-700 whitespace-nowrap"
+                        >
+                          <Banknote className="w-3.5 h-3.5" />
+                          Payout / Settle
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => loadStatement(d.id)}
@@ -379,6 +390,7 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings }) => {
               <div className="text-right text-xs">
                 <div>Default Rate: <span className="font-mono font-bold">{statement.doctor.commission_pct}%</span></div>
                 <div>Total Referrals: <span className="font-mono font-bold">{statement.totals.totalPatients}</span></div>
+                <div>Last Settled Date: <span className="font-mono font-bold">{statement.doctor.last_commission_paid_up_to || 'None'}</span></div>
               </div>
             </div>
 
@@ -391,13 +403,14 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings }) => {
                   <th className="py-2 pr-2 font-semibold text-right">Gross</th>
                   <th className="py-2 pr-2 font-semibold text-right">Less</th>
                   <th className="py-2 pr-2 font-semibold text-right">Net Bill</th>
+                  <th className="py-2 pr-2 font-semibold text-right">Rate</th>
                   <th className="py-2 font-semibold text-right">Commission</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {statement.referrals.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-500">
+                    <td colSpan={8} className="py-8 text-center text-slate-500">
                       No patient referrals in this date range.
                     </td>
                   </tr>
@@ -414,8 +427,23 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings }) => {
                       </td>
                       <td className="py-2 pr-2 text-slate-600 max-w-[200px]">{r.test_names}</td>
                       <td className="py-2 pr-2 text-right font-mono tabular-nums">{formatBDT(r.subtotal)}</td>
-                      <td className="py-2 pr-2 text-right font-mono tabular-nums">{formatBDT(r.discount_amount)}</td>
+                      <td className="py-2 pr-2 text-right font-mono tabular-nums">
+                        {r.discount_amount > 0 ? (
+                          <span>
+                            -{formatBDT(r.discount_amount)} ({r.discount_pct}%)
+                          </span>
+                        ) : (
+                          '0%'
+                        )}
+                      </td>
                       <td className="py-2 pr-2 text-right font-mono tabular-nums font-medium">{formatBDT(r.net_total)}</td>
+                      <td className="py-2 pr-2 text-right font-mono tabular-nums text-slate-600">
+                        {r.commission_type === 'flat'
+                          ? `${formatBDT(r.commission_value)} Flat`
+                          : r.commission_type === 'per_test'
+                          ? `Per-Test (${r.commission_pct}%)`
+                          : `${r.commission_pct}%`}
+                      </td>
                       <td className="py-2 text-right font-mono tabular-nums font-bold text-teal-800">
                         {formatBDT(r.commission_amount)}
                       </td>
@@ -429,6 +457,7 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings }) => {
                   <td className="py-3 pr-2 text-right font-mono tabular-nums">{formatBDT(statement.totals.totalGross)}</td>
                   <td className="py-3 pr-2 text-right font-mono tabular-nums">{formatBDT(statement.totals.totalDiscount)}</td>
                   <td className="py-3 pr-2 text-right font-mono tabular-nums">{formatBDT(statement.totals.totalNet)}</td>
+                  <td className="py-3 pr-2" />
                   <td className="py-3 text-right font-mono tabular-nums text-teal-800 text-sm">
                     {formatBDT(statement.totals.totalCommission)}
                   </td>

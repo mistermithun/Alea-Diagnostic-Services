@@ -26,6 +26,12 @@ export interface ParamPayload {
   max_newborn?: number | null;
 }
 
+export interface TestCommissionOverride {
+  testId: number;
+  commissionType: 'percent' | 'flat';
+  commissionValue: number;
+}
+
 export interface CreateInvoicePayload {
   existingPatientId?: number | null;
   patient: {
@@ -43,6 +49,10 @@ export interface CreateInvoicePayload {
   discountValue?: number;
   paidAmount?: number;
   notes?: string;
+  commissionMode?: 'doctor_default' | 'custom_invoice' | 'custom_per_test';
+  commissionType?: 'percent' | 'flat';
+  commissionValue?: number;
+  testCommissions?: TestCommissionOverride[];
   isAdmin: boolean;
 }
 
@@ -65,6 +75,10 @@ export interface UpdateInvoicePayload {
   additionalPayment?: number;
   paymentMethod?: string;
   notes?: string;
+  commissionMode?: 'doctor_default' | 'custom_invoice' | 'custom_per_test';
+  commissionType?: 'percent' | 'flat';
+  commissionValue?: number;
+  testCommissions?: TestCommissionOverride[];
 }
 
 export interface UpdateLabResultsPayload {
@@ -118,7 +132,7 @@ export interface LimsStore {
   ): Promise<void>;
   deleteTest(id: number): Promise<{ success: boolean; softDeleted?: boolean }>;
 
-  // Doctors
+  // Doctors & Commission Settlements
   listDoctors(includeCommission: boolean): Promise<unknown[]>;
   createDoctor(payload: {
     name: string;
@@ -138,7 +152,26 @@ export interface LimsStore {
     }
   ): Promise<void>;
   softDeleteDoctor(id: number): Promise<void>;
-  getDoctorStatement(id: number, from: string, to: string): Promise<Record<string, unknown>>;
+  getDoctorStatement(
+    id: number,
+    from?: string,
+    to?: string,
+    status?: 'unpaid' | 'all' | 'paid'
+  ): Promise<Record<string, unknown>>;
+  settleDoctorCommission(payload: {
+    doctorId: number;
+    paidUpToDate: string;
+    fromDate?: string;
+    note?: string;
+    settledBy?: string;
+  }): Promise<Record<string, unknown>>;
+  updateInvoiceCommission(payload: {
+    invoiceId: number;
+    commissionMode: 'doctor_default' | 'custom_invoice' | 'custom_per_test';
+    commissionType?: 'percent' | 'flat';
+    commissionValue?: number;
+    testCommissions?: TestCommissionOverride[];
+  }): Promise<Record<string, unknown>>;
 
   // Patients & Invoices
   listInvoices(filters: {

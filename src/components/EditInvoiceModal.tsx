@@ -57,6 +57,14 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   const [discountValue, setDiscountValue] = useState('0');
   const [additionalPayment, setAdditionalPayment] = useState('0');
 
+  // Admin-only custom doctor commission setup
+  const [commissionMode, setCommissionMode] = useState<'doctor_default' | 'custom_invoice' | 'custom_per_test'>('doctor_default');
+  const [customCommType, setCustomCommType] = useState<'percent' | 'flat'>('percent');
+  const [customCommValue, setCustomCommValue] = useState('0');
+  const [perTestCommMap, setPerTestCommMap] = useState<
+    Record<number, { type: 'percent' | 'flat'; value: string }>
+  >({});
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -77,6 +85,39 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
         setDiscountType(res.invoice.discount_type || 'flat');
         setDiscountValue(String(res.invoice.discount_value ?? 0));
         setAdditionalPayment('0');
+
+        const docObj = doctors.find((d) => d.id === res.invoice.doctor_id);
+        const docPct = Number(docObj?.commission_pct ?? 0);
+        const invCommType = res.invoice.commission_type || 'percent';
+        const invCommVal =
+          res.invoice.commission_value !== undefined
+            ? Number(res.invoice.commission_value)
+            : Number(res.invoice.commission_pct ?? docPct);
+
+        if (invCommType === 'per_test') {
+          setCommissionMode('custom_per_test');
+          setCustomCommType('percent');
+          setCustomCommValue(String(docPct));
+        } else if (invCommType === 'flat' || Math.abs(invCommVal - docPct) > 0.01) {
+          setCommissionMode('custom_invoice');
+          setCustomCommType(invCommType === 'flat' ? 'flat' : 'percent');
+          setCustomCommValue(String(invCommVal));
+        } else {
+          setCommissionMode('doctor_default');
+          setCustomCommType('percent');
+          setCustomCommValue(String(docPct));
+        }
+
+        const testMap: Record<number, { type: 'percent' | 'flat'; value: string }> = {};
+        for (const t of res.tests) {
+          testMap[t.test_id] = {
+            type: t.commission_type === 'flat' ? 'flat' : 'percent',
+            value: String(
+              t.commission_value !== undefined ? t.commission_value : res.invoice.commission_pct ?? docPct
+            ),
+          };
+        }
+        setPerTestCommMap(testMap);
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load invoice details.');
@@ -87,7 +128,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [invoiceId]);
+  }, [invoiceId, doctors]);
 
   const existingTestIdSet = useMemo(
     () => new Set((fullData?.tests || []).map((t) => t.test_id)),
@@ -137,8 +178,64 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     fullData !== null &&
     (discountType !== fullData.invoice.discount_type ||
       Number(discountValue || 0) !== Number(fullData.invoice.discount_value || 0));
-  const effectivePct = newSubtotal > 0 ? (newDiscountAmount / newSubtotal) * 100 : 0;
+  const effectivePct = newSubtotal > 0 ? Math.round(((newDiscountAmount / newSubtotal) * 100) * 100) / 100 : 0;
   const exceedsStaffCap = !isAdmin && discountChanged && effectivePct > maxStaffPct + 0.01;
+
+  const combinedTestsForComm = useMemo(() => {
+    const existing = (fullData?.tests || []).map((t) => ({
+      test_id: t.test_id,
+      test_name: t.test_name,
+      price: Number(t.price),
+    }));
+    const added = newlySelectedTests.map((t) => ({
+      test_id: t.id,
+      test_name: t.name,
+      price: Number(t.price),
+    }));
+    return [...existing, ...added];
+  }, [fullData, newlySelectedTests]);
+
+  const selectedDoctor = useMemo(() => doctors.find((d) => d.id === doctorId) || null, [doctors, doctorId]);
+  const doctorDefaultPct = Number(selectedDoctor?.commission_pct ?? 0);
+
+  const previewCommission = useMemo(() => {
+    if (!doctorId) return { amount: 0, effectivePct: 0 };
+    if (commissionMode === 'custom_per_test') {
+      let sum = 0;
+      for (const t of combinedTestsForComm) {
+        const entry = perTestCommMap[t.test_id];
+        const tType = entry?.type === 'flat' ? 'flat' : 'percent';
+        const tVal = entry ? Math.max(0, Number(entry.value || 0)) : doctorDefaultPct;
+        const share = newSubtotal > 0 ? (t.price / newSubtotal) * newNetTotal : 0;
+        sum += tType === 'flat' ? tVal : Math.round(((share * tVal) / 100) * 100) / 100;
+      }
+      const amt = Math.round(sum * 100) / 100;
+      const pct = newNetTotal > 0 ? Math.round(((amt / newNetTotal) * 100) * 100) / 100 : 0;
+      return { amount: amt, effectivePct: pct };
+    }
+    if (commissionMode === 'custom_invoice') {
+      const val = Math.max(0, Number(customCommValue || 0));
+      if (customCommType === 'flat') {
+        const amt = Math.round(val * 100) / 100;
+        const pct = newNetTotal > 0 ? Math.round(((amt / newNetTotal) * 100) * 100) / 100 : 0;
+        return { amount: amt, effectivePct: pct };
+      }
+      const amt = Math.round(((newNetTotal * val) / 100) * 100) / 100;
+      return { amount: amt, effectivePct: val };
+    }
+    const amt = Math.round(((newNetTotal * doctorDefaultPct) / 100) * 100) / 100;
+    return { amount: amt, effectivePct: doctorDefaultPct };
+  }, [
+    doctorId,
+    commissionMode,
+    customCommType,
+    customCommValue,
+    perTestCommMap,
+    combinedTestsForComm,
+    newSubtotal,
+    newNetTotal,
+    doctorDefaultPct,
+  ]);
 
   const toggleAddedTest = (testId: number) => {
     setAddedTestIds((prev) =>
@@ -155,6 +252,19 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       setError(`Staff discount limit is ${maxStaffPct}%. Switch to Admin mode to authorize higher discounts.`);
       return;
     }
+
+    const testCommissionsPayload =
+      isAdmin && commissionMode === 'custom_per_test'
+        ? combinedTestsForComm.map((t) => {
+            const entry = perTestCommMap[t.test_id];
+            return {
+              testId: t.test_id,
+              commissionType: (entry?.type === 'flat' ? 'flat' : 'percent') as 'percent' | 'flat',
+              commissionValue: entry ? Math.max(0, Number(entry.value || 0)) : doctorDefaultPct,
+            };
+          })
+        : undefined;
+
     setSaving(true);
     setError('');
     try {
@@ -176,6 +286,14 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
           discountValue: Number(discountValue || 0),
           additionalPayment: appliedExtraPay,
           notes: notes.trim(),
+          ...(isAdmin
+            ? {
+                commissionMode,
+                commissionType: customCommType,
+                commissionValue: Number(customCommValue || 0),
+                testCommissions: testCommissionsPayload,
+              }
+            : {}),
         }),
       });
       onSaved(updated.invoice, printAfter);
@@ -542,6 +660,12 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                     </span>
                   </div>
                   <div className="flex justify-between">
+                    <span className="text-slate-600">Discount ({effectivePct}%):</span>
+                    <span className="font-mono tabular-nums font-semibold text-amber-700">
+                      -{formatBDT(newDiscountAmount)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
                     <span className="text-slate-600">New Net Bill:</span>
                     <span className="font-mono tabular-nums font-bold text-teal-700">
                       {formatBDT(newNetTotal)}
@@ -559,6 +683,128 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Admin-only Patient / Per-Test Commission Override */}
+              {isAdmin && doctorId && (
+                <div className="bg-white border border-slate-200 rounded-md p-3 space-y-2.5 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-900">Doctor Commission Setup (Admin)</span>
+                    <span className="font-mono font-bold text-teal-700">
+                      {formatBDT(previewCommission.amount)} ({previewCommission.effectivePct}%)
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setCommissionMode('doctor_default')}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md border ${
+                        commissionMode === 'doctor_default'
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      Doctor Default ({doctorDefaultPct}%)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCommissionMode('custom_invoice')}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md border ${
+                        commissionMode === 'custom_invoice'
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      Custom Patient Rate (% or ৳ Flat)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCommissionMode('custom_per_test')}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md border ${
+                        commissionMode === 'custom_per_test'
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      Per-Test Rates
+                    </button>
+                  </div>
+
+                  {commissionMode === 'custom_invoice' && (
+                    <div className="flex items-center gap-2 max-w-xs">
+                      <select
+                        value={customCommType}
+                        onChange={(e) => setCustomCommType(e.target.value as 'percent' | 'flat')}
+                        className="px-2 py-1.5 text-xs border border-slate-300 rounded-md bg-white"
+                      >
+                        <option value="percent">% Pct</option>
+                        <option value="flat">৳ Flat</option>
+                      </select>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={customCommValue}
+                        onChange={(e) => setCustomCommValue(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs font-mono tabular-nums border border-slate-300 rounded-md"
+                      />
+                    </div>
+                  )}
+
+                  {commissionMode === 'custom_per_test' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                      {combinedTestsForComm.map((t) => {
+                        const entry = perTestCommMap[t.test_id] || {
+                          type: 'percent' as const,
+                          value: String(doctorDefaultPct),
+                        };
+                        return (
+                          <div
+                            key={t.test_id}
+                            className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5"
+                          >
+                            <span className="truncate text-[11px] font-medium text-slate-800">{t.test_name}</span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <select
+                                value={entry.type}
+                                onChange={(e) =>
+                                  setPerTestCommMap((prev) => ({
+                                    ...prev,
+                                    [t.test_id]: {
+                                      type: e.target.value as 'percent' | 'flat',
+                                      value: prev[t.test_id]?.value ?? String(doctorDefaultPct),
+                                    },
+                                  }))
+                                }
+                                className="px-1 py-0.5 text-[11px] border border-slate-300 rounded bg-white"
+                              >
+                                <option value="percent">%</option>
+                                <option value="flat">৳</option>
+                              </select>
+                              <input
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={entry.value}
+                                onChange={(e) =>
+                                  setPerTestCommMap((prev) => ({
+                                    ...prev,
+                                    [t.test_id]: {
+                                      type: prev[t.test_id]?.type ?? 'percent',
+                                      value: e.target.value,
+                                    },
+                                  }))
+                                }
+                                className="w-16 px-1.5 py-0.5 text-[11px] font-mono tabular-nums border border-slate-300 rounded bg-white"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {error && (

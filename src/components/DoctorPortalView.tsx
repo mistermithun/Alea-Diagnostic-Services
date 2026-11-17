@@ -404,7 +404,7 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
             <div className="mt-5 pt-4 border-t border-slate-800">
               <h2 className="text-base font-semibold text-white">Referring Doctor Sign In</h2>
               <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                Track your referred patients from the last 30 days, inspect transparent billing &amp; commission, and download verified PDF reports.
+                Referring physician portal for live patient report, for transparent billing and instant PDF report download.
               </p>
             </div>
           </div>

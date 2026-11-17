@@ -100,6 +100,130 @@ const URINE_SECTIONS: Array<{
   },
 ];
 
+export function getCanonicalParameterKey(paramName: string): string {
+  const n = (paramName || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!n) return '';
+
+  // Haematology / CBC canonical aliases (handles both legacy short names & full formal names)
+  if (
+    n === 'hb' ||
+    n === 'hemoglobin' ||
+    n === 'haemoglobin' ||
+    n.includes('hemoglobin (hb)') ||
+    n.includes('haemoglobin (hb)') ||
+    (n.startsWith('hemoglobin') && !n.includes('occult') && !n.includes('urine')) ||
+    (n.startsWith('haemoglobin') && !n.includes('occult') && !n.includes('urine'))
+  ) {
+    return 'cbc:hemoglobin';
+  }
+  if (n.startsWith('esr') || n.includes('erythrocyte sedimentation')) {
+    return 'cbc:esr';
+  }
+  if (n === 'total wbc' || n.includes('total wbc count') || n === 'wbc count' || n === 'wbc') {
+    return 'cbc:wbc';
+  }
+  if (n === 'total rbc' || n.includes('total rbc count') || n === 'rbc count' || n === 'rbc') {
+    return 'cbc:rbc';
+  }
+  if (n.includes('platelet count') || n === 'platelets' || n === 'platelet') {
+    return 'cbc:platelet';
+  }
+  if (n.includes('circulating eosinophil')) {
+    return 'cbc:circulating_eosinophil';
+  }
+  if (n.startsWith('neutrophil')) {
+    return 'cbc:neutrophils';
+  }
+  if (n.startsWith('lymphocyte')) {
+    return 'cbc:lymphocytes';
+  }
+  if (n.startsWith('eosinophil')) {
+    return 'cbc:eosinophils';
+  }
+  if (n.startsWith('monocyte')) {
+    return 'cbc:monocytes';
+  }
+  if (n.startsWith('basophil')) {
+    return 'cbc:basophils';
+  }
+  if (n.includes('pcv') || n.includes('hematocrit') || n === 'hct' || n.includes('/ hct')) {
+    return 'cbc:pcv';
+  }
+  if (n === 'mcv' || n.startsWith('mcv ') || n.startsWith('mcv(')) {
+    return 'cbc:mcv';
+  }
+  if (n === 'mch' || n.startsWith('mch ') || n.startsWith('mch(')) {
+    return 'cbc:mch';
+  }
+  if (n === 'mchc' || n.startsWith('mchc ') || n.startsWith('mchc(')) {
+    return 'cbc:mchc';
+  }
+
+  return n;
+}
+
+function hasValidResultValue(value: unknown): boolean {
+  const s = String(value ?? '').trim();
+  return s !== '' && s.toLowerCase() !== 'pending';
+}
+
+function scoreResultRowRichness(row: Partial<TestResultRow>): number {
+  let score = 0;
+  if (hasValidResultValue(row.result_value)) score += 1000;
+  if ((row.normal_text || '').trim()) score += 50;
+  if ((row.reference_range_text || '').trim()) score += 25;
+  if ((row.unit || '').trim()) score += 10;
+  if (typeof row.id === 'number') score += Math.min(9, row.id / 1_000_000);
+  return score;
+}
+
+/**
+ * Strictly deduplicates test result rows by canonical parameter key & parameter_id.
+ * When duplicate rows exist for the same parameter (e.g., one filled and one "Pending"),
+ * always keeps the valid/non-empty result row and preserves natural sort order.
+ */
+export function deduplicateTestResults<T extends Partial<TestResultRow>>(
+  rows: T[] | undefined | null
+): T[] {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+
+  const deduped: T[] = [];
+  const byKey = new Map<string, number>();
+  const byParamId = new Map<number, number>();
+
+  for (const row of rows) {
+    const canonKey = getCanonicalParameterKey(row.parameter_name || '');
+    const pid = typeof row.parameter_id === 'number' && row.parameter_id > 0 ? row.parameter_id : null;
+
+    let existingIdx: number | undefined;
+    if (canonKey && byKey.has(canonKey)) {
+      existingIdx = byKey.get(canonKey);
+    } else if (pid !== null && byParamId.has(pid)) {
+      existingIdx = byParamId.get(pid);
+    }
+
+    if (existingIdx === undefined) {
+      const nextIdx = deduped.length;
+      deduped.push(row);
+      if (canonKey) byKey.set(canonKey, nextIdx);
+      if (pid !== null) byParamId.set(pid, nextIdx);
+    } else {
+      const existing = deduped[existingIdx];
+      if (scoreResultRowRichness(row) > scoreResultRowRichness(existing)) {
+        // Keep earliest sort_order if the winning duplicate has a higher/later sort_order
+        const merged = {
+          ...row,
+          sort_order: existing.sort_order ?? row.sort_order,
+        };
+        deduped[existingIdx] = merged;
+        if (pid !== null) byParamId.set(pid, existingIdx);
+      }
+    }
+  }
+
+  return deduped;
+}
+
 function getCbcSequenceMeta(paramName: string): { order: number; section?: string } {
   const lower = paramName.trim().toLowerCase();
   for (let i = 0; i < CBC_ORDER_KEYS.length; i++) {
@@ -113,7 +237,8 @@ function getCbcSequenceMeta(paramName: string): { order: number; section?: strin
 export function getOrderedCbcRows(
   rows: TestResultRow[]
 ): Array<{ row: TestResultRow; section?: string }> {
-  const indexed = rows.map((row, idx) => {
+  const uniqueRows = deduplicateTestResults(rows);
+  const indexed = uniqueRows.map((row, idx) => {
     const meta = getCbcSequenceMeta(row.parameter_name);
     return { row, idx, order: meta.order, section: meta.section };
   });
@@ -294,7 +419,7 @@ function getSingleTestMetrics(test: InvoiceTestItem): {
   sectionHeaders: number;
   isDensePanel: boolean;
 } {
-  const rows = test.results || [];
+  const rows = deduplicateTestResults(test.results || []);
   let extraLines = 0;
   for (const r of rows) {
     extraLines += getExtraRangeLines(r);
@@ -311,7 +436,7 @@ function getSingleTestMetrics(test: InvoiceTestItem): {
       }
     }
     return {
-      paramRows: rows.length,
+      paramRows: ordered.length,
       extraLines,
       sectionHeaders,
       isDensePanel: true,
@@ -358,9 +483,13 @@ function estimatePageBodyHeightMm(
     b.segment.kind === 'standard' ? b.segment.tests : [b.segment.test]
   );
   const hasDensePanel = pageTests.some((t) => isLargeIntactPanel(t));
-  const totalParamRows = pageTests.reduce((acc, t) => acc + (t.results?.length || 0), 0);
+  const totalParamRows = pageTests.reduce(
+    (acc, t) => acc + deduplicateTestResults(t.results || []).length,
+    0
+  );
   const totalExtraLines = pageTests.reduce(
-    (acc, t) => acc + (t.results || []).reduce((rAcc, r) => rAcc + getExtraRangeLines(r), 0),
+    (acc, t) =>
+      acc + deduplicateTestResults(t.results || []).reduce((rAcc, r) => rAcc + getExtraRangeLines(r), 0),
     0
   );
   const totalSubHeaders = pageTests.length > 1 ? pageTests.length : 0;

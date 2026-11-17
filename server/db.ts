@@ -9,7 +9,7 @@ import {
   generatePortalPassword,
   hashPassword,
 } from './auth.ts';
-import { SEED_CATALOG } from './clinical-rules.ts';
+import { getCanonicalParameterKey, SEED_CATALOG } from './clinical-rules.ts';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 if (!fs.existsSync(DATA_DIR)) {
@@ -804,14 +804,10 @@ function migrateCbcParameters() {
     .all(cbcTest.id) as Array<{ id: number; name: string }>;
 
   const findExistingParam = (targetName: string) => {
-    const lower = targetName.toLowerCase();
+    const targetCanon = getCanonicalParameterKey(targetName);
     return existingParams.find((p) => {
-      const pn = p.name.toLowerCase();
-      if (pn === lower) return true;
-      if (lower.startsWith('pcv') && (pn.includes('pcv') || pn.includes('hematocrit') || pn.includes('hct'))) return true;
-      if (lower.includes('circulating eosinophil') && pn.includes('circulating eosinophil')) return true;
-      if (lower.startsWith('esr') && pn.startsWith('esr')) return true;
-      return false;
+      const pCanon = getCanonicalParameterKey(p.name);
+      return pCanon !== '' && pCanon === targetCanon;
     });
   };
 
@@ -933,19 +929,44 @@ function migrateCbcParameters() {
 
     for (const cit of cbcInvoiceTests) {
       const existingRows = db
-        .prepare(`SELECT parameter_id, parameter_name, result_value FROM test_results WHERE invoice_test_id = ?`)
-        .all(cit.invoice_test_id) as Array<{ parameter_id: number; parameter_name: string; result_value: string }>;
+        .prepare(`SELECT id, parameter_id, parameter_name, result_value, sort_order FROM test_results WHERE invoice_test_id = ? ORDER BY sort_order ASC, id ASC`)
+        .all(cit.invoice_test_id) as Array<{ id: number; parameter_id: number; parameter_name: string; result_value: string; sort_order: number }>;
 
-      const existingByParamId = new Map(existingRows.map((r) => [r.parameter_id, r]));
-      const wbcRow = existingRows.find((r) => r.parameter_name.toLowerCase().includes('total wbc'));
-      const eosRow = existingRows.find(
+      // Remove any duplicate test_results rows sharing the same canonical parameter key (keeping filled result over Pending)
+      const bestByCanon = new Map<string, typeof existingRows[number]>();
+      const delDupRow = db.prepare(`DELETE FROM test_results WHERE id = ?`);
+      for (const er of existingRows) {
+        const key = getCanonicalParameterKey(er.parameter_name) || `pid:${er.parameter_id}`;
+        const prev = bestByCanon.get(key);
+        if (!prev) {
+          bestByCanon.set(key, er);
+        } else {
+          const curHasVal = Boolean(er.result_value && er.result_value.trim() !== '' && er.result_value.trim().toLowerCase() !== 'pending');
+          const prevHasVal = Boolean(prev.result_value && prev.result_value.trim() !== '' && prev.result_value.trim().toLowerCase() !== 'pending');
+          if (curHasVal && !prevHasVal) {
+            delDupRow.run(prev.id);
+            bestByCanon.set(key, er);
+          } else {
+            delDupRow.run(er.id);
+          }
+        }
+      }
+
+      const dedupedRows = Array.from(bestByCanon.values());
+      const existingByParamId = new Map(dedupedRows.map((r) => [r.parameter_id, r]));
+      const existingByCanonKey = new Map(dedupedRows.map((r) => [getCanonicalParameterKey(r.parameter_name), r]));
+      const wbcRow = dedupedRows.find((r) => r.parameter_name.toLowerCase().includes('total wbc'));
+      const eosRow = dedupedRows.find(
         (r) =>
           r.parameter_name.toLowerCase().startsWith('eosinophil') &&
           !r.parameter_name.toLowerCase().includes('circulating')
       );
 
       for (const param of cbcParams) {
-        if (!existingByParamId.has(param.id)) {
+        const canonKey = getCanonicalParameterKey(param.name);
+        const matchedRow = existingByParamId.get(param.id) || (canonKey ? existingByCanonKey.get(canonKey) : undefined);
+
+        if (!matchedRow) {
           let initialVal = '';
           const pLower = param.name.toLowerCase();
 
@@ -971,6 +992,15 @@ function migrateCbcParameters() {
             evalRes.flag,
             param.sort_order
           );
+          if (canonKey) {
+            existingByCanonKey.set(canonKey, {
+              id: -1,
+              parameter_id: param.id,
+              parameter_name: param.name,
+              result_value: initialVal,
+              sort_order: param.sort_order,
+            });
+          }
         } else {
           const evalRes = evaluateResultFlag('', param, cit.gender, cit.age_years, cit.age_months, cit.age_days);
           updResultMeta.run(
@@ -979,7 +1009,7 @@ function migrateCbcParameters() {
             param.normal_text || evalRes.rangeLabel,
             param.sort_order,
             cit.invoice_test_id,
-            param.id
+            matchedRow.parameter_id
           );
         }
       }
@@ -1105,14 +1135,41 @@ function migrateUrineReParameters() {
 
       for (const uit of urineInvoiceTests) {
         const existingRows = db
-          .prepare(`SELECT parameter_id, result_value FROM test_results WHERE invoice_test_id = ?`)
-          .all(uit.invoice_test_id) as Array<{ parameter_id: number; result_value: string }>;
-        const existingIds = new Set(existingRows.map((r) => r.parameter_id));
+          .prepare(`SELECT id, parameter_id, parameter_name, result_value FROM test_results WHERE invoice_test_id = ? ORDER BY sort_order ASC, id ASC`)
+          .all(uit.invoice_test_id) as Array<{ id: number; parameter_id: number; parameter_name: string; result_value: string }>;
+
+        const bestByCanon = new Map<string, typeof existingRows[number]>();
+        const delDupRow = db.prepare(`DELETE FROM test_results WHERE id = ?`);
+        for (const er of existingRows) {
+          const key = getCanonicalParameterKey(er.parameter_name) || `pid:${er.parameter_id}`;
+          const prev = bestByCanon.get(key);
+          if (!prev) {
+            bestByCanon.set(key, er);
+          } else {
+            const curHasVal = Boolean(er.result_value && er.result_value.trim() !== '' && er.result_value.trim().toLowerCase() !== 'pending');
+            const prevHasVal = Boolean(prev.result_value && prev.result_value.trim() !== '' && prev.result_value.trim().toLowerCase() !== 'pending');
+            if (curHasVal && !prevHasVal) {
+              delDupRow.run(prev.id);
+              bestByCanon.set(key, er);
+            } else {
+              delDupRow.run(er.id);
+            }
+          }
+        }
+
+        const dedupedRows = Array.from(bestByCanon.values());
+        const existingIds = new Set(dedupedRows.map((r) => r.parameter_id));
+        const existingCanon = new Map(dedupedRows.map((r) => [getCanonicalParameterKey(r.parameter_name), r]));
 
         for (const param of urineParams) {
+          const canonKey = getCanonicalParameterKey(param.name);
           const defVal = uit.status !== 'Ready' ? param.default_value || '' : '';
           const evalRes = evaluateResultFlag(defVal, param, uit.gender, uit.age_years);
-          if (!existingIds.has(param.id)) {
+          const matched = existingIds.has(param.id)
+            ? dedupedRows.find((r) => r.parameter_id === param.id)
+            : existingCanon.get(canonKey);
+
+          if (!matched) {
             insResult.run(
               uit.invoice_test_id,
               param.id,
@@ -1123,10 +1180,19 @@ function migrateUrineReParameters() {
               evalRes.flag,
               param.sort_order
             );
+            existingIds.add(param.id);
+            if (canonKey) {
+              existingCanon.set(canonKey, {
+                id: -1,
+                parameter_id: param.id,
+                parameter_name: param.name,
+                result_value: defVal,
+              });
+            }
           } else {
-            updResultSort.run(param.sort_order, uit.invoice_test_id, param.id);
+            updResultSort.run(param.sort_order, uit.invoice_test_id, matched.parameter_id);
             if (defVal) {
-              updBlankResult.run(defVal, evalRes.flag, evalRes.rangeLabel, uit.invoice_test_id, param.id);
+              updBlankResult.run(defVal, evalRes.flag, evalRes.rangeLabel, uit.invoice_test_id, matched.parameter_id);
             }
           }
         }

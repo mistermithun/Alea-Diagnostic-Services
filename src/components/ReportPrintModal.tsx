@@ -8,7 +8,9 @@ import {
   resolvePublicBaseUrl,
 } from '../lib/api.ts';
 import {
+  deduplicateTestResults,
   formatNumericResultDisplay,
+  getCanonicalParameterKey,
   getOrderedCbcRows,
   getUrineSection,
   isCbcTest,
@@ -219,12 +221,15 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
           };
     }
 
-    const totalParamRows = pageTests.reduce((acc, t) => acc + (t.results?.length || 0), 0);
+    const totalParamRows = pageTests.reduce(
+      (acc, t) => acc + deduplicateTestResults(t.results || []).length,
+      0
+    );
     const totalSubHeaders = pageTests.length > 1 ? pageTests.length : 0;
     const extraRangeLines = pageTests.reduce((acc, t) => {
       return (
         acc +
-        (t.results || []).reduce((rAcc, row) => {
+        deduplicateTestResults(t.results || []).reduce((rAcc, row) => {
           const refText = (row.reference_range_text || row.normal_text || '').trim();
           if (!refText) return rAcc;
           const explicitLines = refText.split('\n').length - 1;
@@ -776,9 +781,10 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                           r.parameter_name.toLowerCase().includes('hemoglobin') ||
                                           r.parameter_name.toLowerCase() === 'hb';
                                         const isEsr = r.parameter_name.toLowerCase().startsWith('esr');
+                                        const rowKey = `${r.id}-${getCanonicalParameterKey(r.parameter_name)}`;
 
                                         return (
-                                          <React.Fragment key={r.id}>
+                                          <React.Fragment key={rowKey}>
                                             {showSection && (
                                               <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
                                                 <td
@@ -869,15 +875,16 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                           </td>
                                         </tr>
                                       )}
-                                      {(seg.test.results || []).map((r) => {
+                                      {deduplicateTestResults(seg.test.results || []).map((r) => {
                                         const sec = getUrineSection(r.parameter_name);
                                         const showSection = sec !== lastSection;
                                         lastSection = sec;
                                         const isAbn =
                                           r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
+                                        const rowKey = `${r.id}-${getCanonicalParameterKey(r.parameter_name)}`;
 
                                         return (
-                                          <React.Fragment key={r.id}>
+                                          <React.Fragment key={rowKey}>
                                             {showSection && (
                                               <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
                                                 <td
@@ -958,7 +965,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                 </thead>
 
                                 {seg.tests.map((test) => {
-                                  const rows = test.results || [];
+                                  const rows = deduplicateTestResults(test.results || []);
                                   const showSubHeading = !block.isSingleStandardTest;
                                   return (
                                     <tbody
@@ -980,9 +987,10 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                       {rows.map((r) => {
                                         const isAbnormal =
                                           r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
+                                        const rowKey = `${r.id}-${getCanonicalParameterKey(r.parameter_name)}`;
                                         return (
                                           <tr
-                                            key={r.id}
+                                            key={rowKey}
                                             className="print-row-avoid border-b border-[#e8ecf0]"
                                           >
                                             <td

@@ -12,6 +12,7 @@ import {
 import {
   addDaysToIsoDate,
   computeInvoiceCommission,
+  deduplicateResultRows,
   getLocalTimestampStr,
   getTodayDateStr,
   roundCurrency,
@@ -1280,9 +1281,19 @@ export class SqliteLimsStore implements LimsStore {
        ORDER BY tr.sort_order ASC, tr.id ASC`
     );
     const enrichedTests = tests.map((t) => {
+      const rawResults = resultsStmt.all(t.id) as Array<{
+        id?: number;
+        parameter_id?: number;
+        parameter_name?: string;
+        result_value?: string;
+        reference_range_text?: string | null;
+        normal_text?: string | null;
+        unit?: string | null;
+        sort_order?: number;
+      }>;
       const outTest: Record<string, unknown> = {
         ...t,
-        results: resultsStmt.all(t.id),
+        results: deduplicateResultRows(rawResults),
       };
       if (!includeCommission) {
         delete outTest.commission_type;
@@ -2369,7 +2380,7 @@ export class SqliteLimsStore implements LimsStore {
 
     if (!item) return null;
 
-    const results = db
+    const rawResults = db
       .prepare(
         `SELECT tr.*, tp.input_type, tp.select_options, tp.abnormal_values, tp.normal_text,
                 tp.min_male, tp.max_male, tp.min_female, tp.max_female, tp.min_child, tp.max_child,
@@ -2379,9 +2390,18 @@ export class SqliteLimsStore implements LimsStore {
          WHERE tr.invoice_test_id = ?
          ORDER BY tr.sort_order ASC, tr.id ASC`
       )
-      .all(invoiceTestId);
+      .all(invoiceTestId) as Array<{
+      id?: number;
+      parameter_id?: number;
+      parameter_name?: string;
+      result_value?: string;
+      reference_range_text?: string | null;
+      normal_text?: string | null;
+      unit?: string | null;
+      sort_order?: number;
+    }>;
 
-    return { item, results };
+    return { item, results: deduplicateResultRows(rawResults) };
   }
 
   async updateLabTestResults(payload: UpdateLabResultsPayload): Promise<{ item: unknown; results: unknown[] }> {

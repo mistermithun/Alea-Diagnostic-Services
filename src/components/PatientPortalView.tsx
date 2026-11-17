@@ -19,6 +19,7 @@ import {
   patientApiFetch,
   setPatientToken,
 } from '../lib/api.ts';
+import { deduplicateTestResults, getCanonicalParameterKey } from '../lib/reportLayout.ts';
 import type {
   FullInvoice,
   LabSettings,
@@ -548,11 +549,11 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-200">
-                                    {(t.results || []).map((r) => {
+                                    {deduplicateTestResults(t.results || []).map((r) => {
                                       const isAbn =
                                         r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
                                       return (
-                                        <tr key={r.id}>
+                                        <tr key={`${r.id}-${getCanonicalParameterKey(r.parameter_name)}`}>
                                           <td className="py-2 px-3 font-medium text-slate-900">
                                             {r.parameter_name}
                                           </td>

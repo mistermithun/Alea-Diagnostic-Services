@@ -9,6 +9,7 @@ import {
   Search,
 } from 'lucide-react';
 import { apiFetch, evaluateClientFlag, formatAge, formatDateTime } from '../lib/api.ts';
+import { deduplicateTestResults } from '../lib/reportLayout.ts';
 import type { FullInvoice, LabQueueItem, LabSettings, TestResultRow } from '../types.ts';
 import { SampleTimerControl } from './SampleTimerControl.tsx';
 
@@ -339,8 +340,9 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
 
   const buildInitialDraft = useCallback(
     (item: LabQueueItem, fetchedResults: TestResultRow[]): TestDraftState => {
+      const uniqueResults = deduplicateTestResults(fetchedResults);
       const initialVals: Record<number, string> = {};
-      for (const r of fetchedResults) {
+      for (const r of uniqueResults) {
         initialVals[r.parameter_id] = r.result_value || '';
       }
       let cName = '';
@@ -357,8 +359,8 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
       }
       return {
         item,
-        results: fetchedResults,
-        valuesMap: applyCbcAutoCalculations(fetchedResults, initialVals),
+        results: uniqueResults,
+        valuesMap: applyCbcAutoCalculations(uniqueResults, initialVals),
         nextStatus: item.status === 'Sample Collected' ? 'Processing' : item.status,
         verifiedBy: item.verified_by || settings.technologist_name || 'Medical Technologist',
         consultantName: cName,
@@ -723,10 +725,11 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
         }
       }
 
+      const uniqueSynced = deduplicateTestResults(res.results);
       const syncedVals: Record<number, string> = {};
       let filledCount = 0;
       let abnormalCount = 0;
-      for (const r of res.results) {
+      for (const r of uniqueSynced) {
         const valStr = r.result_value || '';
         syncedVals[r.parameter_id] = valStr;
         if (valStr.trim() !== '') {
@@ -750,7 +753,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
               verified_at: res.item.verified_at,
               ready_at: res.item.ready_at,
             },
-            results: res.results,
+            results: uniqueSynced,
             valuesMap: syncedVals,
             nextStatus: res.item.status,
             dirty: false,
@@ -777,7 +780,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                 consultant_name: res.item.consultant_name,
                 consultant_title: res.item.consultant_title,
                 filled_params: filledCount,
-                total_params: res.results.length,
+                total_params: uniqueSynced.length,
                 abnormal_count: abnormalCount,
               }
             : t

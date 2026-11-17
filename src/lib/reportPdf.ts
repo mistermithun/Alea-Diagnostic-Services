@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import autoTable, { type RowInput } from 'jspdf-autotable';
 import { formatAge, formatDateTime } from './api.ts';
 import {
+  deduplicateTestResults,
   formatNumericResultDisplay,
   getOrderedCbcRows,
   getUrineSection,
@@ -293,7 +294,7 @@ export function exportDiagnosticReportPdf(opts: ExportReportPdfOptions): string 
         }
 
         let lastSection = '';
-        for (const r of seg.test.results || []) {
+        for (const r of deduplicateTestResults(seg.test.results || [])) {
           const sec = getUrineSection(r.parameter_name);
           if (sec !== lastSection) {
             lastSection = sec;
@@ -382,7 +383,7 @@ export function exportDiagnosticReportPdf(opts: ExportReportPdfOptions): string 
               },
             ]);
           }
-          for (const r of test.results || []) {
+          for (const r of deduplicateTestResults(test.results || [])) {
             const isAbnormal = Boolean(
               r.flag && r.flag !== 'Normal' && r.result_value.trim() !== ''
             );

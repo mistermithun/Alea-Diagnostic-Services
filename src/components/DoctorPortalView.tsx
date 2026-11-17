@@ -29,7 +29,11 @@ import {
   resolvePublicBaseUrl,
   setDoctorToken,
 } from '../lib/api.ts';
-import { resolveReportSignatures } from '../lib/reportLayout.ts';
+import {
+  deduplicateTestResults,
+  getCanonicalParameterKey,
+  resolveReportSignatures,
+} from '../lib/reportLayout.ts';
 import { exportDiagnosticReportPdf } from '../lib/reportPdf.ts';
 import type {
   DoctorPortalDashboardResponse,
@@ -989,11 +993,11 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-200">
-                                    {(t.results || []).map((r) => {
+                                    {deduplicateTestResults(t.results || []).map((r) => {
                                       const isAbn =
                                         r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
                                       return (
-                                        <tr key={r.id}>
+                                        <tr key={`${r.id}-${getCanonicalParameterKey(r.parameter_name)}`}>
                                           <td className="py-2 px-3 font-medium text-slate-900">
                                             {r.parameter_name}
                                           </td>

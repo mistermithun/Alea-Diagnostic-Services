@@ -754,3 +754,113 @@ export function evaluateResultFlag(
 
   return { flag: 'Normal', rangeLabel: resolved.label };
 }
+
+export function getCanonicalParameterKey(paramName: string): string {
+  const n = (paramName || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!n) return '';
+
+  if (
+    n === 'hb' ||
+    n === 'hemoglobin' ||
+    n === 'haemoglobin' ||
+    n.includes('hemoglobin (hb)') ||
+    n.includes('haemoglobin (hb)') ||
+    (n.startsWith('hemoglobin') && !n.includes('occult') && !n.includes('urine')) ||
+    (n.startsWith('haemoglobin') && !n.includes('occult') && !n.includes('urine'))
+  ) {
+    return 'cbc:hemoglobin';
+  }
+  if (n.startsWith('esr') || n.includes('erythrocyte sedimentation')) {
+    return 'cbc:esr';
+  }
+  if (n === 'total wbc' || n.includes('total wbc count') || n === 'wbc count' || n === 'wbc') {
+    return 'cbc:wbc';
+  }
+  if (n === 'total rbc' || n.includes('total rbc count') || n === 'rbc count' || n === 'rbc') {
+    return 'cbc:rbc';
+  }
+  if (n.includes('platelet count') || n === 'platelets' || n === 'platelet') {
+    return 'cbc:platelet';
+  }
+  if (n.includes('circulating eosinophil')) {
+    return 'cbc:circulating_eosinophil';
+  }
+  if (n.startsWith('neutrophil')) return 'cbc:neutrophils';
+  if (n.startsWith('lymphocyte')) return 'cbc:lymphocytes';
+  if (n.startsWith('eosinophil')) return 'cbc:eosinophils';
+  if (n.startsWith('monocyte')) return 'cbc:monocytes';
+  if (n.startsWith('basophil')) return 'cbc:basophils';
+  if (n.includes('pcv') || n.includes('hematocrit') || n === 'hct' || n.includes('/ hct')) {
+    return 'cbc:pcv';
+  }
+  if (n === 'mcv' || n.startsWith('mcv ') || n.startsWith('mcv(')) return 'cbc:mcv';
+  if (n === 'mch' || n.startsWith('mch ') || n.startsWith('mch(')) return 'cbc:mch';
+  if (n === 'mchc' || n.startsWith('mchc ') || n.startsWith('mchc(')) return 'cbc:mchc';
+
+  return n;
+}
+
+export function deduplicateResultRows<
+  T extends {
+    id?: number;
+    parameter_id?: number;
+    parameter_name?: string;
+    result_value?: string;
+    reference_range_text?: string | null;
+    normal_text?: string | null;
+    unit?: string | null;
+    sort_order?: number;
+  }
+>(rows: T[]): T[] {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+
+  const hasValidVal = (v: unknown) => {
+    const s = String(v ?? '').trim();
+    return s !== '' && s.toLowerCase() !== 'pending';
+  };
+
+  const scoreRow = (r: T) => {
+    let score = 0;
+    if (hasValidVal(r.result_value)) score += 1000;
+    if ((r.normal_text || '').trim()) score += 50;
+    if ((r.reference_range_text || '').trim()) score += 25;
+    if ((r.unit || '').trim()) score += 10;
+    if (typeof r.id === 'number') score += Math.min(9, r.id / 1_000_000);
+    return score;
+  };
+
+  const out: T[] = [];
+  const byKey = new Map<string, number>();
+  const byParamId = new Map<number, number>();
+
+  for (const row of rows) {
+    const canon = getCanonicalParameterKey(row.parameter_name || '');
+    const pid = typeof row.parameter_id === 'number' && row.parameter_id > 0 ? row.parameter_id : null;
+
+    let idx: number | undefined;
+    if (canon && byKey.has(canon)) {
+      idx = byKey.get(canon);
+    } else if (pid !== null && byParamId.has(pid)) {
+      idx = byParamId.get(pid);
+    }
+
+    if (idx === undefined) {
+      const nextIdx = out.length;
+      out.push(row);
+      if (canon) byKey.set(canon, nextIdx);
+      if (pid !== null) byParamId.set(pid, nextIdx);
+    } else {
+      const existing = out[idx];
+      if (scoreRow(row) > scoreRow(existing)) {
+        out[idx] = {
+          ...row,
+          sort_order: existing.sort_order ?? row.sort_order,
+        };
+        if (pid !== null) byParamId.set(pid, idx);
+      }
+    }
+  }
+
+  return out;
+}
+

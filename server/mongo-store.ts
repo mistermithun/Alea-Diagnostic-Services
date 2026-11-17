@@ -13,7 +13,9 @@ import {
   addDaysToIsoDate,
   CBC_DESIRED_PARAMS,
   computeInvoiceCommission,
+  deduplicateResultRows,
   evaluateResultFlag,
+  getCanonicalParameterKey,
   getLocalTimestampStr,
   getTodayDateStr,
   roundCurrency,
@@ -1082,14 +1084,10 @@ export class MongoLimsStore implements LimsStore {
 
     const existingParams = await this.paramsCol.find({ test_id: cbcTest.id }).toArray();
     const findExistingParam = (targetName: string) => {
-      const lower = targetName.toLowerCase();
+      const targetCanon = getCanonicalParameterKey(targetName);
       return existingParams.find((p) => {
-        const pn = p.name.toLowerCase();
-        if (pn === lower) return true;
-        if (lower.startsWith('pcv') && (pn.includes('pcv') || pn.includes('hematocrit') || pn.includes('hct'))) return true;
-        if (lower.includes('circulating eosinophil') && pn.includes('circulating eosinophil')) return true;
-        if (lower.startsWith('esr') && pn.startsWith('esr')) return true;
-        return false;
+        const pCanon = getCanonicalParameterKey(p.name);
+        return pCanon !== '' && pCanon === targetCanon;
       });
     };
 
@@ -1174,14 +1172,44 @@ export class MongoLimsStore implements LimsStore {
       const inv = await this.invoicesCol.findOne({ id: cit.invoice_id });
       const pat = inv ? await this.patientsCol.findOne({ id: inv.patient_id }) : null;
       if (!pat) continue;
-      const existingRows = await this.testResultsCol.find({ invoice_test_id: cit.id }).toArray();
-      const existingByParamId = new Map(existingRows.map((r) => [r.parameter_id, r]));
+      const existingRows = await this.testResultsCol
+        .find({ invoice_test_id: cit.id })
+        .sort({ sort_order: 1, id: 1 })
+        .toArray();
+
+      // Remove any duplicate test_results sharing canonical parameter key (keep filled over Pending)
+      const bestByCanon = new Map<string, typeof existingRows[number]>();
+      const dupIdsToDelete: number[] = [];
+      for (const er of existingRows) {
+        const key = getCanonicalParameterKey(er.parameter_name) || `pid:${er.parameter_id}`;
+        const prev = bestByCanon.get(key);
+        if (!prev) {
+          bestByCanon.set(key, er);
+        } else {
+          const curHasVal = Boolean(er.result_value && er.result_value.trim() !== '' && er.result_value.trim().toLowerCase() !== 'pending');
+          const prevHasVal = Boolean(prev.result_value && prev.result_value.trim() !== '' && prev.result_value.trim().toLowerCase() !== 'pending');
+          if (curHasVal && !prevHasVal) {
+            dupIdsToDelete.push(prev.id);
+            bestByCanon.set(key, er);
+          } else {
+            dupIdsToDelete.push(er.id);
+          }
+        }
+      }
+      if (dupIdsToDelete.length > 0) {
+        await this.testResultsCol.deleteMany({ id: { $in: dupIdsToDelete } });
+      }
+
+      const dedupedRows = Array.from(bestByCanon.values());
+      const existingByParamId = new Map(dedupedRows.map((r) => [r.parameter_id, r]));
+      const existingByCanonKey = new Map(dedupedRows.map((r) => [getCanonicalParameterKey(r.parameter_name), r]));
 
       for (const param of cbcParams) {
-        if (!existingByParamId.has(param.id)) {
+        const canonKey = getCanonicalParameterKey(param.name);
+        if (!existingByParamId.has(param.id) && !(canonKey && existingByCanonKey.has(canonKey))) {
           const evalRes = evaluateResultFlag('', param, pat.gender, pat.age_years, pat.age_months, pat.age_days);
           const id = await this.nextSeq('test_results');
-          await this.testResultsCol.insertOne({
+          const newDoc = {
             id,
             invoice_test_id: cit.id,
             parameter_id: param.id,
@@ -1191,7 +1219,10 @@ export class MongoLimsStore implements LimsStore {
             reference_range_text: param.normal_text || evalRes.rangeLabel,
             flag: evalRes.flag,
             sort_order: param.sort_order,
-          });
+          };
+          await this.testResultsCol.insertOne(newDoc);
+          existingByParamId.set(param.id, newDoc as typeof existingRows[number]);
+          if (canonKey) existingByCanonKey.set(canonKey, newDoc as typeof existingRows[number]);
         }
       }
     }
@@ -2447,9 +2478,19 @@ export class MongoLimsStore implements LimsStore {
     }
 
     const enrichedTests = tests.map((t) => {
+      const rawResults = (resultsByTest.get(t.id) || []) as Array<{
+        id?: number;
+        parameter_id?: number;
+        parameter_name?: string;
+        result_value?: string;
+        reference_range_text?: string | null;
+        normal_text?: string | null;
+        unit?: string | null;
+        sort_order?: number;
+      }>;
       const outTest: Record<string, unknown> = {
         ...t,
-        results: resultsByTest.get(t.id) || [],
+        results: deduplicateResultRows(rawResults),
       };
       if (!includeCommission) {
         delete outTest.commission_type;
@@ -3459,7 +3500,7 @@ export class MongoLimsStore implements LimsStore {
         patient_mobile: pat?.mobile || '',
         doctor_name: doc?.name,
       },
-      results,
+      results: deduplicateResultRows(results),
     };
   }
 

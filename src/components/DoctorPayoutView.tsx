@@ -321,7 +321,7 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 print:space-y-0">
       {/* Screen Header & Controls (hidden on print) */}
       <div className="space-y-4 no-print">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
@@ -610,211 +610,156 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
         )}
       </div>
 
-      {/* Printable Doctor Commission Statement Sheet */}
+      {/* Printable Doctor Commission Statement Sheet (Compact & Secret A4 Layout) */}
       {statement && (
-        <div className="bg-white border border-slate-200 rounded-xl p-6 sm:p-8 shadow-sm print-sheet print-pure-black text-slate-900">
-          {/* Statement Letterhead */}
-          <div className="border-b-2 border-slate-900 pb-4 flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3">
-            <div>
-              <h2 className="text-xl font-bold">{settings.lab_name}</h2>
-              <p className="text-xs text-slate-600">{settings.lab_address}</p>
-              <p className="text-xs text-slate-600">
-                Proprietor: {settings.proprietor_name} · {settings.lab_phone}
-              </p>
-            </div>
-            <div className="sm:text-right">
-              <div className="text-xs font-bold uppercase tracking-wider text-teal-700">
-                Doctor Commission Statement
+        <>
+          <style>{'@media print { @page { size: A4 portrait; margin: 5mm; } }'}</style>
+          <div className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6 shadow-sm print-statement-sheet print-pure-black text-slate-900 print:mt-0 print:p-0 print:border-0 print:rounded-none print:shadow-none">
+            {/* Compact Secret Header: Doctor Name, Period, Last Settled Date only */}
+            <div className="border-b border-slate-300 pb-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 print:pb-1.5">
+              <div className="font-bold text-slate-900 text-base print:text-sm leading-tight">
+                {statement.doctor.name}
               </div>
-              <div className="text-xs font-mono tabular-nums text-slate-700 mt-1">
-                Period: {statement.from} to {statement.to} ({statusFilter.toUpperCase()})
-              </div>
-              <div className="text-[11px] font-mono tabular-nums text-slate-500 mt-0.5">
-                Last Settled Date: {statement.doctor.last_commission_paid_up_to || 'None'}
-              </div>
-            </div>
-          </div>
-
-          {/* Doctor Identity Row */}
-          <div className="py-4 border-b border-slate-200 flex flex-wrap justify-between gap-4 text-sm">
-            <div>
-              <div className="font-bold text-slate-900 text-base">{statement.doctor.name}</div>
-              <div className="text-xs text-slate-600">
-                {statement.doctor.degree}
-                {statement.doctor.hospital ? ` · ${statement.doctor.hospital}` : ''}
-                {statement.doctor.mobile ? ` · ${statement.doctor.mobile}` : ''}
-              </div>
-            </div>
-            <div className="sm:text-right text-xs space-y-0.5">
-              <div>
-                Doctor Default Rate:{' '}
-                <span className="font-mono font-bold">{statement.doctor.commission_pct ?? 0}%</span>
-              </div>
-              <div>
-                Total Listed Patients:{' '}
-                <span className="font-mono font-bold">{statement.totals.totalPatients}</span>
-                {' · '}Payable Unpaid:{' '}
-                <span className="font-mono font-bold text-teal-700">
-                  {formatBDT(statement.totals.unpaidCommission)}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-xs print:text-[10.5px] font-mono tabular-nums text-slate-700 sm:text-right">
+                <span>
+                  Period: {statement.from} to {statement.to}
+                </span>
+                <span>
+                  Last Settled Date: {statement.doctor.last_commission_paid_up_to || 'None'}
                 </span>
               </div>
             </div>
-          </div>
 
-          {/* Patient Referrals Commission Table */}
-          <div className="overflow-x-auto mt-4">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-slate-300 bg-slate-50 text-left text-slate-700">
-                  <th className="py-2.5 px-2 font-semibold">Date &amp; Inv</th>
-                  <th className="py-2.5 px-2 font-semibold">Patient</th>
-                  <th className="py-2.5 px-2 font-semibold">Tests Performed</th>
-                  <th className="py-2.5 px-2 font-semibold text-right">Total Bill</th>
-                  <th className="py-2.5 px-2 font-semibold text-right">Discount</th>
-                  <th className="py-2.5 px-2 font-semibold text-right">Net Bill</th>
-                  <th className="py-2.5 px-2 font-semibold text-right">Comm. Rate</th>
-                  <th className="py-2.5 px-2 font-semibold text-right">Payable Comm.</th>
-                  <th className="py-2.5 px-2 font-semibold text-center">Status</th>
-                  <th className="py-2.5 px-2 font-semibold text-right no-print">Rate</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {statement.referrals.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} className="py-10 text-center text-slate-500">
-                      No matching patient referrals found in {statement.from} to {statement.to}.
-                    </td>
+            {/* Patient Referrals Commission Table */}
+            <div className="overflow-x-auto print-table-wrap mt-3 print:mt-1.5 print:overflow-visible">
+              <table className="w-full text-xs print:text-[10px] border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-300 bg-slate-50 print:bg-transparent text-left text-slate-700">
+                    <th className="py-2 px-1.5 print:py-1 print:px-1 font-semibold">Date &amp; Inv</th>
+                    <th className="py-2 px-1.5 print:py-1 print:px-1 font-semibold">Patient</th>
+                    <th className="py-2 px-1.5 print:py-1 print:px-1 font-semibold">Tests Performed</th>
+                    <th className="py-2 px-1.5 print:py-1 print:px-1 font-semibold text-right">Total Bill</th>
+                    <th className="py-2 px-1.5 print:py-1 print:px-1 font-semibold text-right">Discount</th>
+                    <th className="py-2 px-1.5 print:py-1 print:px-1 font-semibold text-right">Net Bill</th>
+                    <th className="py-2 px-1.5 print:py-1 print:px-1 font-semibold text-right">Comm. Rate</th>
+                    <th className="py-2 px-1.5 print:py-1 print:px-1 font-semibold text-right">Payable Comm.</th>
+                    <th className="py-2 px-1.5 print:py-1 print:px-1 font-semibold text-center">Status</th>
+                    <th className="py-2 px-1.5 font-semibold text-right no-print">Rate</th>
                   </tr>
-                ) : (
-                  statement.referrals.map((r) => (
-                    <tr
-                      key={r.id}
-                      className={
-                        !r.is_commission_paid && r.is_accrued_after_last_paid
-                          ? 'bg-amber-50/40'
-                          : undefined
-                      }
-                    >
-                      <td className="py-2.5 px-2 font-mono tabular-nums align-top whitespace-nowrap">
-                        <div className="font-semibold text-slate-900">{r.invoice_no}</div>
-                        <div className="text-[10px] text-slate-500">
-                          {formatDateTime(r.created_at).split(',')[0]}
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-2 align-top">
-                        <div className="font-semibold text-slate-900">{r.patient_name}</div>
-                        <div className="text-[10px] font-mono text-slate-500">{r.patient_uid}</div>
-                      </td>
-                      <td className="py-2.5 px-2 text-slate-700 align-top max-w-[230px]">
-                        <div>{r.test_names}</div>
-                        {r.commission_type === 'per_test' && r.test_items.length > 0 && (
-                          <div className="mt-1 space-y-0.5 text-[10px] text-slate-500 font-mono">
-                            {r.test_items.map((ti) => (
-                              <div key={ti.id}>
-                                • {ti.test_name}:{' '}
-                                {ti.commission_type === 'flat'
-                                  ? `${formatBDT(ti.commission_value)} Flat`
-                                  : `${ti.commission_value}%`}{' '}
-                                = {formatBDT(ti.commission_amount)}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-2 text-right font-mono tabular-nums align-top">
-                        {formatBDT(r.subtotal)}
-                      </td>
-                      <td className="py-2.5 px-2 text-right font-mono tabular-nums align-top">
-                        {r.discount_amount > 0 ? (
-                          <div>
-                            <div className="text-amber-700 font-medium">
-                              -{formatBDT(r.discount_amount)}
-                            </div>
-                            <div className="text-[10px] text-slate-500">{r.discount_pct}%</div>
-                          </div>
-                        ) : (
-                          <span className="text-slate-400">0%</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-2 text-right font-mono tabular-nums font-semibold align-top">
-                        {formatBDT(r.net_total)}
-                      </td>
-                      <td className="py-2.5 px-2 text-right font-mono tabular-nums align-top whitespace-nowrap">
-                        {formatRateLabel(r)}
-                      </td>
-                      <td className="py-2.5 px-2 text-right font-mono tabular-nums font-bold text-teal-800 align-top">
-                        {formatBDT(r.commission_amount)}
-                      </td>
-                      <td className="py-2.5 px-2 text-center align-top">
-                        {r.is_commission_paid ? (
-                          <span className="inline-block px-2 py-0.5 text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 rounded">
-                            Paid
-                          </span>
-                        ) : (
-                          <span className="inline-block px-2 py-0.5 text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 rounded">
-                            {r.is_accrued_after_last_paid ? 'New Unpaid' : 'Unpaid'}
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-2 text-right align-top no-print">
-                        <button
-                          type="button"
-                          onClick={() => openCommissionEditor(r)}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-700 bg-slate-100 border border-slate-300 rounded hover:bg-slate-200 whitespace-nowrap"
-                        >
-                          <SlidersHorizontal className="w-3 h-3" />
-                          Customize
-                        </button>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {statement.referrals.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-8 text-center text-slate-500">
+                        No matching patient referrals found in {statement.from} to {statement.to}.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-slate-900 font-bold text-xs bg-slate-50">
-                  <td colSpan={3} className="py-3 px-2">
-                    Grand Total ({statement.totals.totalPatients} Patients)
-                  </td>
-                  <td className="py-3 px-2 text-right font-mono tabular-nums">
-                    {formatBDT(statement.totals.totalGross)}
-                  </td>
-                  <td className="py-3 px-2 text-right font-mono tabular-nums text-amber-800">
-                    -{formatBDT(statement.totals.totalDiscount)}
-                  </td>
-                  <td className="py-3 px-2 text-right font-mono tabular-nums">
-                    {formatBDT(statement.totals.totalNet)}
-                  </td>
-                  <td className="py-3 px-2 text-right text-slate-500">Total Payable:</td>
-                  <td className="py-3 px-2 text-right font-mono tabular-nums text-teal-800 text-sm">
-                    {formatBDT(statement.totals.totalCommission)}
-                  </td>
-                  <td className="py-3 px-2 text-center text-[10px] font-mono">
-                    {statusFilter === 'all' && statement.totals.unpaidCommission > 0
-                      ? `Unpaid: ${formatBDT(statement.totals.unpaidCommission)}`
-                      : ''}
-                  </td>
-                  <td className="no-print" />
-                </tr>
-              </tfoot>
-            </table>
+                  ) : (
+                    statement.referrals.map((r) => (
+                      <tr
+                        key={r.id}
+                        className={
+                          !r.is_commission_paid && r.is_accrued_after_last_paid
+                            ? 'bg-amber-50/40 print:bg-transparent'
+                            : undefined
+                        }
+                      >
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 font-mono tabular-nums align-top whitespace-nowrap">
+                          <div className="font-semibold text-slate-900">{r.invoice_no}</div>
+                          <div className="text-[10px] print:text-[9px] text-slate-500">
+                            {formatDateTime(r.created_at).split(',')[0]}
+                          </div>
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 align-top">
+                          <div className="font-semibold text-slate-900">{r.patient_name}</div>
+                          <div className="text-[10px] print:text-[9px] font-mono text-slate-500">{r.patient_uid}</div>
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-slate-700 align-top max-w-[230px] print:max-w-[190px]">
+                          <div className="test-names-clamp-2" title={r.test_names}>
+                            {r.test_names}
+                          </div>
+                          {r.commission_type === 'per_test' && r.test_items.length > 0 && (
+                            <div className="mt-1 space-y-0.5 text-[10px] text-slate-500 font-mono no-print">
+                              {r.test_items.map((ti) => (
+                                <div key={ti.id}>
+                                  • {ti.test_name}:{' '}
+                                  {ti.commission_type === 'flat'
+                                    ? `${formatBDT(ti.commission_value)} Flat`
+                                    : `${ti.commission_value}%`}{' '}
+                                  = {formatBDT(ti.commission_amount)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-right font-mono tabular-nums align-top whitespace-nowrap">
+                          {formatBDT(r.subtotal)}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-right font-mono tabular-nums align-top whitespace-nowrap">
+                          {r.discount_amount > 0 ? (
+                            <div>
+                              <div className="text-amber-700 font-medium">
+                                -{formatBDT(r.discount_amount)}
+                              </div>
+                              <div className="text-[10px] print:text-[9px] text-slate-500">{r.discount_pct}%</div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">0%</span>
+                          )}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-right font-mono tabular-nums font-semibold align-top whitespace-nowrap">
+                          {formatBDT(r.net_total)}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-right font-mono tabular-nums align-top whitespace-nowrap">
+                          {formatRateLabel(r)}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-right font-mono tabular-nums font-bold text-teal-800 align-top whitespace-nowrap">
+                          {formatBDT(r.commission_amount)}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-center align-top whitespace-nowrap">
+                          {r.is_commission_paid ? (
+                            <span className="inline-block px-2 py-0.5 text-[10px] print:text-[9.5px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 rounded print:border-0 print:bg-transparent print:px-0 print:py-0">
+                              Paid
+                            </span>
+                          ) : (
+                            <span className="inline-block px-2 py-0.5 text-[10px] print:text-[9.5px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 rounded print:border-0 print:bg-transparent print:px-0 print:py-0">
+                              {r.is_accrued_after_last_paid ? 'New Unpaid' : 'Unpaid'}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-1.5 text-right align-top no-print">
+                          <button
+                            type="button"
+                            onClick={() => openCommissionEditor(r)}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-700 bg-slate-100 border border-slate-300 rounded hover:bg-slate-200 whitespace-nowrap"
+                          >
+                            <SlidersHorizontal className="w-3 h-3" />
+                            Customize
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-slate-300 font-bold text-xs print:text-[10.5px] bg-slate-50 print:bg-transparent">
+                    <td colSpan={6} className="py-2.5 px-1.5 print:py-1.5 print:px-1">
+                      Grand Total ({statement.totals.totalPatients} Patients)
+                    </td>
+                    <td className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-right text-slate-600 whitespace-nowrap">
+                      Total Payable:
+                    </td>
+                    <td className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-right font-mono tabular-nums text-teal-800 text-sm print:text-xs whitespace-nowrap">
+                      {formatBDT(statement.totals.totalCommission)}
+                    </td>
+                    <td className="py-2.5 px-1.5 print:py-1.5 print:px-1" />
+                    <td className="no-print" />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
-
-          {/* Print-only Statement Signatures */}
-          <div className="hidden print:grid grid-cols-3 gap-8 pt-14 text-xs text-center">
-            <div className="border-t border-slate-400 pt-2">
-              <div className="font-semibold">Prepared By</div>
-              <div className="text-[10px] text-slate-500">Accounts / Billing Desk</div>
-            </div>
-            <div className="border-t border-slate-400 pt-2">
-              <div className="font-semibold">{settings.proprietor_name}</div>
-              <div className="text-[10px] text-slate-500">Proprietor, {settings.lab_name}</div>
-            </div>
-            <div className="border-t border-slate-400 pt-2">
-              <div className="font-semibold">Received By</div>
-              <div className="text-[10px] text-slate-500">{statement.doctor.name} / Representative</div>
-            </div>
-          </div>
-        </div>
+        </>
       )}
 
       {/* Payout Settlement History (Screen Only) */}

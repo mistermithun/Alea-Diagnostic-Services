@@ -782,6 +782,10 @@ export default function App() {
         {/* Active Module Viewport */}
         <main
           className={`flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] w-full mx-auto ${
+            resolvedTab === 'payouts' || resolvedTab === 'doctors'
+              ? 'print:p-0 print:m-0 print:max-w-none'
+              : ''
+          } ${
             receiptModalData || reportModalData ? 'no-print' : ''
           }`}
         >

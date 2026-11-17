@@ -37,6 +37,16 @@
   }
 }
 
+.test-names-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+  max-height: 2.6em;
+}
+
 @media print {
   @page {
     size: A4 portrait;
@@ -80,6 +90,53 @@
     width: 100% !important;
     max-width: 100% !important;
     height: auto !important;
+  }
+
+  .print-statement-sheet {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  .print-statement-sheet .print-table-wrap {
+    overflow: visible !important;
+    margin-top: 4px !important;
+  }
+
+  .print-statement-sheet table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    box-shadow: none !important;
+  }
+
+  .print-statement-sheet thead {
+    display: table-header-group !important;
+  }
+
+  .print-statement-sheet tfoot {
+    display: table-row-group !important;
+  }
+
+  .print-statement-sheet tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .test-names-clamp-2 {
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    line-height: 1.25 !important;
+    max-height: 2.5em !important;
   }
 
   .print-modal-root {

@@ -27,14 +27,11 @@
   display: none;
 }
 
-.print-shell-foot {
-  display: none;
-}
-
 @media screen {
   .print-a4-page,
   .print-report-pad,
-  .print-digital-report {
+  .print-digital-report,
+  .print-page-sheet {
     background-color: #ffffff;
     box-shadow: none;
   }
@@ -101,7 +98,8 @@
 
   .print-report-pad,
   .print-digital-report,
-  .print-a4-page {
+  .print-a4-page,
+  .print-page-sheet {
     position: static !important;
     display: block !important;
     background: #ffffff !important;
@@ -110,7 +108,7 @@
     border-radius: 0 !important;
     margin: 0 !important;
     padding: 0 12mm !important;
-    width: 100% !important;
+    width: 210mm !important;
     max-width: 100% !important;
     min-height: 0 !important;
     height: auto !important;
@@ -121,9 +119,20 @@
     box-sizing: border-box !important;
   }
 
+  .print-page-sheet + .print-page-sheet {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
+
+  .print-page-sheet:last-child {
+    break-after: auto !important;
+    page-break-after: auto !important;
+  }
+
   .print-shell-table {
     display: table !important;
     width: 100% !important;
+    height: 293mm !important;
     border-collapse: collapse !important;
     break-inside: auto !important;
     page-break-inside: auto !important;
@@ -133,7 +142,8 @@
     display: table-header-group !important;
   }
 
-  .print-shell-head > tr {
+  .print-shell-head > tr,
+  .print-shell-head > tr > td {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
@@ -141,11 +151,15 @@
   .print-shell-foot {
     display: table-footer-group !important;
     visibility: visible !important;
+    opacity: 1 !important;
   }
 
-  .print-shell-foot > tr {
+  .print-shell-foot > tr,
+  .print-shell-foot > tr > td {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+    visibility: visible !important;
+    opacity: 1 !important;
   }
 
   .print-report-body {
@@ -167,25 +181,8 @@
 
   .print-report-footer {
     width: 100% !important;
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-  }
-
-  .print-fixed-footer {
-    position: fixed !important;
-    bottom: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    margin: 0 !important;
-    padding: 6px 12mm var(--print-pad-bottom, 0.4in) 12mm !important;
-    background-color: #ffffff !important;
     visibility: visible !important;
     opacity: 1 !important;
-    display: block !important;
-    z-index: 9999 !important;
-    box-sizing: border-box !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
     -webkit-print-color-adjust: exact !important;

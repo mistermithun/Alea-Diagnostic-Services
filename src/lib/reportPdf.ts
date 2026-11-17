@@ -2,11 +2,10 @@ import { jsPDF } from 'jspdf';
 import autoTable, { type RowInput } from 'jspdf-autotable';
 import { formatAge, formatDateTime } from './api.ts';
 import {
-  buildDepartmentGroups,
-  buildDepartmentSegments,
   formatNumericResultDisplay,
   getOrderedCbcRows,
   getUrineSection,
+  planReportPages,
   type ResolvedSignatures,
 } from './reportLayout.ts';
 import type { InvoiceSummary, InvoiceTestItem, LabSettings } from '../types.ts';
@@ -34,8 +33,8 @@ function getLastAutoTableFinalY(doc: jsPDF): number {
 /**
  * Generates and downloads a multi-page A4 clinical diagnostic report PDF:
  * - Respects Pre-Printed Offset Pad blank header/footer margins OR Digital Letterhead mode
+ * - Matches exact A4 page separation from planReportPages (CBC, Urine R/E, Departments)
  * - Repeats Patient Info Header + QR code on EVERY page
- * - Keeps large clinical panels (CBC, Urine R/E, Semen Analysis, Stool R/E) intact across pages
  * - Repeats swapped 3-column signature block (Consultant left, Checked by center, Technologist right) on EVERY page
  */
 export function exportDiagnosticReportPdf(opts: ExportReportPdfOptions): string {
@@ -112,7 +111,6 @@ export function exportDiagnosticReportPdf(opts: ExportReportPdfOptions): string 
   // Footer reserved clearance at bottom of EVERY A4 page
   const footerHeightMm = 23;
   const footerReserveBottomMm = bottomPadMm + footerHeightMm + 3;
-  const pageMaxY = pageHeight - footerReserveBottomMm;
 
   const drawDepartmentBadge = (yPos: number, title: string): number => {
     doc.setFont('helvetica', 'bold');
@@ -136,52 +134,42 @@ export function exportDiagnosticReportPdf(opts: ExportReportPdfOptions): string 
     return yPos + boxH + 3;
   };
 
-  let cursorY = contentTopY;
-  const deptGroups = buildDepartmentGroups(selectedTests);
+  const plannedPages = planReportPages(selectedTests);
 
-  for (const dept of deptGroups) {
-    const segments = buildDepartmentSegments(dept.tests);
-    const isSingleStandard =
-      selectedTests.length === 1 && segments.length === 1 && segments[0].kind === 'standard';
+  for (let pageIdx = 0; pageIdx < plannedPages.length; pageIdx++) {
+    if (pageIdx > 0) {
+      doc.addPage();
+    }
+    let cursorY = contentTopY;
+    const plan = plannedPages[pageIdx];
 
-    for (let segIdx = 0; segIdx < segments.length; segIdx++) {
-      const seg = segments[segIdx];
-      const showDeptHeading = segIdx === 0;
-
-      // Estimate vertical height for intact panels (CBC, Urine R/E, Semen, Stool)
-      if (seg.keepIntact) {
-        const rowCount =
-          seg.kind === 'cbc'
-            ? (seg.test.results?.length || 0) + 5
-            : seg.kind === 'urine'
-            ? (seg.test.results?.length || 0) + 4
-            : (seg.tests[0]?.results?.length || 0) + 2;
-        const estimatedMm = (showDeptHeading ? 10 : 0) + 8 + rowCount * 4.9;
-
-        if (cursorY > contentTopY + 4 && cursorY + estimatedMm > pageMaxY) {
-          doc.addPage();
-          cursorY = contentTopY;
-        }
-      } else if (cursorY + (showDeptHeading ? 24 : 16) > pageMaxY) {
-        doc.addPage();
-        cursorY = contentTopY;
-      }
+    for (const block of plan.blocks) {
+      const seg = block.segment;
+      const showDeptHeading = block.showDepartmentHeading;
+      const isSingleStandard = block.isSingleStandardTest;
 
       if (showDeptHeading) {
-        cursorY = drawDepartmentBadge(cursorY, dept.departmentHeading);
-        if (isSingleStandard) {
+        cursorY = drawDepartmentBadge(cursorY, block.departmentHeading);
+        if (isSingleStandard && seg.kind === 'standard') {
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(9);
           doc.setTextColor(0, 0, 0);
-          doc.text(dept.tests[0].test_name, pageWidth / 2, cursorY + 1, { align: 'center' });
+          doc.text(seg.tests[0].test_name, pageWidth / 2, cursorY + 1, { align: 'center' });
           cursorY += 4;
         }
       }
 
+      const hasMultipleInCategory =
+        selectedTests.filter(
+          (t) =>
+            (t.category_name || 'Pathology').trim().toLowerCase() ===
+            block.categoryName.toLowerCase()
+        ).length > 1;
+
       if (seg.kind === 'cbc') {
         const ordered = getOrderedCbcRows(seg.test.results || []);
         const bodyRows: RowInput[] = [];
-        if (dept.tests.length > 1) {
+        if (hasMultipleInCategory) {
           bodyRows.push([
             {
               content: seg.test.test_name,
@@ -275,7 +263,7 @@ export function exportDiagnosticReportPdf(opts: ExportReportPdfOptions): string 
         cursorY = getLastAutoTableFinalY(doc) + 4.5;
       } else if (seg.kind === 'urine') {
         const bodyRows: RowInput[] = [];
-        if (dept.tests.length > 1) {
+        if (hasMultipleInCategory) {
           bodyRows.push([
             {
               content: seg.test.test_name,

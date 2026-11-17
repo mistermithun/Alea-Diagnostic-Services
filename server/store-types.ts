@@ -248,6 +248,18 @@ export interface LimsStore {
   }): Promise<{ id: number }>;
   deleteExpense(id: number): Promise<void>;
 
+  // Daily Cash Balance Ledger & Other Revenues
+  getBalanceLedger(from: string, to: string): Promise<Record<string, unknown>>;
+  createOtherRevenue(payload: {
+    source: string;
+    category?: string;
+    amount: number;
+    revenue_date?: string;
+    note?: string;
+    createdBy?: string;
+  }): Promise<{ id: number }>;
+  deleteOtherRevenue(id: number): Promise<void>;
+
   // Patient Portal (Strictly Isolated)
   findPatientByUid(normalizedUid: string): Promise<{
     id: number;

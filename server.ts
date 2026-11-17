@@ -707,6 +707,65 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
     })
   );
 
+  // Daily Cash Balance Ledger & Revenue from Others (Admin Only)
+  app.get(
+    '/api/admin/balance-ledger',
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const today = getTodayDateStr();
+      const from =
+        typeof req.query.from === 'string' && req.query.from.trim()
+          ? req.query.from.trim()
+          : `${today.slice(0, 7)}-01`;
+      const to =
+        typeof req.query.to === 'string' && req.query.to.trim() ? req.query.to.trim() : today;
+      const data = await store.getBalanceLedger(from, to);
+      res.json(data);
+    })
+  );
+
+  app.post(
+    '/api/admin/other-revenues',
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const { source, category, amount, revenue_date, note } = req.body as {
+        source?: string;
+        category?: string;
+        amount?: number;
+        revenue_date?: string;
+        note?: string;
+      };
+      if (!source?.trim() || !amount || Number(amount) <= 0) {
+        res.status(400).json({ error: 'Income source description and positive amount are required.' });
+        return;
+      }
+      const adminPayload = verifyAdminToken(extractTokenFromRequest(req), getSecret());
+      const created = await store.createOtherRevenue({
+        source,
+        category,
+        amount: Number(amount),
+        revenue_date,
+        note,
+        createdBy: adminPayload?.name || 'Admin',
+      });
+      res.json(created);
+    })
+  );
+
+  app.delete(
+    '/api/admin/other-revenues/:id',
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).json({ error: 'Invalid other revenue entry ID.' });
+        return;
+      }
+      await store.deleteOtherRevenue(id);
+      res.json({ success: true });
+    })
+  );
+
   // Database Backup Download (Admin Only — JSON snapshot for MongoDB Atlas, .db for SQLite)
   app.get(
     '/api/admin/backup',

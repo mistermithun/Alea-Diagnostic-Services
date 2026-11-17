@@ -9,6 +9,7 @@ export type NavTab =
   | 'doctors'
   | 'payouts'
   | 'expenses'
+  | 'balance'
   | 'settings';
 
 export interface LabSettings {
@@ -291,6 +292,66 @@ export interface ExpenseItem {
   note: string;
   created_by: string;
   created_at: string;
+}
+
+export interface OtherRevenueItem {
+  id: number;
+  source: string;
+  category: string;
+  amount: number;
+  revenue_date: string;
+  note: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface BalanceLedgerRow {
+  date: string;
+  openingBalance: number;
+  labRevenue: number;
+  otherRevenue: number;
+  totalAvailableCash: number;
+  operationalExpenses: number;
+  ownerWithdrawals: number;
+  expensesAndWithdrawals: number;
+  closingBalance: number;
+  netDayChange: number;
+  labPaymentsCount: number;
+  otherRevenuesCount: number;
+  expensesCount: number;
+}
+
+export interface BalanceLedgerResponse {
+  from: string;
+  to: string;
+  today: string;
+  priorOpeningBalance: number;
+  todaySummary: {
+    date: string;
+    openingBalance: number;
+    labRevenue: number;
+    otherRevenue: number;
+    totalInflow: number;
+    totalAvailable: number;
+    operationalExpenses: number;
+    ownerWithdrawals: number;
+    totalExpensesAndWithdrawals: number;
+    closingBalance: number;
+  };
+  periodTotals: {
+    openingBalance: number;
+    labRevenue: number;
+    otherRevenue: number;
+    totalInflow: number;
+    operationalExpenses: number;
+    ownerWithdrawals: number;
+    totalExpensesAndWithdrawals: number;
+    netChange: number;
+    closingBalance: number;
+  };
+  rows: BalanceLedgerRow[];
+  otherRevenues: OtherRevenueItem[];
+  expenses: ExpenseItem[];
 }
 
 export interface AdminDashboardData {

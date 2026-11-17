@@ -2497,6 +2497,324 @@ export class SqliteLimsStore implements LimsStore {
     db.prepare('DELETE FROM expenses WHERE id = ?').run(id);
   }
 
+  private getCumulativeCashBalanceBefore(cutoffDate: string): number {
+    const initialRow = db
+      .prepare(
+        `SELECT COALESCE(SUM(i.paid_amount - COALESCE(dp.dp_sum, 0)), 0) as amt
+         FROM invoices i
+         LEFT JOIN (SELECT invoice_id, SUM(amount) as dp_sum FROM due_payments GROUP BY invoice_id) dp
+           ON dp.invoice_id = i.id
+         WHERE substr(i.created_at, 1, 10) < ?`
+      )
+      .get(cutoffDate) as { amt: number };
+
+    const dpRow = db
+      .prepare(`SELECT COALESCE(SUM(amount), 0) as amt FROM due_payments WHERE substr(collected_at, 1, 10) < ?`)
+      .get(cutoffDate) as { amt: number };
+
+    const otherRow = db
+      .prepare(`SELECT COALESCE(SUM(amount), 0) as amt FROM other_revenues WHERE revenue_date < ?`)
+      .get(cutoffDate) as { amt: number };
+
+    const expRow = db
+      .prepare(`SELECT COALESCE(SUM(amount), 0) as amt FROM expenses WHERE expense_date < ?`)
+      .get(cutoffDate) as { amt: number };
+
+    return roundCurrency(
+      Number(initialRow.amt || 0) +
+        Number(dpRow.amt || 0) +
+        Number(otherRow.amt || 0) -
+        Number(expRow.amt || 0)
+    );
+  }
+
+  async getBalanceLedger(from: string, to: string): Promise<Record<string, unknown>> {
+    const today = getTodayDateStr();
+    const cleanFrom = /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : `${today.slice(0, 7)}-01`;
+    let cleanTo = /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : today;
+    if (cleanTo < cleanFrom) cleanTo = cleanFrom;
+
+    const isWithdrawalCat = (cat: string) => {
+      const lower = (cat || '').toLowerCase();
+      return (
+        lower.includes('withdrawal') ||
+        lower.includes('proprietor draw') ||
+        lower.includes('owner draw')
+      );
+    };
+
+    const priorOpeningBalance = this.getCumulativeCashBalanceBefore(cleanFrom);
+
+    // 1. Lab Test Revenue in [cleanFrom, cleanTo] = initial booking cash + due collections - cash refunds
+    const initialByDateRows = db
+      .prepare(
+        `SELECT substr(i.created_at, 1, 10) as d,
+                COALESCE(SUM(i.paid_amount - COALESCE(dp.dp_sum, 0)), 0) as amt,
+                SUM(CASE WHEN ABS(i.paid_amount - COALESCE(dp.dp_sum, 0)) > 0.001 THEN 1 ELSE 0 END) as cnt
+         FROM invoices i
+         LEFT JOIN (SELECT invoice_id, SUM(amount) as dp_sum FROM due_payments GROUP BY invoice_id) dp
+           ON dp.invoice_id = i.id
+         WHERE substr(i.created_at, 1, 10) BETWEEN ? AND ?
+         GROUP BY substr(i.created_at, 1, 10)`
+      )
+      .all(cleanFrom, cleanTo) as Array<{ d: string; amt: number; cnt: number }>;
+
+    const dueByDateRows = db
+      .prepare(
+        `SELECT substr(collected_at, 1, 10) as d,
+                COALESCE(SUM(amount), 0) as amt,
+                COUNT(*) as cnt
+         FROM due_payments
+         WHERE substr(collected_at, 1, 10) BETWEEN ? AND ?
+         GROUP BY substr(collected_at, 1, 10)`
+      )
+      .all(cleanFrom, cleanTo) as Array<{ d: string; amt: number; cnt: number }>;
+
+    const labRevMap = new Map<string, number>();
+    const labCountMap = new Map<string, number>();
+    for (const r of initialByDateRows) {
+      labRevMap.set(r.d, roundCurrency((labRevMap.get(r.d) || 0) + Number(r.amt || 0)));
+      labCountMap.set(r.d, (labCountMap.get(r.d) || 0) + Number(r.cnt || 0));
+    }
+    for (const r of dueByDateRows) {
+      labRevMap.set(r.d, roundCurrency((labRevMap.get(r.d) || 0) + Number(r.amt || 0)));
+      labCountMap.set(r.d, (labCountMap.get(r.d) || 0) + Number(r.cnt || 0));
+    }
+
+    // 2. Other Revenues in [cleanFrom, cleanTo]
+    const otherRevenues = db
+      .prepare(
+        `SELECT * FROM other_revenues
+         WHERE revenue_date BETWEEN ? AND ?
+         ORDER BY revenue_date DESC, id DESC`
+      )
+      .all(cleanFrom, cleanTo) as Array<{
+      id: number;
+      source: string;
+      category: string;
+      amount: number;
+      revenue_date: string;
+      note: string;
+      created_by: string;
+      created_at: string;
+    }>;
+
+    const otherRevMap = new Map<string, number>();
+    const otherCountMap = new Map<string, number>();
+    for (const o of otherRevenues) {
+      otherRevMap.set(o.revenue_date, roundCurrency((otherRevMap.get(o.revenue_date) || 0) + Number(o.amount || 0)));
+      otherCountMap.set(o.revenue_date, (otherCountMap.get(o.revenue_date) || 0) + 1);
+    }
+
+    // 3. Expenses & Owner Withdrawals in [cleanFrom, cleanTo]
+    const expenses = db
+      .prepare(
+        `SELECT * FROM expenses
+         WHERE expense_date BETWEEN ? AND ?
+         ORDER BY expense_date DESC, id DESC`
+      )
+      .all(cleanFrom, cleanTo) as Array<{
+      id: number;
+      title: string;
+      category: string;
+      amount: number;
+      expense_date: string;
+      note: string;
+      created_by: string;
+      created_at: string;
+    }>;
+
+    const opExpMap = new Map<string, number>();
+    const withdrawMap = new Map<string, number>();
+    const expCountMap = new Map<string, number>();
+    for (const ex of expenses) {
+      const amt = Number(ex.amount || 0);
+      if (isWithdrawalCat(ex.category)) {
+        withdrawMap.set(ex.expense_date, roundCurrency((withdrawMap.get(ex.expense_date) || 0) + amt));
+      } else {
+        opExpMap.set(ex.expense_date, roundCurrency((opExpMap.get(ex.expense_date) || 0) + amt));
+      }
+      expCountMap.set(ex.expense_date, (expCountMap.get(ex.expense_date) || 0) + 1);
+    }
+
+    // Build chronological date list (every day up to 400 days; active dates if wider)
+    const dates: string[] = [];
+    let cursor = cleanFrom;
+    while (cursor <= cleanTo && dates.length <= 400) {
+      dates.push(cursor);
+      cursor = addDaysToIsoDate(cursor, 1);
+    }
+    if (dates.length > 400) {
+      const activeSet = new Set<string>([
+        cleanFrom,
+        cleanTo,
+        ...labRevMap.keys(),
+        ...otherRevMap.keys(),
+        ...opExpMap.keys(),
+        ...withdrawMap.keys(),
+      ]);
+      dates.length = 0;
+      dates.push(...Array.from(activeSet).filter((d) => d >= cleanFrom && d <= cleanTo).sort());
+    }
+
+    let runningBalance = priorOpeningBalance;
+    let periodLabTotal = 0;
+    let periodOtherTotal = 0;
+    let periodOpExpTotal = 0;
+    let periodWithdrawTotal = 0;
+
+    const rows = dates.map((d) => {
+      const openingBalance = roundCurrency(runningBalance);
+      const labRevenue = roundCurrency(labRevMap.get(d) || 0);
+      const otherRevenue = roundCurrency(otherRevMap.get(d) || 0);
+      const totalAvailableCash = roundCurrency(openingBalance + labRevenue + otherRevenue);
+      const operationalExpenses = roundCurrency(opExpMap.get(d) || 0);
+      const ownerWithdrawals = roundCurrency(withdrawMap.get(d) || 0);
+      const expensesAndWithdrawals = roundCurrency(operationalExpenses + ownerWithdrawals);
+      const closingBalance = roundCurrency(totalAvailableCash - expensesAndWithdrawals);
+      const netDayChange = roundCurrency(labRevenue + otherRevenue - expensesAndWithdrawals);
+
+      runningBalance = closingBalance;
+      periodLabTotal += labRevenue;
+      periodOtherTotal += otherRevenue;
+      periodOpExpTotal += operationalExpenses;
+      periodWithdrawTotal += ownerWithdrawals;
+
+      return {
+        date: d,
+        openingBalance,
+        labRevenue,
+        otherRevenue,
+        totalAvailableCash,
+        operationalExpenses,
+        ownerWithdrawals,
+        expensesAndWithdrawals,
+        closingBalance,
+        netDayChange,
+        labPaymentsCount: labCountMap.get(d) || 0,
+        otherRevenuesCount: otherCountMap.get(d) || 0,
+        expensesCount: expCountMap.get(d) || 0,
+      };
+    });
+
+    // Today's live cash summary (always accurate regardless of selected filter range)
+    const todayOpeningBalance =
+      cleanFrom === today ? priorOpeningBalance : this.getCumulativeCashBalanceBefore(today);
+
+    const todayInitRow = db
+      .prepare(
+        `SELECT COALESCE(SUM(i.paid_amount - COALESCE(dp.dp_sum, 0)), 0) as amt
+         FROM invoices i
+         LEFT JOIN (SELECT invoice_id, SUM(amount) as dp_sum FROM due_payments GROUP BY invoice_id) dp
+           ON dp.invoice_id = i.id
+         WHERE substr(i.created_at, 1, 10) = ?`
+      )
+      .get(today) as { amt: number };
+    const todayDueRow = db
+      .prepare(`SELECT COALESCE(SUM(amount), 0) as amt FROM due_payments WHERE substr(collected_at, 1, 10) = ?`)
+      .get(today) as { amt: number };
+    const todayOtherRow = db
+      .prepare(`SELECT COALESCE(SUM(amount), 0) as amt FROM other_revenues WHERE revenue_date = ?`)
+      .get(today) as { amt: number };
+    const todayExpensesRows = db
+      .prepare(`SELECT category, amount FROM expenses WHERE expense_date = ?`)
+      .all(today) as Array<{ category: string; amount: number }>;
+
+    const todayLabRevenue = roundCurrency(Number(todayInitRow.amt || 0) + Number(todayDueRow.amt || 0));
+    const todayOtherRevenue = roundCurrency(Number(todayOtherRow.amt || 0));
+    const todayTotalInflow = roundCurrency(todayLabRevenue + todayOtherRevenue);
+    const todayTotalAvailable = roundCurrency(todayOpeningBalance + todayTotalInflow);
+
+    let todayOperationalExpenses = 0;
+    let todayOwnerWithdrawals = 0;
+    for (const ex of todayExpensesRows) {
+      if (isWithdrawalCat(ex.category)) {
+        todayOwnerWithdrawals += Number(ex.amount || 0);
+      } else {
+        todayOperationalExpenses += Number(ex.amount || 0);
+      }
+    }
+    todayOperationalExpenses = roundCurrency(todayOperationalExpenses);
+    todayOwnerWithdrawals = roundCurrency(todayOwnerWithdrawals);
+    const todayTotalExpensesAndWithdrawals = roundCurrency(todayOperationalExpenses + todayOwnerWithdrawals);
+    const todayClosingBalance = roundCurrency(todayTotalAvailable - todayTotalExpensesAndWithdrawals);
+
+    const periodTotalInflow = roundCurrency(periodLabTotal + periodOtherTotal);
+    const periodTotalExp = roundCurrency(periodOpExpTotal + periodWithdrawTotal);
+
+    return {
+      from: cleanFrom,
+      to: cleanTo,
+      today,
+      priorOpeningBalance,
+      todaySummary: {
+        date: today,
+        openingBalance: todayOpeningBalance,
+        labRevenue: todayLabRevenue,
+        otherRevenue: todayOtherRevenue,
+        totalInflow: todayTotalInflow,
+        totalAvailable: todayTotalAvailable,
+        operationalExpenses: todayOperationalExpenses,
+        ownerWithdrawals: todayOwnerWithdrawals,
+        totalExpensesAndWithdrawals: todayTotalExpensesAndWithdrawals,
+        closingBalance: todayClosingBalance,
+      },
+      periodTotals: {
+        openingBalance: priorOpeningBalance,
+        labRevenue: roundCurrency(periodLabTotal),
+        otherRevenue: roundCurrency(periodOtherTotal),
+        totalInflow: periodTotalInflow,
+        operationalExpenses: roundCurrency(periodOpExpTotal),
+        ownerWithdrawals: roundCurrency(periodWithdrawTotal),
+        totalExpensesAndWithdrawals: periodTotalExp,
+        netChange: roundCurrency(periodTotalInflow - periodTotalExp),
+        closingBalance: roundCurrency(runningBalance),
+      },
+      rows,
+      otherRevenues,
+      expenses,
+    };
+  }
+
+  async createOtherRevenue(payload: {
+    source: string;
+    category?: string;
+    amount: number;
+    revenue_date?: string;
+    note?: string;
+    createdBy?: string;
+  }): Promise<{ id: number }> {
+    const cleanSource = (payload.source || '').trim();
+    const cleanAmount = roundCurrency(Number(payload.amount || 0));
+    if (!cleanSource || !Number.isFinite(cleanAmount) || cleanAmount <= 0) {
+      throw new StoreError(400, 'Source description and positive amount are required.');
+    }
+    const cleanDate =
+      payload.revenue_date && /^\d{4}-\d{2}-\d{2}$/.test(payload.revenue_date)
+        ? payload.revenue_date
+        : getTodayDateStr();
+
+    const info = db
+      .prepare(
+        `INSERT INTO other_revenues (source, category, amount, revenue_date, note, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        cleanSource,
+        payload.category?.trim() || 'Other Income',
+        cleanAmount,
+        cleanDate,
+        payload.note?.trim() || '',
+        payload.createdBy?.trim() || 'Admin',
+        getLocalTimestampStr()
+      );
+    return { id: Number(info.lastInsertRowid) };
+  }
+
+  async deleteOtherRevenue(id: number): Promise<void> {
+    db.prepare('DELETE FROM other_revenues WHERE id = ?').run(id);
+  }
+
   async findPatientByUid(normalizedUid: string) {
     const row = db
       .prepare(

@@ -7,6 +7,7 @@ import {
   LogOut,
   Menu,
   Receipt,
+  Scale,
   Settings,
   ShieldCheck,
   Stethoscope,
@@ -16,6 +17,7 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
+import { BalanceLedgerView } from './components/BalanceLedgerView.tsx';
 import { DashboardView } from './components/DashboardView.tsx';
 import { DoctorPayoutView } from './components/DoctorPayoutView.tsx';
 import { DoctorsView } from './components/DoctorsView.tsx';
@@ -91,6 +93,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'doctors', label: 'Referral Doctors', adminOnly: true, icon: Stethoscope },
   { id: 'payouts', label: 'Commission Payout', adminOnly: true, icon: Banknote },
   { id: 'expenses', label: 'Expense Tracker', adminOnly: true, icon: Wallet },
+  { id: 'balance', label: 'Balance', adminOnly: true, icon: Scale },
   { id: 'settings', label: 'Settings & Backup', adminOnly: true, icon: Settings },
 ];
 
@@ -826,6 +829,9 @@ export default function App() {
             <DoctorPayoutView settings={settings} initialDoctorId={selectedPayoutDoctorId} />
           )}
           {resolvedTab === 'expenses' && isAdmin && <ExpensesView />}
+          {resolvedTab === 'balance' && isAdmin && (
+            <BalanceLedgerView settings={settings} onNavigate={setActiveTab} />
+          )}
           {resolvedTab === 'settings' && isAdmin && (
             <SettingsBackupView
               systemInfo={systemInfo}

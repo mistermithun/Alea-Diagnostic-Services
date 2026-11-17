@@ -221,6 +221,17 @@ interface ExpenseDoc {
   created_at: string;
 }
 
+interface OtherRevenueDoc {
+  id: number;
+  source: string;
+  category: string;
+  amount: number;
+  revenue_date: string;
+  note: string;
+  created_by: string;
+  created_at: string;
+}
+
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -252,6 +263,7 @@ export class MongoLimsStore implements LimsStore {
   private adjustmentsCol!: Collection<InvoiceAdjustmentDoc>;
   private payoutsCol!: Collection<DoctorCommissionPayoutDoc>;
   private expensesCol!: Collection<ExpenseDoc>;
+  private otherRevenuesCol!: Collection<OtherRevenueDoc>;
 
   constructor(mongoUri: string, dbNameOverride?: string) {
     this.client = new MongoClient(mongoUri, {
@@ -290,6 +302,7 @@ export class MongoLimsStore implements LimsStore {
     this.adjustmentsCol = this.db.collection<InvoiceAdjustmentDoc>('invoice_adjustments');
     this.payoutsCol = this.db.collection<DoctorCommissionPayoutDoc>('doctor_commission_payouts');
     this.expensesCol = this.db.collection<ExpenseDoc>('expenses');
+    this.otherRevenuesCol = this.db.collection<OtherRevenueDoc>('other_revenues');
 
     await this.ensureIndexes();
     await this.seedDefaultSettings();
@@ -350,6 +363,8 @@ export class MongoLimsStore implements LimsStore {
       this.payoutsCol.createIndex({ doctor_id: 1, settled_at: -1 }),
       this.expensesCol.createIndex({ id: 1 }, { unique: true }),
       this.expensesCol.createIndex({ expense_date: -1 }),
+      this.otherRevenuesCol.createIndex({ id: 1 }, { unique: true }),
+      this.otherRevenuesCol.createIndex({ revenue_date: -1 }),
     ]);
   }
 
@@ -3576,6 +3591,281 @@ export class MongoLimsStore implements LimsStore {
     await this.expensesCol.deleteOne({ id });
   }
 
+  private async getCumulativeCashBalanceBefore(cutoffDate: string): Promise<number> {
+    const [invDocs, dpDocsBefore, otherDocsBefore, expDocsBefore] = await Promise.all([
+      this.invoicesCol.find({ created_at: { $lt: cutoffDate } }, { projection: { _id: 0, id: 1, paid_amount: 1 } }).toArray(),
+      this.duePaymentsCol.find({ collected_at: { $lt: cutoffDate } }, { projection: { _id: 0, amount: 1 } }).toArray(),
+      this.otherRevenuesCol.find({ revenue_date: { $lt: cutoffDate } }, { projection: { _id: 0, amount: 1 } }).toArray(),
+      this.expensesCol.find({ expense_date: { $lt: cutoffDate } }, { projection: { _id: 0, amount: 1 } }).toArray(),
+    ]);
+
+    const invIds = invDocs.map((i) => i.id);
+    const allDpForInvs =
+      invIds.length > 0
+        ? await this.duePaymentsCol.find({ invoice_id: { $in: invIds } }, { projection: { _id: 0, invoice_id: 1, amount: 1 } }).toArray()
+        : [];
+    const dpSumByInv = new Map<number, number>();
+    for (const dp of allDpForInvs) {
+      dpSumByInv.set(dp.invoice_id, (dpSumByInv.get(dp.invoice_id) || 0) + Number(dp.amount || 0));
+    }
+
+    let initialBefore = 0;
+    for (const inv of invDocs) {
+      initialBefore += Number(inv.paid_amount || 0) - (dpSumByInv.get(inv.id) || 0);
+    }
+    const dpBefore = dpDocsBefore.reduce((s, d) => s + Number(d.amount || 0), 0);
+    const otherBefore = otherDocsBefore.reduce((s, o) => s + Number(o.amount || 0), 0);
+    const expBefore = expDocsBefore.reduce((s, e) => s + Number(e.amount || 0), 0);
+
+    return roundCurrency(initialBefore + dpBefore + otherBefore - expBefore);
+  }
+
+  async getBalanceLedger(from: string, to: string): Promise<Record<string, unknown>> {
+    const today = getTodayDateStr();
+    const cleanFrom = /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : `${today.slice(0, 7)}-01`;
+    let cleanTo = /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : today;
+    if (cleanTo < cleanFrom) cleanTo = cleanFrom;
+
+    const isWithdrawalCat = (cat: string) => {
+      const lower = (cat || '').toLowerCase();
+      return (
+        lower.includes('withdrawal') ||
+        lower.includes('proprietor draw') ||
+        lower.includes('owner draw')
+      );
+    };
+
+    const rangeFilter = { $gte: cleanFrom, $lte: `${cleanTo}\uffff` };
+    const todayFilter = { $gte: today, $lte: `${today}\uffff` };
+
+    const [
+      priorOpeningBalance,
+      todayOpeningBalance,
+      rangeInvoices,
+      rangeDuePayments,
+      otherRevenues,
+      expenses,
+      todayInvoices,
+      todayDuePayments,
+      todayOtherDocs,
+      todayExpenseDocs,
+    ] = await Promise.all([
+      this.getCumulativeCashBalanceBefore(cleanFrom),
+      cleanFrom === today ? Promise.resolve(0) : this.getCumulativeCashBalanceBefore(today),
+      this.invoicesCol.find({ created_at: rangeFilter }, { projection: { _id: 0, id: 1, paid_amount: 1, created_at: 1 } }).toArray(),
+      this.duePaymentsCol.find({ collected_at: rangeFilter }, { projection: { _id: 0, amount: 1, collected_at: 1 } }).toArray(),
+      this.otherRevenuesCol.find({ revenue_date: { $gte: cleanFrom, $lte: cleanTo } }, { projection: { _id: 0 } }).sort({ revenue_date: -1, id: -1 }).toArray(),
+      this.expensesCol.find({ expense_date: { $gte: cleanFrom, $lte: cleanTo } }, { projection: { _id: 0 } }).sort({ expense_date: -1, id: -1 }).toArray(),
+      this.invoicesCol.find({ created_at: todayFilter }, { projection: { _id: 0, id: 1, paid_amount: 1 } }).toArray(),
+      this.duePaymentsCol.find({ collected_at: todayFilter }, { projection: { _id: 0, amount: 1 } }).toArray(),
+      this.otherRevenuesCol.find({ revenue_date: today }, { projection: { _id: 0, amount: 1 } }).toArray(),
+      this.expensesCol.find({ expense_date: today }, { projection: { _id: 0, category: 1, amount: 1 } }).toArray(),
+    ]);
+
+    const resolvedTodayOpening = cleanFrom === today ? priorOpeningBalance : todayOpeningBalance;
+
+    const invIdsNeeded = Array.from(new Set([...rangeInvoices.map((i) => i.id), ...todayInvoices.map((i) => i.id)]));
+    const allDpForNeededInvs =
+      invIdsNeeded.length > 0
+        ? await this.duePaymentsCol.find({ invoice_id: { $in: invIdsNeeded } }, { projection: { _id: 0, invoice_id: 1, amount: 1 } }).toArray()
+        : [];
+    const dpSumByInv = new Map<number, number>();
+    for (const dp of allDpForNeededInvs) {
+      dpSumByInv.set(dp.invoice_id, (dpSumByInv.get(dp.invoice_id) || 0) + Number(dp.amount || 0));
+    }
+
+    const labRevMap = new Map<string, number>();
+    const labCountMap = new Map<string, number>();
+    for (const inv of rangeInvoices) {
+      const d = datePart(inv.created_at);
+      const initAmt = Number(inv.paid_amount || 0) - (dpSumByInv.get(inv.id) || 0);
+      labRevMap.set(d, roundCurrency((labRevMap.get(d) || 0) + initAmt));
+      if (Math.abs(initAmt) > 0.001) {
+        labCountMap.set(d, (labCountMap.get(d) || 0) + 1);
+      }
+    }
+    for (const dp of rangeDuePayments) {
+      const d = datePart(dp.collected_at);
+      labRevMap.set(d, roundCurrency((labRevMap.get(d) || 0) + Number(dp.amount || 0)));
+      labCountMap.set(d, (labCountMap.get(d) || 0) + 1);
+    }
+
+    const otherRevMap = new Map<string, number>();
+    const otherCountMap = new Map<string, number>();
+    for (const o of otherRevenues) {
+      otherRevMap.set(o.revenue_date, roundCurrency((otherRevMap.get(o.revenue_date) || 0) + Number(o.amount || 0)));
+      otherCountMap.set(o.revenue_date, (otherCountMap.get(o.revenue_date) || 0) + 1);
+    }
+
+    const opExpMap = new Map<string, number>();
+    const withdrawMap = new Map<string, number>();
+    const expCountMap = new Map<string, number>();
+    for (const ex of expenses) {
+      const amt = Number(ex.amount || 0);
+      if (isWithdrawalCat(ex.category)) {
+        withdrawMap.set(ex.expense_date, roundCurrency((withdrawMap.get(ex.expense_date) || 0) + amt));
+      } else {
+        opExpMap.set(ex.expense_date, roundCurrency((opExpMap.get(ex.expense_date) || 0) + amt));
+      }
+      expCountMap.set(ex.expense_date, (expCountMap.get(ex.expense_date) || 0) + 1);
+    }
+
+    const dates: string[] = [];
+    let cursor = cleanFrom;
+    while (cursor <= cleanTo && dates.length <= 400) {
+      dates.push(cursor);
+      cursor = addDaysToIsoDate(cursor, 1);
+    }
+    if (dates.length > 400) {
+      const activeSet = new Set<string>([
+        cleanFrom,
+        cleanTo,
+        ...labRevMap.keys(),
+        ...otherRevMap.keys(),
+        ...opExpMap.keys(),
+        ...withdrawMap.keys(),
+      ]);
+      dates.length = 0;
+      dates.push(...Array.from(activeSet).filter((d) => d >= cleanFrom && d <= cleanTo).sort());
+    }
+
+    let runningBalance = priorOpeningBalance;
+    let periodLabTotal = 0;
+    let periodOtherTotal = 0;
+    let periodOpExpTotal = 0;
+    let periodWithdrawTotal = 0;
+
+    const rows = dates.map((d) => {
+      const openingBalance = roundCurrency(runningBalance);
+      const labRevenue = roundCurrency(labRevMap.get(d) || 0);
+      const otherRevenue = roundCurrency(otherRevMap.get(d) || 0);
+      const totalAvailableCash = roundCurrency(openingBalance + labRevenue + otherRevenue);
+      const operationalExpenses = roundCurrency(opExpMap.get(d) || 0);
+      const ownerWithdrawals = roundCurrency(withdrawMap.get(d) || 0);
+      const expensesAndWithdrawals = roundCurrency(operationalExpenses + ownerWithdrawals);
+      const closingBalance = roundCurrency(totalAvailableCash - expensesAndWithdrawals);
+      const netDayChange = roundCurrency(labRevenue + otherRevenue - expensesAndWithdrawals);
+
+      runningBalance = closingBalance;
+      periodLabTotal += labRevenue;
+      periodOtherTotal += otherRevenue;
+      periodOpExpTotal += operationalExpenses;
+      periodWithdrawTotal += ownerWithdrawals;
+
+      return {
+        date: d,
+        openingBalance,
+        labRevenue,
+        otherRevenue,
+        totalAvailableCash,
+        operationalExpenses,
+        ownerWithdrawals,
+        expensesAndWithdrawals,
+        closingBalance,
+        netDayChange,
+        labPaymentsCount: labCountMap.get(d) || 0,
+        otherRevenuesCount: otherCountMap.get(d) || 0,
+        expensesCount: expCountMap.get(d) || 0,
+      };
+    });
+
+    let todayInitAmt = 0;
+    for (const inv of todayInvoices) {
+      todayInitAmt += Number(inv.paid_amount || 0) - (dpSumByInv.get(inv.id) || 0);
+    }
+    const todayDueAmt = todayDuePayments.reduce((s, d) => s + Number(d.amount || 0), 0);
+    const todayLabRevenue = roundCurrency(todayInitAmt + todayDueAmt);
+    const todayOtherRevenue = roundCurrency(todayOtherDocs.reduce((s, o) => s + Number(o.amount || 0), 0));
+    const todayTotalInflow = roundCurrency(todayLabRevenue + todayOtherRevenue);
+    const todayTotalAvailable = roundCurrency(resolvedTodayOpening + todayTotalInflow);
+
+    let todayOperationalExpenses = 0;
+    let todayOwnerWithdrawals = 0;
+    for (const ex of todayExpenseDocs) {
+      if (isWithdrawalCat(ex.category)) {
+        todayOwnerWithdrawals += Number(ex.amount || 0);
+      } else {
+        todayOperationalExpenses += Number(ex.amount || 0);
+      }
+    }
+    todayOperationalExpenses = roundCurrency(todayOperationalExpenses);
+    todayOwnerWithdrawals = roundCurrency(todayOwnerWithdrawals);
+    const todayTotalExpensesAndWithdrawals = roundCurrency(todayOperationalExpenses + todayOwnerWithdrawals);
+    const todayClosingBalance = roundCurrency(todayTotalAvailable - todayTotalExpensesAndWithdrawals);
+
+    const periodTotalInflow = roundCurrency(periodLabTotal + periodOtherTotal);
+    const periodTotalExp = roundCurrency(periodOpExpTotal + periodWithdrawTotal);
+
+    return {
+      from: cleanFrom,
+      to: cleanTo,
+      today,
+      priorOpeningBalance,
+      todaySummary: {
+        date: today,
+        openingBalance: resolvedTodayOpening,
+        labRevenue: todayLabRevenue,
+        otherRevenue: todayOtherRevenue,
+        totalInflow: todayTotalInflow,
+        totalAvailable: todayTotalAvailable,
+        operationalExpenses: todayOperationalExpenses,
+        ownerWithdrawals: todayOwnerWithdrawals,
+        totalExpensesAndWithdrawals: todayTotalExpensesAndWithdrawals,
+        closingBalance: todayClosingBalance,
+      },
+      periodTotals: {
+        openingBalance: priorOpeningBalance,
+        labRevenue: roundCurrency(periodLabTotal),
+        otherRevenue: roundCurrency(periodOtherTotal),
+        totalInflow: periodTotalInflow,
+        operationalExpenses: roundCurrency(periodOpExpTotal),
+        ownerWithdrawals: roundCurrency(periodWithdrawTotal),
+        totalExpensesAndWithdrawals: periodTotalExp,
+        netChange: roundCurrency(periodTotalInflow - periodTotalExp),
+        closingBalance: roundCurrency(runningBalance),
+      },
+      rows,
+      otherRevenues,
+      expenses,
+    };
+  }
+
+  async createOtherRevenue(payload: {
+    source: string;
+    category?: string;
+    amount: number;
+    revenue_date?: string;
+    note?: string;
+    createdBy?: string;
+  }): Promise<{ id: number }> {
+    const cleanSource = (payload.source || '').trim();
+    const cleanAmount = roundCurrency(Number(payload.amount || 0));
+    if (!cleanSource || !Number.isFinite(cleanAmount) || cleanAmount <= 0) {
+      throw new StoreError(400, 'Source description and positive amount are required.');
+    }
+    const cleanDate =
+      payload.revenue_date && /^\d{4}-\d{2}-\d{2}$/.test(payload.revenue_date)
+        ? payload.revenue_date
+        : getTodayDateStr();
+
+    const id = await this.nextSeq('other_revenues');
+    await this.otherRevenuesCol.insertOne({
+      id,
+      source: cleanSource,
+      category: payload.category?.trim() || 'Other Income',
+      amount: cleanAmount,
+      revenue_date: cleanDate,
+      note: payload.note?.trim() || '',
+      created_by: payload.createdBy?.trim() || 'Admin',
+      created_at: getLocalTimestampStr(),
+    });
+    return { id };
+  }
+
+  async deleteOtherRevenue(id: number): Promise<void> {
+    await this.otherRevenuesCol.deleteOne({ id });
+  }
+
   async findPatientByUid(normalizedUid: string) {
     const rx = new RegExp(`^${escapeRegex(normalizedUid)}$`, 'i');
     const p = await this.patientsCol.findOne({ patient_uid: rx }, { projection: { _id: 0 } });
@@ -3724,6 +4014,7 @@ export class MongoLimsStore implements LimsStore {
       due_payments,
       invoice_adjustments,
       expenses,
+      other_revenues,
     ] = await Promise.all([
       this.getAllSettings(),
       this.categoriesCol.find({}, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
@@ -3740,6 +4031,7 @@ export class MongoLimsStore implements LimsStore {
       this.duePaymentsCol.find({}, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
       this.adjustmentsCol.find({}, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
       this.expensesCol.find({}, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
+      this.otherRevenuesCol.find({}, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
     ]);
 
     return {
@@ -3760,6 +4052,7 @@ export class MongoLimsStore implements LimsStore {
         due_payments,
         invoice_adjustments,
         expenses,
+        other_revenues,
       },
     };
   }

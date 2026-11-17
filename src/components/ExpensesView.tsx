@@ -10,6 +10,7 @@ const EXPENSE_CATEGORIES = [
   'Electricity & Utilities',
   'Rent & Maintenance',
   'Equipment Repair',
+  'Owner Withdrawal',
   'General',
 ];
 
@@ -84,7 +85,7 @@ export const ExpensesView: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Laboratory Expense Tracker</h1>
           <p className="text-sm text-slate-600 mt-0.5">
-            Log daily reagents, consumables, salaries, and utility bills for net profit calculation.
+            Log daily reagents, consumables, salaries, utility bills, and owner cash withdrawals (synced to Balance ledger).
           </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-lg px-4 py-2 text-right">

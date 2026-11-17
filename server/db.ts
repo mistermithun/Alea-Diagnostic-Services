@@ -200,6 +200,19 @@ export function initDatabase() {
       adjusted_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS other_revenues (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT NOT NULL,
+      category TEXT DEFAULT 'Other Income',
+      amount REAL NOT NULL,
+      revenue_date TEXT NOT NULL,
+      note TEXT DEFAULT '',
+      created_by TEXT DEFAULT 'Admin',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_other_revenues_date ON other_revenues(revenue_date);
   `);
 
   migratePatientPortalColumns();

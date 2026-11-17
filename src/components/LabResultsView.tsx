@@ -669,6 +669,15 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
         parameterId: r.parameter_id,
         value: valuesMap[r.parameter_id] ?? '',
       }));
+      const resolvedVerifiedBy =
+        verifiedBy.trim() || settings.technologist_name || 'Medical Technologist';
+      const resolvedConsultantPayload =
+        consultantName === '__BLANK__' ? '__BLANK__' : consultantName.trim();
+      const resolvedConsultantTitlePayload =
+        consultantName === '__BLANK__' || resolvedConsultantPayload === ''
+          ? ''
+          : consultantTitle.trim();
+
       const res = await apiFetch<{ item: LabQueueItem; results: TestResultRow[] }>(
         `/api/lab-tests/${selectedItem.id}/results`,
         {
@@ -676,15 +685,43 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
           body: JSON.stringify({
             results: payload,
             status: targetStatus,
-            verifiedBy,
-            consultantName: consultantName.trim() === '' ? '__BLANK__' : consultantName.trim(),
-            consultantTitle:
-              consultantName.trim() === '' || consultantName === '__BLANK__'
-                ? ''
-                : consultantTitle.trim(),
+            verifiedBy: resolvedVerifiedBy,
+            consultantName: resolvedConsultantPayload,
+            consultantTitle: resolvedConsultantTitlePayload,
           }),
         }
       );
+
+      // If Finalize & Print was clicked, persist any other dirty sub-tab drafts so the combined report has all entered tests & signatures
+      if (actionAfter === 'print') {
+        const otherDirtyDrafts = Object.values(draftsByTestId).filter(
+          (d) => d.dirty && d.item.id !== selectedItem.id
+        );
+        for (const other of otherDirtyDrafts) {
+          const otherPayload = other.results.map((r) => ({
+            parameterId: r.parameter_id,
+            value: other.valuesMap[r.parameter_id] ?? '',
+          }));
+          const otherVerified =
+            other.verifiedBy.trim() || settings.technologist_name || 'Medical Technologist';
+          const otherConsultant =
+            other.consultantName === '__BLANK__' ? '__BLANK__' : other.consultantName.trim();
+          const otherConsultantTitle =
+            other.consultantName === '__BLANK__' || otherConsultant === ''
+              ? ''
+              : other.consultantTitle.trim();
+          await apiFetch(`/api/lab-tests/${other.item.id}/results`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              results: otherPayload,
+              status: other.nextStatus,
+              verifiedBy: otherVerified,
+              consultantName: otherConsultant,
+              consultantTitle: otherConsultantTitle,
+            }),
+          });
+        }
+      }
 
       const syncedVals: Record<number, string> = {};
       let filledCount = 0;
@@ -699,11 +736,10 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
       }
 
       setDraftsByTestId((prev) => {
-        const current = prev[selectedItem.id];
-        if (!current) return prev;
-        return {
-          ...prev,
-          [selectedItem.id]: {
+        const nextMap = { ...prev };
+        const current = nextMap[selectedItem.id];
+        if (current) {
+          nextMap[selectedItem.id] = {
             ...current,
             item: {
               ...current.item,
@@ -718,8 +754,17 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
             valuesMap: syncedVals,
             nextStatus: res.item.status,
             dirty: false,
-          },
-        };
+          };
+        }
+        if (actionAfter === 'print') {
+          for (const key of Object.keys(nextMap)) {
+            const k = Number(key);
+            if (nextMap[k]?.dirty) {
+              nextMap[k] = { ...nextMap[k], dirty: false };
+            }
+          }
+        }
+        return nextMap;
       });
 
       setSubTests((prev) =>
@@ -750,6 +795,59 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save results.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleHeaderPrintCombined = async () => {
+    if (!patientHeader) return;
+    const dirtyDrafts = Object.values(draftsByTestId).filter((d) => d.dirty);
+    if (dirtyDrafts.length === 0) {
+      onOpenReport(patientHeader.invoice_id);
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      for (const draft of dirtyDrafts) {
+        const payload = draft.results.map((r) => ({
+          parameterId: r.parameter_id,
+          value: draft.valuesMap[r.parameter_id] ?? '',
+        }));
+        const resolvedVerified =
+          draft.verifiedBy.trim() || settings.technologist_name || 'Medical Technologist';
+        const resolvedConsultant =
+          draft.consultantName === '__BLANK__' ? '__BLANK__' : draft.consultantName.trim();
+        const resolvedTitle =
+          draft.consultantName === '__BLANK__' || resolvedConsultant === ''
+            ? ''
+            : draft.consultantTitle.trim();
+        await apiFetch(`/api/lab-tests/${draft.item.id}/results`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            results: payload,
+            status: draft.nextStatus,
+            verifiedBy: resolvedVerified,
+            consultantName: resolvedConsultant,
+            consultantTitle: resolvedTitle,
+          }),
+        });
+      }
+      setDraftsByTestId((prev) => {
+        const updated = { ...prev };
+        for (const key of Object.keys(updated)) {
+          const k = Number(key);
+          if (updated[k]?.dirty) {
+            updated[k] = { ...updated[k], dirty: false };
+          }
+        }
+        return updated;
+      });
+      await loadQueue();
+      onOpenReport(patientHeader.invoice_id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save pending changes before printing.');
     } finally {
       setSaving(false);
     }
@@ -957,8 +1055,9 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                   />
                   <button
                     type="button"
-                    onClick={() => onOpenReport(patientHeader.invoice_id)}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 whitespace-nowrap shrink-0"
+                    disabled={saving}
+                    onClick={handleHeaderPrintCombined}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 disabled:opacity-50 whitespace-nowrap shrink-0"
                   >
                     <FileText className="w-4 h-4" />
                     Print Combined A4 Report

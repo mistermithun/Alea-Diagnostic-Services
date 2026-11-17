@@ -7,7 +7,18 @@ import {
   formatDateTime,
   resolvePublicBaseUrl,
 } from '../lib/api.ts';
-import type { FullInvoice, InvoiceTestItem, LabSettings, TestResultRow } from '../types.ts';
+import {
+  buildDepartmentGroups,
+  buildDepartmentSegments,
+  formatNumericResultDisplay,
+  getOrderedCbcRows,
+  getUrineSection,
+  isCbcTest,
+  isLargeIntactPanel,
+  resolveReportSignatures,
+} from '../lib/reportLayout.ts';
+import { exportDiagnosticReportPdf } from '../lib/reportPdf.ts';
+import type { FullInvoice, InvoiceTestItem, LabSettings } from '../types.ts';
 
 interface ReportPrintModalProps {
   data: FullInvoice | null;
@@ -18,145 +29,6 @@ interface ReportPrintModalProps {
   inlinePageMode?: boolean;
   onViewAllArchive?: () => void;
   onClose: () => void;
-}
-
-function isCbcTest(test: InvoiceTestItem): boolean {
-  const n = test.test_name.toLowerCase();
-  return n.includes('cbc') || n.includes('complete blood count');
-}
-
-function isUrineReTest(test: InvoiceTestItem): boolean {
-  const n = test.test_name.toLowerCase();
-  return n.includes('urine r/e') || n.includes('urine routine') || n.includes('urine r/m/e');
-}
-
-function isSemenAnalysisTest(test: InvoiceTestItem): boolean {
-  const n = test.test_name.toLowerCase();
-  return n.includes('semen');
-}
-
-function isStoolReTest(test: InvoiceTestItem): boolean {
-  const n = test.test_name.toLowerCase();
-  return n.includes('stool');
-}
-
-function isLargeIntactPanel(test: InvoiceTestItem): boolean {
-  return (
-    isCbcTest(test) ||
-    isUrineReTest(test) ||
-    isSemenAnalysisTest(test) ||
-    isStoolReTest(test)
-  );
-}
-
-function formatDepartmentHeading(categoryName: string): string {
-  const lower = categoryName.trim().toLowerCase();
-  if (lower === 'hematology' || lower === 'haematology') return 'Haematology Report';
-  if (lower.endsWith('report')) return categoryName;
-  return `${categoryName} Report`;
-}
-
-const CBC_ORDER_KEYS: Array<{
-  match: (name: string) => boolean;
-  section?: string;
-}> = [
-  { match: (n) => n.includes('hemoglobin') || n === 'hb' || n.includes('(hb)') },
-  {
-    match: (n) => n.startsWith('esr') || n.includes('sedimentation'),
-    section: 'ESR (Westergren Method)',
-  },
-  { match: (n) => n.includes('total wbc'), section: 'Total Count' },
-  { match: (n) => n.includes('total rbc'), section: 'Total Count' },
-  { match: (n) => n.includes('platelet'), section: 'Total Count' },
-  { match: (n) => n.startsWith('neutrophil'), section: 'Differential WBC Count' },
-  { match: (n) => n.startsWith('lymphocyte'), section: 'Differential WBC Count' },
-  {
-    match: (n) => n.startsWith('eosinophil') && !n.includes('circulating'),
-    section: 'Differential WBC Count',
-  },
-  { match: (n) => n.startsWith('monocyte'), section: 'Differential WBC Count' },
-  { match: (n) => n.startsWith('basophil'), section: 'Differential WBC Count' },
-  { match: (n) => n.includes('circulating eosinophil'), section: 'Differential WBC Count' },
-  {
-    match: (n) => n.includes('pcv') || n.includes('hct') || n.includes('hematocrit'),
-    section: 'RBC Indices & Parameters',
-  },
-  { match: (n) => n === 'mcv' || n.startsWith('mcv '), section: 'RBC Indices & Parameters' },
-  { match: (n) => n === 'mch' || n.startsWith('mch '), section: 'RBC Indices & Parameters' },
-  { match: (n) => n === 'mchc' || n.startsWith('mchc '), section: 'RBC Indices & Parameters' },
-];
-
-const URINE_SECTIONS: Array<{
-  match: (name: string) => boolean;
-  section: string;
-}> = [
-  {
-    match: (n) =>
-      n.includes('color') ||
-      n.includes('appearance') ||
-      n.includes('sediment') ||
-      n.includes('specific gravity') ||
-      n.includes('reaction') ||
-      n.includes('ph'),
-    section: 'Physical Examination',
-  },
-  {
-    match: (n) =>
-      n.includes('albumin') ||
-      n.includes('protein') ||
-      n.includes('sugar') ||
-      n.includes('glucose') ||
-      n.includes('ketone') ||
-      n.includes('bilirubin') ||
-      n.includes('urobilinogen') ||
-      n.includes('nitrite') ||
-      n.includes('leukocyte') ||
-      n.includes('blood'),
-    section: 'Chemical Examination',
-  },
-  {
-    match: () => true,
-    section: 'Microscopic Examination',
-  },
-];
-
-function getCbcSequenceMeta(paramName: string): { order: number; section?: string } {
-  const lower = paramName.trim().toLowerCase();
-  for (let i = 0; i < CBC_ORDER_KEYS.length; i++) {
-    if (CBC_ORDER_KEYS[i].match(lower)) {
-      return { order: i, section: CBC_ORDER_KEYS[i].section };
-    }
-  }
-  return { order: 999 };
-}
-
-function getOrderedCbcRows(rows: TestResultRow[]): Array<{ row: TestResultRow; section?: string }> {
-  const indexed = rows.map((row, idx) => {
-    const meta = getCbcSequenceMeta(row.parameter_name);
-    return { row, idx, order: meta.order, section: meta.section };
-  });
-  indexed.sort((a, b) => (a.order !== b.order ? a.order - b.order : a.idx - b.idx));
-  return indexed.map(({ row, section }) => ({ row, section }));
-}
-
-function getUrineSection(paramName: string): string {
-  const lower = paramName.trim().toLowerCase();
-  for (const rule of URINE_SECTIONS) {
-    if (rule.match(lower)) return rule.section;
-  }
-  return 'Microscopic Examination';
-}
-
-function formatNumericResultDisplay(value: string, paramName: string): string {
-  const trimmed = (value || '').trim();
-  if (!trimmed) return 'Pending';
-  const cleanNum = Number(trimmed.replace(/,/g, ''));
-  if (!Number.isFinite(cleanNum) || /[^0-9.,-]/.test(trimmed)) return trimmed;
-  const lower = paramName.toLowerCase();
-  if (lower.includes('total wbc') || lower.includes('platelet') || cleanNum >= 1000) {
-    return cleanNum.toLocaleString('en-US');
-  }
-  return trimmed;
 }
 
 /** Deterministic clean verification barcode SVG rendered in pure black ink */
@@ -215,12 +87,15 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
   const [selectedTestIds, setSelectedTestIds] = useState<number[]>([]);
   const [blankConsultantOverride, setBlankConsultantOverride] = useState<boolean>(false);
   const [qrSvgDataUrl, setQrSvgDataUrl] = useState<string>('');
+  const [exportingPdf, setExportingPdf] = useState<boolean>(false);
+  const [pdfNotice, setPdfNotice] = useState<string>('');
   const portalWebsiteUrl = resolvePublicBaseUrl(publicBaseUrl);
 
   const topMarginIn = Math.max(0, Number(settings.pad_header_margin_in || 1.5) || 1.5);
   const bottomMarginIn = Math.max(0, Number(settings.pad_footer_margin_in || 0.4) || 0.4);
 
   useEffect(() => {
+    setPdfNotice('');
     if (!data) {
       setSelectedTestIds([]);
       setBlankConsultantOverride(false);
@@ -264,30 +139,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
   }, [data, qrTestId, publicBaseUrl]);
 
   // Group selected tests by department preserving test appearance order
-  const departmentGroups = useMemo(() => {
-    const groups: Array<{
-      categoryName: string;
-      departmentHeading: string;
-      tests: InvoiceTestItem[];
-    }> = [];
-    const indexMap = new Map<string, number>();
-    for (const test of selectedTests) {
-      const cat = (test.category_name || 'Pathology').trim();
-      const key = cat.toLowerCase();
-      const existingIdx = indexMap.get(key);
-      if (existingIdx !== undefined) {
-        groups[existingIdx].tests.push(test);
-      } else {
-        indexMap.set(key, groups.length);
-        groups.push({
-          categoryName: cat,
-          departmentHeading: formatDepartmentHeading(cat),
-          tests: [test],
-        });
-      }
-    }
-    return groups;
-  }, [selectedTests]);
+  const departmentGroups = useMemo(() => buildDepartmentGroups(selectedTests), [selectedTests]);
 
   if (!data) return null;
 
@@ -323,48 +175,19 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
       .sort()
       .slice(-1)[0] || new Date().toISOString();
 
-  // Prepared / Tested By (Technologist with full academic qualification & designation)
-  const techRaw =
-    selectedTests.map((t) => (t.verified_by || '').trim()).find(Boolean) || '';
-  const techDefaultName = (settings.technologist_name || '').trim();
-  const resolvedTechName =
-    techRaw && techDefaultName && techDefaultName.toLowerCase().startsWith(techRaw.toLowerCase())
-      ? techDefaultName
-      : techRaw || techDefaultName;
-  const resolvedTechTitle = (settings.technologist_title || 'Medical Technologist (Lab)').trim();
-
-  // Consultant / Pathologist with Conditional Rule
-  const assignedConsultantTest = selectedTests.find(
-    (t) => (t.consultant_name || '').trim() !== '' && t.consultant_name !== '__BLANK__'
-  );
-  const allExplicitBlank =
-    selectedTests.length > 0 &&
-    selectedTests.every((t) => (t.consultant_name || '').trim() === '__BLANK__');
-
-  const testConsultantName = (assignedConsultantTest?.consultant_name || '').trim();
-  const testConsultantTitle = (assignedConsultantTest?.consultant_title || '').trim();
-  const settingsPathologistName = (settings.pathologist_name || '').trim();
-  const settingsPathologistTitle = (settings.pathologist_title || '').trim();
-  const referralDocName = (invoice.doctor_name || '').trim();
-  const hasRealReferralDoc =
-    Boolean(referralDocName) && !referralDocName.toLowerCase().includes('self');
-
-  let resolvedConsultantName = '';
-  let resolvedConsultantTitle = '';
-
-  if (!blankConsultantOverride && !allExplicitBlank) {
-    if (testConsultantName) {
-      resolvedConsultantName = testConsultantName;
-      resolvedConsultantTitle =
-        testConsultantTitle || settingsPathologistTitle || 'Consultant Pathologist';
-    } else if (settingsPathologistName) {
-      resolvedConsultantName = settingsPathologistName;
-      resolvedConsultantTitle = settingsPathologistTitle || 'Consultant Pathologist';
-    } else if (hasRealReferralDoc) {
-      resolvedConsultantName = referralDocName;
-      resolvedConsultantTitle = (invoice.doctor_degree || '').trim();
-    }
-  }
+  // Resolved Consultant & Technologist signatures (consistent across Print, Finalized Report & PDF Export)
+  const resolvedSignatures = resolveReportSignatures({
+    selectedTests,
+    invoice,
+    settings,
+    blankConsultantOverride,
+  });
+  const {
+    resolvedConsultantName,
+    resolvedConsultantTitle,
+    resolvedTechName,
+    resolvedTechTitle,
+  } = resolvedSignatures;
 
   // Dynamic parameter table typography tuned across all combined tests on the report
   const tableTypography = (() => {
@@ -447,36 +270,30 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     }, 1000);
   };
 
-  /**
-   * Build discrete print-shell <tbody> segments inside a department:
-   * - Large intact panels (CBC, Urine R/E, Semen Analysis, Stool R/E) are NEVER batched with other tests
-   *   and get their own atomic `keepIntact: true` block so they NEVER break mid-test across A4 pages.
-   * - Consecutive compact standard 4-col tests in the same department batch smoothly onto one page.
-   */
-  const buildDepartmentSegments = (deptTests: InvoiceTestItem[]) => {
-    const segments: Array<
-      | { kind: 'cbc'; test: InvoiceTestItem; keepIntact: boolean }
-      | { kind: 'urine'; test: InvoiceTestItem; keepIntact: boolean }
-      | { kind: 'standard'; tests: InvoiceTestItem[]; keepIntact: boolean }
-    > = [];
-
-    for (const test of deptTests) {
-      if (isCbcTest(test)) {
-        segments.push({ kind: 'cbc', test, keepIntact: true });
-      } else if (isUrineReTest(test)) {
-        segments.push({ kind: 'urine', test, keepIntact: true });
-      } else if (isSemenAnalysisTest(test) || isStoolReTest(test)) {
-        segments.push({ kind: 'standard', tests: [test], keepIntact: true });
-      } else {
-        const last = segments[segments.length - 1];
-        if (last && last.kind === 'standard' && !last.keepIntact) {
-          last.tests.push(test);
-        } else {
-          segments.push({ kind: 'standard', tests: [test], keepIntact: false });
-        }
-      }
+  const handleDownloadPdf = () => {
+    setExportingPdf(true);
+    setPdfNotice('');
+    try {
+      const savedName = exportDiagnosticReportPdf({
+        invoice,
+        selectedTests,
+        settings,
+        portalMode,
+        topMarginIn,
+        bottomMarginIn,
+        combinedSpecimens,
+        primaryCollectedAt,
+        primaryReportedAt,
+        portalWebsiteUrl,
+        qrDataUrl: qrSvgDataUrl || undefined,
+        signatures: resolvedSignatures,
+      });
+      setPdfNotice(`Downloaded ${savedName}`);
+    } catch (err) {
+      setPdfNotice(err instanceof Error ? err.message : 'Failed to generate PDF report.');
+    } finally {
+      setExportingPdf(false);
     }
-    return segments;
   };
 
   // Reserve exact vertical clearance above the fixed signature footer + bottom pad margin on EVERY printed page
@@ -538,13 +355,20 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
             )}
             <button
               type="button"
-              onClick={handlePrintReport}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors whitespace-nowrap shrink-0"
+              disabled={exportingPdf}
+              onClick={handleDownloadPdf}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              {portalMode ? <Download className="w-4 h-4" /> : <Printer className="w-4 h-4" />}
-              {portalMode
-                ? 'Download PDF'
-                : selectedTests.length > 1
+              <Download className="w-4 h-4" />
+              {exportingPdf ? 'Generating PDF...' : 'Download PDF'}
+            </button>
+            <button
+              type="button"
+              onClick={handlePrintReport}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Printer className="w-4 h-4" />
+              {selectedTests.length > 1
                 ? `Print Combined Report (${selectedTests.length} Tests)`
                 : 'Print Report'}
             </button>
@@ -560,6 +384,12 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
             )}
           </div>
         </div>
+
+        {pdfNotice && (
+          <div className="text-xs font-medium text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-3 py-1.5">
+            {pdfNotice}
+          </div>
+        )}
 
         {/* Dynamic Multi-Test Inclusion Selector when Invoice has Multiple Tests */}
         {tests.length > 1 && (
@@ -1143,18 +973,18 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
           </tfoot>
         </table>
 
-        {/* SWAPPED BOTTOM SIGNATURE FOOTER — Pinned cleanly to the bottom of EVERY printed A4 page */}
+        {/* SWAPPED BOTTOM SIGNATURE FOOTER — Always renders consistently at the bottom of EVERY printed A4 page */}
         <div className="print-report-footer print-fixed-footer mt-auto pt-3">
           <footer className="grid grid-cols-3 gap-6 items-end text-black">
             {/* 1. LEFT: Doctor / Consultant Pathologist Designation & Signature Area */}
             <div className="text-left">
               <div className="h-6" />
               <div className="border-t border-black pt-1 text-left">
+                <div className="text-[9.5px] font-semibold uppercase tracking-wide text-black">
+                  Consultant / Pathologist
+                </div>
                 {resolvedConsultantName ? (
                   <>
-                    <div className="text-[9.5px] font-semibold uppercase tracking-wide text-black">
-                      Consultant / Pathologist
-                    </div>
                     <p className="text-[11px] font-bold text-black leading-tight mt-0.5">
                       {resolvedConsultantName}
                     </p>
@@ -1165,7 +995,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                     )}
                   </>
                 ) : (
-                  <div className="h-6" aria-label="Blank Consultant / Pathologist Signature Line" />
+                  <div className="h-4" aria-label="Manual Consultant / Pathologist Signature Space" />
                 )}
               </div>
             </div>

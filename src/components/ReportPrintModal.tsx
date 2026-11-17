@@ -112,8 +112,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
   const selectedTests = useMemo<InvoiceTestItem[]>(() => {
     if (!data) return [];
     const idSet = new Set(selectedTestIds);
-    const matched = data.tests.filter((t) => idSet.has(t.id));
-    return matched.length > 0 ? matched : data.tests.slice(0, 1);
+    return data.tests.filter((t) => idSet.has(t.id));
   }, [data, selectedTestIds]);
 
   const qrTestId = selectedTests.length === 1 ? selectedTests[0]?.id : undefined;
@@ -138,11 +137,16 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
       .catch(() => setQrSvgDataUrl(''));
   }, [data, qrTestId, publicBaseUrl]);
 
-  // Plan discrete A4 pages: large panels (CBC, Urine R/E, Semen, Stool) get dedicated pages;
-  // major departments separate cleanly onto fresh A4 pages unless compact enough to share safely
+  // Continuous-flow A4 page planner: flows small/medium tests naturally onto the same page
+  // and moves to a fresh page only when vertical space is exceeded
   const plannedPages = useMemo<ReportPagePlan[]>(
-    () => planReportPages(selectedTests),
-    [selectedTests]
+    () =>
+      planReportPages(selectedTests, {
+        topMarginIn,
+        bottomMarginIn,
+        portalMode,
+      }),
+    [selectedTests, topMarginIn, bottomMarginIn, portalMode]
   );
 
   if (!data) return null;
@@ -151,14 +155,9 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
   const readyTests = tests.filter((t) => t.status === 'Ready');
 
   const toggleTestSelection = (testId: number) => {
-    setSelectedTestIds((prev) => {
-      if (prev.includes(testId)) {
-        // Keep at least 1 test selected so the A4 preview never goes blank
-        if (prev.length <= 1) return prev;
-        return prev.filter((id) => id !== testId);
-      }
-      return [...prev, testId];
-    });
+    setSelectedTestIds((prev) =>
+      prev.includes(testId) ? prev.filter((id) => id !== testId) : [...prev, testId]
+    );
   };
 
   // Combined Specimen, Collection Date, and Report Date across selected tests
@@ -199,8 +198,8 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
       b.segment.kind === 'standard' ? b.segment.tests : [b.segment.test]
     );
     const hasSpecialDenseTest = pageTests.some((t) => isLargeIntactPanel(t));
-    if (hasSpecialDenseTest && pageTests.length === 1) {
-      const onlyCbc = isCbcTest(pageTests[0]);
+    if (hasSpecialDenseTest) {
+      const onlyCbc = pageTests.length === 1 && isCbcTest(pageTests[0]);
       return onlyCbc
         ? {
             theadClass: 'text-[10.5px]',
@@ -268,6 +267,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
   };
 
   const handlePrintReport = () => {
+    if (selectedTests.length === 0) return;
     const prevTitle = document.title;
     const safeName = (invoice.patient_name || 'Patient').replace(/[^a-zA-Z0-9_-]+/g, '_');
     document.title = `${invoice.invoice_no}_${safeName}_Report`;
@@ -278,6 +278,10 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
   };
 
   const handleDownloadPdf = () => {
+    if (selectedTests.length === 0) {
+      setPdfNotice('Please select at least one test to download the PDF report.');
+      return;
+    }
     setExportingPdf(true);
     setPdfNotice('');
     try {
@@ -355,21 +359,24 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
             )}
             <button
               type="button"
-              disabled={exportingPdf}
+              disabled={exportingPdf || selectedTests.length === 0}
               onClick={handleDownloadPdf}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Download className="w-4 h-4" />
               {exportingPdf ? 'Generating PDF...' : 'Download PDF'}
             </button>
             <button
               type="button"
+              disabled={selectedTests.length === 0}
               onClick={handlePrintReport}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Printer className="w-4 h-4" />
-              {selectedTests.length > 1
-                ? `Print Combined Report (${selectedTests.length} Tests)`
+              {tests.length > 1
+                ? `Print Combined Report (${selectedTests.length} ${
+                    selectedTests.length === 1 ? 'Test' : 'Tests'
+                  })`
                 : 'Print Report'}
             </button>
             {!inlinePageMode && (
@@ -402,7 +409,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
             <button
               type="button"
               onClick={() => setSelectedTestIds(tests.map((t) => t.id))}
-              className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition-colors whitespace-nowrap ${
+              className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition-colors whitespace-nowrap cursor-pointer ${
                 selectedTests.length === tests.length
                   ? 'bg-teal-700 text-white border-teal-700'
                   : 'bg-white text-teal-800 border-teal-300 hover:bg-teal-50'
@@ -415,9 +422,24 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
               <button
                 type="button"
                 onClick={() => setSelectedTestIds(readyTests.map((t) => t.id))}
-                className="px-2.5 py-1 text-xs font-medium rounded-md border bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 whitespace-nowrap"
+                className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors whitespace-nowrap cursor-pointer ${
+                  selectedTests.length === readyTests.length &&
+                  readyTests.every((rt) => selectedTests.some((st) => st.id === rt.id))
+                    ? 'bg-emerald-700 text-white border-emerald-700'
+                    : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                }`}
               >
                 Ready Only ({readyTests.length})
+              </button>
+            )}
+
+            {selectedTests.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedTestIds([])}
+                className="px-2 py-1 text-xs font-medium rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 transition-colors whitespace-nowrap cursor-pointer"
+              >
+                Clear
               </button>
             )}
 
@@ -429,14 +451,22 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                 <button
                   key={t.id}
                   type="button"
+                  aria-pressed={checked}
                   onClick={() => toggleTestSelection(t.id)}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors whitespace-nowrap ${
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors whitespace-nowrap cursor-pointer ${
                     checked
                       ? 'bg-slate-900 text-white border-slate-900'
                       : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'
                   }`}
                 >
-                  {checked && <Check className="w-3 h-3 shrink-0" />}
+                  {checked ? (
+                    <Check className="w-3.5 h-3.5 shrink-0 text-teal-300" />
+                  ) : (
+                    <span
+                      className="w-3 h-3 rounded-[3px] border border-slate-300 shrink-0"
+                      aria-hidden="true"
+                    />
+                  )}
                   <span>{t.test_name}</span>
                 </button>
               );
@@ -445,7 +475,27 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
         )}
       </div>
 
-      {/* Multi-Page Clean White A4 Sheets — Strict Page Separation, Repeating Header, In-Flow Bottom Signature Footer */}
+      {/* Empty selection prompt when operator clears all test pills */}
+      {plannedPages.length === 0 && (
+        <div className="no-print w-full max-w-4xl border border-dashed border-slate-300 rounded-xl bg-slate-50 px-6 py-12 text-center">
+          <p className="text-sm font-semibold text-slate-800">
+            No tests currently selected for this report.
+          </p>
+          <p className="text-xs text-slate-500 mt-1">
+            Toggle one or more test buttons above to preview, download PDF, or print.
+          </p>
+          <button
+            type="button"
+            onClick={() => setSelectedTestIds(tests.map((t) => t.id))}
+            className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors cursor-pointer"
+          >
+            <Layers className="w-3.5 h-3.5" />
+            Select All Combined ({tests.length} Tests)
+          </button>
+        </div>
+      )}
+
+      {/* Multi-Page Clean White A4 Sheets — Continuous Flow, Repeating Header, In-Flow Bottom Signature Footer */}
       <div className="w-full flex flex-col items-center gap-6 print:block print:gap-0">
         {plannedPages.map((plan) => {
           const tableTypography = getPageTypography(plan);
@@ -683,13 +733,17 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                 let lastSection: string | undefined;
 
                                 return (
-                                  <table className="w-full border-collapse font-sans text-black">
+                                  <table
+                                    className={`w-full border-collapse font-sans text-black ${
+                                      useAtomicBlock ? '' : 'print-layout-table'
+                                    }`}
+                                  >
                                     <colgroup>
                                       <col className="w-[34%]" />
                                       <col className="w-[22%]" />
                                       <col className="w-[44%]" />
                                     </colgroup>
-                                    <thead>
+                                    <thead className={useAtomicBlock ? undefined : 'print-spacer-head'}>
                                       <tr
                                         className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
                                       >
@@ -779,13 +833,17 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                               (() => {
                                 let lastSection = '';
                                 return (
-                                  <table className="w-full border-collapse font-sans text-black">
+                                  <table
+                                    className={`w-full border-collapse font-sans text-black ${
+                                      useAtomicBlock ? '' : 'print-layout-table'
+                                    }`}
+                                  >
                                     <colgroup>
                                       <col className="w-[34%]" />
                                       <col className="w-[22%]" />
                                       <col className="w-[44%]" />
                                     </colgroup>
-                                    <thead>
+                                    <thead className={useAtomicBlock ? undefined : 'print-spacer-head'}>
                                       <tr
                                         className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
                                       >

@@ -134,7 +134,15 @@ export function exportDiagnosticReportPdf(opts: ExportReportPdfOptions): string 
     return yPos + boxH + 3;
   };
 
-  const plannedPages = planReportPages(selectedTests);
+  if (!selectedTests || selectedTests.length === 0) {
+    throw new Error('Select at least one test before downloading the PDF report.');
+  }
+
+  const plannedPages = planReportPages(selectedTests, {
+    topMarginIn,
+    bottomMarginIn,
+    portalMode,
+  });
 
   for (let pageIdx = 0; pageIdx < plannedPages.length; pageIdx++) {
     if (pageIdx > 0) {
@@ -147,6 +155,12 @@ export function exportDiagnosticReportPdf(opts: ExportReportPdfOptions): string 
       const seg = block.segment;
       const showDeptHeading = block.showDepartmentHeading;
       const isSingleStandard = block.isSingleStandardTest;
+
+      // Guard against an orphaned department heading near the bottom signature zone
+      if (cursorY + 26 > pageHeight - footerReserveBottomMm) {
+        doc.addPage();
+        cursorY = contentTopY;
+      }
 
       if (showDeptHeading) {
         cursorY = drawDepartmentBadge(cursorY, block.departmentHeading);

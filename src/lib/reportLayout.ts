@@ -274,137 +274,313 @@ export interface ReportPagePlan {
   blocks: ReportPageDepartmentBlock[];
 }
 
-function estimateStandardTestHeightMm(test: InvoiceTestItem, includeSubHeader: boolean): number {
+export interface PlanReportPagesOptions {
+  topMarginIn?: number;
+  bottomMarginIn?: number;
+  portalMode?: boolean;
+}
+
+function getExtraRangeLines(row: TestResultRow): number {
+  const refText = (row.reference_range_text || row.normal_text || '').trim();
+  if (!refText) return 0;
+  const explicitLines = refText.split('\n').length - 1;
+  const wrapEstimate = refText.length > 42 ? 1 : 0;
+  return Math.max(explicitLines, wrapEstimate);
+}
+
+function getSingleTestMetrics(test: InvoiceTestItem): {
+  paramRows: number;
+  extraLines: number;
+  sectionHeaders: number;
+  isDensePanel: boolean;
+} {
   const rows = test.results || [];
-  let rowsMm = 0;
+  let extraLines = 0;
   for (const r of rows) {
-    const ref = (r.reference_range_text || r.normal_text || '').trim();
-    const extraLines = ref ? Math.max(ref.split('\n').length - 1, ref.length > 42 ? 1 : 0) : 0;
-    rowsMm += 8.5 + extraLines * 3.8;
+    extraLines += getExtraRangeLines(r);
   }
-  return (includeSubHeader ? 7 : 0) + Math.max(rowsMm, 9);
+
+  if (isCbcTest(test)) {
+    const ordered = getOrderedCbcRows(rows);
+    let lastSection: string | undefined;
+    let sectionHeaders = 0;
+    for (const item of ordered) {
+      if (item.section && item.section !== lastSection) {
+        lastSection = item.section;
+        sectionHeaders += 1;
+      }
+    }
+    return {
+      paramRows: rows.length,
+      extraLines,
+      sectionHeaders,
+      isDensePanel: true,
+    };
+  }
+
+  if (isUrineReTest(test)) {
+    let lastSection = '';
+    let sectionHeaders = 0;
+    for (const r of rows) {
+      const sec = getUrineSection(r.parameter_name);
+      if (sec !== lastSection) {
+        lastSection = sec;
+        sectionHeaders += 1;
+      }
+    }
+    return {
+      paramRows: rows.length,
+      extraLines,
+      sectionHeaders,
+      isDensePanel: true,
+    };
+  }
+
+  return {
+    paramRows: rows.length,
+    extraLines,
+    sectionHeaders: 0,
+    isDensePanel: isSemenAnalysisTest(test) || isStoolReTest(test),
+  };
 }
 
 /**
- * Splits selected tests into clean A4 pages:
- * 1. Large intact panels (CBC, Urine R/E, Semen Analysis, Stool R/E) ALWAYS get their own dedicated A4 page.
- * 2. Major departments start on a fresh A4 page unless consecutive compact departments fit comfortably
- *    together on one page without crowding or breaking rows.
- * 3. Multi-test departments that exceed safe single-page height split cleanly between tests.
+ * Estimates total rendered body height (in mm) for a candidate page's blocks,
+ * synchronized with ReportPrintModal's dynamic typography tiers and jsPDF margins.
  */
-export function planReportPages(selectedTests: InvoiceTestItem[]): ReportPagePlan[] {
-  const deptGroups = buildDepartmentGroups(selectedTests);
-  const pages: Array<{ blocks: ReportPageDepartmentBlock[]; usedMm: number; hasLargePanel: boolean }> = [];
-  const MAX_SAFE_BODY_MM = 165;
-  const MAX_MERGE_DEPARTMENTS_MM = 105;
+function estimatePageBodyHeightMm(
+  blocks: ReportPageDepartmentBlock[],
+  categoryTotalCount: Map<string, number>
+): number {
+  if (blocks.length === 0) return 0;
 
-  const startNewPage = (hasLargePanel = false) => {
-    const page = { blocks: [] as ReportPageDepartmentBlock[], usedMm: 0, hasLargePanel };
-    pages.push(page);
-    return page;
-  };
+  const pageTests = blocks.flatMap((b) =>
+    b.segment.kind === 'standard' ? b.segment.tests : [b.segment.test]
+  );
+  const hasDensePanel = pageTests.some((t) => isLargeIntactPanel(t));
+  const totalParamRows = pageTests.reduce((acc, t) => acc + (t.results?.length || 0), 0);
+  const totalExtraLines = pageTests.reduce(
+    (acc, t) => acc + (t.results || []).reduce((rAcc, r) => rAcc + getExtraRangeLines(r), 0),
+    0
+  );
+  const totalSubHeaders = pageTests.length > 1 ? pageTests.length : 0;
+  const effectiveUnits = totalParamRows + totalSubHeaders * 0.75 + totalExtraLines * 0.55;
 
-  for (const dept of deptGroups) {
-    const segments = buildDepartmentSegments(dept.tests);
-    const isSingleStandard =
-      selectedTests.length === 1 && segments.length === 1 && segments[0].kind === 'standard';
+  // Match ReportPrintModal's 3 typography tiers + dense panel tier
+  let rowHeightMm = 7.4;
+  let extraLineMm = 3.2;
+  if (!hasDensePanel) {
+    if (effectiveUnits <= 5) {
+      rowHeightMm = 11.2;
+      extraLineMm = 4.0;
+    } else if (effectiveUnits <= 11) {
+      rowHeightMm = 9.0;
+      extraLineMm = 3.6;
+    }
+  } else if (pageTests.length === 1) {
+    rowHeightMm = isCbcTest(pageTests[0]) ? 6.1 : 5.7;
+    extraLineMm = 3.1;
+  } else {
+    rowHeightMm = 6.5;
+    extraLineMm = 3.1;
+  }
 
-    for (let segIdx = 0; segIdx < segments.length; segIdx++) {
-      const seg = segments[segIdx];
-      const isFirstInDept = segIdx === 0;
+  let totalMm = 0;
 
-      // 1. Large intact panels ALWAYS get their own dedicated A4 page
-      if (seg.keepIntact || seg.kind !== 'standard') {
-        const page = startNewPage(true);
-        page.blocks.push({
-          categoryName: dept.categoryName,
-          departmentHeading: dept.departmentHeading,
-          showDepartmentHeading: true,
-          isSingleStandardTest: false,
-          segment: seg,
-        });
-        page.usedMm = MAX_SAFE_BODY_MM;
-        continue;
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    if (i > 0) {
+      totalMm += 7.5; // mt-5 pt-2 inter-block spacing
+    }
+    if (block.showDepartmentHeading) {
+      totalMm += 11.5; // boxed department header + bottom margin
+      if (block.isSingleStandardTest && block.segment.kind === 'standard') {
+        totalMm += 5.0; // centered single test subtitle
       }
+    }
 
-      // 2. Standard compact tests inside a department
-      const totalTestsInSeg = seg.tests.length;
-      const totalRowsInSeg = seg.tests.reduce((acc, t) => acc + (t.results?.length || 0), 0);
-      const deptHeaderCost = 14;
-      const tableHeadCost = 8;
-      const testsHeightMm = seg.tests.reduce(
-        (acc, t) => acc + estimateStandardTestHeightMm(t, !isSingleStandard),
-        0
-      );
-      const estimatedSegMm = deptHeaderCost + tableHeadCost + testsHeightMm;
+    totalMm += 7.0; // table <thead> header row
 
-      const currentPage = pages[pages.length - 1];
-      const canShareCurrentPage =
-        Boolean(currentPage) &&
-        !currentPage.hasLargePanel &&
-        currentPage.usedMm > 0 &&
-        totalTestsInSeg <= 3 &&
-        totalRowsInSeg <= 5 &&
-        currentPage.usedMm + estimatedSegMm + 8 <= MAX_MERGE_DEPARTMENTS_MM;
+    const seg = block.segment;
+    const catCount = categoryTotalCount.get(block.categoryName.toLowerCase()) || 1;
 
-      let targetPage = canShareCurrentPage ? currentPage : startNewPage(false);
-      const showHeadingOnTarget =
-        targetPage.blocks.length === 0 ||
-        targetPage.blocks[targetPage.blocks.length - 1].categoryName.toLowerCase() !==
-          dept.categoryName.toLowerCase();
-
-      // If this single standard segment still exceeds safe height for 1 A4 page, split cleanly between tests
-      if (estimatedSegMm <= MAX_SAFE_BODY_MM || seg.tests.length <= 1) {
-        targetPage.blocks.push({
-          categoryName: dept.categoryName,
-          departmentHeading: dept.departmentHeading,
-          showDepartmentHeading: showHeadingOnTarget,
-          isSingleStandardTest: isSingleStandard,
-          segment: seg,
-        });
-        targetPage.usedMm += estimatedSegMm + 6;
-      } else {
-        let batchTests: InvoiceTestItem[] = [];
-        let batchFirst = showHeadingOnTarget;
-        let batchUsed = (batchFirst ? 14 : 0) + 8;
-
-        for (const test of seg.tests) {
-          const testCost = estimateStandardTestHeightMm(test, true);
-          if (batchTests.length > 0 && targetPage.usedMm + batchUsed + testCost > MAX_SAFE_BODY_MM) {
-            targetPage.blocks.push({
-              categoryName: dept.categoryName,
-              departmentHeading: dept.departmentHeading,
-              showDepartmentHeading: batchFirst,
-              isSingleStandardTest: false,
-              segment: { kind: 'standard', tests: batchTests, keepIntact: false },
-            });
-            targetPage.usedMm += batchUsed + 6;
-            targetPage = startNewPage(false);
-            batchTests = [];
-            batchFirst = true;
-            batchUsed = 14 + 8;
-          }
-          batchTests.push(test);
-          batchUsed += testCost;
+    if (seg.kind === 'cbc' || seg.kind === 'urine') {
+      const m = getSingleTestMetrics(seg.test);
+      if (catCount > 1) {
+        totalMm += 6.2; // test name row inside CBC/Urine table
+      }
+      totalMm += m.sectionHeaders * 5.2;
+      totalMm += Math.max(m.paramRows, 1) * rowHeightMm + m.extraLines * extraLineMm;
+    } else {
+      for (const t of seg.tests) {
+        const m = getSingleTestMetrics(t);
+        if (!block.isSingleStandardTest) {
+          totalMm += 6.2; // test name subheader row
         }
-
-        if (batchTests.length > 0) {
-          targetPage.blocks.push({
-            categoryName: dept.categoryName,
-            departmentHeading: dept.departmentHeading,
-            showDepartmentHeading: batchFirst,
-            isSingleStandardTest: false,
-            segment: { kind: 'standard', tests: batchTests, keepIntact: false },
-          });
-          targetPage.usedMm += batchUsed + 6;
-        }
+        totalMm += Math.max(m.paramRows, 1) * rowHeightMm + m.extraLines * extraLineMm;
       }
     }
   }
 
-  return pages.map((p, idx) => ({
-    pageNumber: idx + 1,
-    blocks: p.blocks,
-  }));
+  return totalMm;
 }
+
+/**
+ * Continuous-flow intelligent A4 pagination:
+ * - No forced page breaks between departments or small/medium tests.
+ * - Tests flow naturally one after another on the same A4 page as long as they fit
+ *   within the remaining vertical space above the repeating signature footer.
+ * - Same-department consecutive standard tests on the same page merge cleanly into one table.
+ * - A test section moves to a fresh page ONLY when it exceeds remaining vertical space.
+ * - Oversized single panels taller than one full page gracefully allow table splitting.
+ */
+export function planReportPages(
+  selectedTests: InvoiceTestItem[],
+  options?: PlanReportPagesOptions
+): ReportPagePlan[] {
+  if (!selectedTests || selectedTests.length === 0) return [];
+
+  const topPadMm = options?.portalMode
+    ? 27
+    : Math.max(8, (options?.topMarginIn ?? 1.5) * 25.4);
+  const bottomPadMm = options?.portalMode
+    ? 8
+    : Math.max(6, (options?.bottomMarginIn ?? 0.4) * 25.4);
+  const patientHeaderMm = 29;
+  const footerMm = 26;
+  const totalPageMm = 289;
+  const availableBodyMm = Math.max(
+    115,
+    totalPageMm - topPadMm - patientHeaderMm - bottomPadMm - footerMm
+  );
+
+  const deptGroups = buildDepartmentGroups(selectedTests);
+  const categoryTotalCount = new Map<string, number>();
+  for (const dept of deptGroups) {
+    categoryTotalCount.set(dept.categoryName.toLowerCase(), dept.tests.length);
+  }
+
+  const pages: Array<{ blocks: ReportPageDepartmentBlock[] }> = [{ blocks: [] }];
+
+  const buildUnitBlock = (
+    categoryName: string,
+    departmentHeading: string,
+    test: InvoiceTestItem,
+    showDepartmentHeading: boolean
+  ): ReportPageDepartmentBlock => {
+    const catCount = categoryTotalCount.get(categoryName.toLowerCase()) || 1;
+    if (isCbcTest(test)) {
+      return {
+        categoryName,
+        departmentHeading,
+        showDepartmentHeading,
+        isSingleStandardTest: false,
+        segment: { kind: 'cbc', test, keepIntact: true },
+      };
+    }
+    if (isUrineReTest(test)) {
+      return {
+        categoryName,
+        departmentHeading,
+        showDepartmentHeading,
+        isSingleStandardTest: false,
+        segment: { kind: 'urine', test, keepIntact: true },
+      };
+    }
+    return {
+      categoryName,
+      departmentHeading,
+      showDepartmentHeading,
+      isSingleStandardTest: catCount === 1 && showDepartmentHeading,
+      segment: { kind: 'standard', tests: [test], keepIntact: true },
+    };
+  };
+
+  const tryAppendTestToPage = (
+    pageBlocks: ReportPageDepartmentBlock[],
+    categoryName: string,
+    departmentHeading: string,
+    test: InvoiceTestItem
+  ): ReportPageDepartmentBlock[] => {
+    const cloned = pageBlocks.map((b) => ({
+      ...b,
+      segment:
+        b.segment.kind === 'standard'
+          ? { ...b.segment, tests: [...b.segment.tests] }
+          : { ...b.segment },
+    }));
+
+    const isSpecial = isCbcTest(test) || isUrineReTest(test);
+    const lastBlock = cloned[cloned.length - 1];
+    const sameDeptAsLast =
+      Boolean(lastBlock) &&
+      lastBlock.categoryName.toLowerCase() === categoryName.toLowerCase();
+
+    if (!isSpecial && lastBlock && sameDeptAsLast && lastBlock.segment.kind === 'standard') {
+      // Merge consecutive standard tests of the same department on the same page
+      lastBlock.segment.tests.push(test);
+      lastBlock.isSingleStandardTest = false;
+      return cloned;
+    }
+
+    const showDeptHeading = !sameDeptAsLast;
+    cloned.push(buildUnitBlock(categoryName, departmentHeading, test, showDeptHeading));
+    return cloned;
+  };
+
+  for (const dept of deptGroups) {
+    for (const test of dept.tests) {
+      const currentPage = pages[pages.length - 1];
+
+      if (currentPage.blocks.length === 0) {
+        const candidateBlocks = tryAppendTestToPage(
+          currentPage.blocks,
+          dept.categoryName,
+          dept.departmentHeading,
+          test
+        );
+        const estimatedMm = estimatePageBodyHeightMm(candidateBlocks, categoryTotalCount);
+        if (estimatedMm > availableBodyMm) {
+          // Single panel taller than 1 full A4 page: allow graceful multi-page row splitting
+          candidateBlocks[candidateBlocks.length - 1].segment.keepIntact = false;
+        }
+        currentPage.blocks = candidateBlocks;
+        continue;
+      }
+
+      const candidateBlocks = tryAppendTestToPage(
+        currentPage.blocks,
+        dept.categoryName,
+        dept.departmentHeading,
+        test
+      );
+      const estimatedMm = estimatePageBodyHeightMm(candidateBlocks, categoryTotalCount);
+
+      if (estimatedMm <= availableBodyMm) {
+        currentPage.blocks = candidateBlocks;
+      } else {
+        // Exceeds remaining space on current page — move cleanly to a fresh A4 page
+        const freshBlocks = tryAppendTestToPage(
+          [],
+          dept.categoryName,
+          dept.departmentHeading,
+          test
+        );
+        const freshMm = estimatePageBodyHeightMm(freshBlocks, categoryTotalCount);
+        if (freshMm > availableBodyMm) {
+          freshBlocks[freshBlocks.length - 1].segment.keepIntact = false;
+        }
+        pages.push({ blocks: freshBlocks });
+      }
+    }
+  }
+
+  return pages
+    .filter((p) => p.blocks.length > 0)
+    .map((p, idx) => ({
+      pageNumber: idx + 1,
+      blocks: p.blocks,
+    }));
+}
+
 

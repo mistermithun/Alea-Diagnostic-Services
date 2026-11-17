@@ -88,6 +88,9 @@ export interface Doctor {
   last_commission_paid_amount?: number;
   unpaid_referrals_count?: number;
   unpaid_commission_total?: number;
+  portal_username?: string;
+  portal_password?: string;
+  portal_enabled?: number;
   is_active: number;
 }
 
@@ -494,4 +497,74 @@ export interface DoctorStatementResponse {
     paidCommission: number;
   };
   payoutHistory: DoctorPayoutHistoryItem[];
+}
+
+export interface DoctorPortalProfile {
+  id: number;
+  name: string;
+  degree: string;
+  hospital: string;
+  mobile: string;
+  commission_pct: number;
+  portal_username: string;
+  portal_enabled?: number;
+  last_commission_paid_up_to?: string;
+}
+
+export interface DoctorPortalPatientVisit {
+  invoice_id: number;
+  invoice_no: string;
+  created_at: string;
+  patient_uid: string;
+  patient_name: string;
+  age_years: number;
+  age_months: number;
+  age_days: number;
+  gender: 'Male' | 'Female' | 'Other';
+  patient_mobile: string;
+  subtotal: number;
+  discount_type: 'percent' | 'flat';
+  discount_value: number;
+  discount_pct: number;
+  discount_amount: number;
+  net_total: number;
+  paid_amount: number;
+  due_amount: number;
+  payment_status: 'Paid' | 'Partial' | 'Due';
+  commission_type: 'percent' | 'flat' | 'per_test';
+  commission_value: number;
+  commission_pct: number;
+  commission_amount: number;
+  is_commission_paid: boolean;
+  total_tests: number;
+  ready_tests: number;
+  abnormal_count: number;
+  tests: Array<{
+    id: number;
+    test_name: string;
+    category_name: string;
+    sample_type: string;
+    status: 'Sample Collected' | 'Processing' | 'Verified' | 'Ready';
+    collected_at: string;
+    verified_at: string | null;
+    ready_at: string | null;
+  }>;
+}
+
+export interface DoctorPortalDashboardResponse {
+  doctor: DoctorPortalProfile;
+  from: string;
+  to: string;
+  summary: {
+    totalPatients: number;
+    readyReportsCount: number;
+    pendingReportsCount: number;
+    totalChargedGross: number;
+    totalDiscount: number;
+    totalNetCharged: number;
+    totalCommission: number;
+    unpaidCommission: number;
+    paidCommission: number;
+  };
+  patients: DoctorPortalPatientVisit[];
 }

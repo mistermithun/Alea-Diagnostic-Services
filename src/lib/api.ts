@@ -3,6 +3,7 @@ import type { TestResultRow } from '../types.ts';
 const TOKEN_KEY = 'alea_admin_token';
 const STAFF_TOKEN_KEY = 'alea_staff_token';
 const PATIENT_TOKEN_KEY = 'alea_patient_token';
+const DOCTOR_TOKEN_KEY = 'alea_doctor_token';
 
 export function getAdminToken(): string | null {
   try {
@@ -75,6 +76,37 @@ export function setPatientToken(token: string | null) {
   }
 }
 
+export function getDoctorToken(): string | null {
+  try {
+    return localStorage.getItem(DOCTOR_TOKEN_KEY) || sessionStorage.getItem(DOCTOR_TOKEN_KEY);
+  } catch {
+    try {
+      return sessionStorage.getItem(DOCTOR_TOKEN_KEY);
+    } catch {
+      return null;
+    }
+  }
+}
+
+export function setDoctorToken(token: string | null, rememberMe = true) {
+  try {
+    if (token) {
+      if (rememberMe) {
+        localStorage.setItem(DOCTOR_TOKEN_KEY, token);
+        sessionStorage.removeItem(DOCTOR_TOKEN_KEY);
+      } else {
+        sessionStorage.setItem(DOCTOR_TOKEN_KEY, token);
+        localStorage.removeItem(DOCTOR_TOKEN_KEY);
+      }
+    } else {
+      localStorage.removeItem(DOCTOR_TOKEN_KEY);
+      sessionStorage.removeItem(DOCTOR_TOKEN_KEY);
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 
 export function resolveApiUrl(url: string): string {
@@ -115,6 +147,20 @@ export async function apiFetch<T>(url: string, options: RequestInit = {}): Promi
 
 export async function patientApiFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
   const token = getPatientToken();
+  const headers = new Headers(options.headers || {});
+  if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
+    headers.set('Content-Type', 'application/json');
+  }
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const res = await fetch(resolveApiUrl(url), { ...options, headers });
+  return parseApiResponse<T>(res);
+}
+
+export async function doctorApiFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const token = getDoctorToken();
   const headers = new Headers(options.headers || {});
   if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
     headers.set('Content-Type', 'application/json');

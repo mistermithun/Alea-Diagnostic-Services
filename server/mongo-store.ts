@@ -89,6 +89,10 @@ interface DoctorDoc {
   last_commission_paid_up_to?: string;
   last_commission_settled_at?: string;
   last_commission_paid_amount?: number;
+  portal_username?: string;
+  portal_password_hash?: string;
+  portal_password_enc?: string;
+  portal_enabled?: number;
   is_active: number;
   created_at: string;
 }
@@ -341,6 +345,7 @@ export class MongoLimsStore implements LimsStore {
       this.paramsCol.createIndex({ id: 1 }, { unique: true }),
       this.paramsCol.createIndex({ test_id: 1, sort_order: 1 }),
       this.doctorsCol.createIndex({ id: 1 }, { unique: true }),
+      this.doctorsCol.createIndex({ portal_username: 1 }),
       this.patientsCol.createIndex({ id: 1 }, { unique: true }),
       this.patientsCol.createIndex({ patient_uid: 1 }, { unique: true }),
       this.patientsCol.createIndex({ mobile: 1 }),
@@ -1674,6 +1679,9 @@ export class MongoLimsStore implements LimsStore {
       projection.last_commission_paid_up_to = 1;
       projection.last_commission_settled_at = 1;
       projection.last_commission_paid_amount = 1;
+      projection.portal_username = 1;
+      projection.portal_password_enc = 1;
+      projection.portal_enabled = 1;
     }
     const docs = await this.doctorsCol.find({ is_active: 1 }, { projection }).sort({ name: 1 }).toArray();
     if (!includeCommission) return docs;
@@ -1688,6 +1696,7 @@ export class MongoLimsStore implements LimsStore {
           .toArray()
       : [];
 
+    const secret = this.getAuthSecret();
     const docMap = new Map(docs.map((d) => [d.id, d]));
     const unpaidStats = new Map<number, { count: number; amount: number }>();
     for (const inv of allRefInvoices) {
@@ -1706,8 +1715,13 @@ export class MongoLimsStore implements LimsStore {
 
     return docs.map((d) => {
       const stats = unpaidStats.get(d.id) || { count: 0, amount: 0 };
+      const { portal_password_enc, ...rest } = d;
+      const decryptedPw = portal_password_enc ? decryptPortalPassword(portal_password_enc, secret) : '';
       return {
-        ...d,
+        ...rest,
+        portal_username: d.portal_username || '',
+        portal_password: decryptedPw,
+        portal_enabled: d.portal_enabled ?? 1,
         last_commission_paid_up_to: d.last_commission_paid_up_to || '',
         last_commission_settled_at: d.last_commission_settled_at || '',
         last_commission_paid_amount: Number(d.last_commission_paid_amount || 0),
@@ -1723,7 +1737,31 @@ export class MongoLimsStore implements LimsStore {
     hospital?: string;
     mobile?: string;
     commission_pct?: number;
+    portal_username?: string;
+    portal_password?: string;
+    portal_enabled?: number;
   }): Promise<{ id: number }> {
+    const normalizedUsername = (payload.portal_username || '').trim().toLowerCase();
+    const rawPassword = (payload.portal_password || '').trim();
+    const portalEnabled = payload.portal_enabled === 0 ? 0 : 1;
+
+    if (normalizedUsername) {
+      if (normalizedUsername.length < 3) {
+        throw new StoreError(400, 'Portal username must be at least 3 characters.');
+      }
+      const existing = await this.doctorsCol.findOne({ portal_username: normalizedUsername, is_active: 1 });
+      if (existing) {
+        throw new StoreError(400, `Portal username "${normalizedUsername}" is already assigned to another doctor.`);
+      }
+      if (!rawPassword || rawPassword.length < 4) {
+        throw new StoreError(400, 'Portal password (min 4 characters) is required when setting a portal username.');
+      }
+    }
+
+    const secret = this.getAuthSecret();
+    const pwHash = normalizedUsername && rawPassword ? hashPassword(rawPassword) : '';
+    const pwEnc = normalizedUsername && rawPassword ? encryptPortalPassword(rawPassword, secret) : '';
+
     const id = await this.nextSeq('doctors');
     await this.doctorsCol.insertOne({
       id,
@@ -1735,6 +1773,10 @@ export class MongoLimsStore implements LimsStore {
       last_commission_paid_up_to: '',
       last_commission_settled_at: '',
       last_commission_paid_amount: 0,
+      portal_username: normalizedUsername,
+      portal_password_hash: pwHash,
+      portal_password_enc: pwEnc,
+      portal_enabled: portalEnabled,
       is_active: 1,
       created_at: getLocalTimestampStr(),
     });
@@ -1749,8 +1791,52 @@ export class MongoLimsStore implements LimsStore {
       hospital?: string;
       mobile?: string;
       commission_pct?: number;
+      portal_username?: string;
+      portal_password?: string;
+      portal_enabled?: number;
     }
   ): Promise<void> {
+    const current = await this.doctorsCol.findOne({ id });
+    if (!current) throw new StoreError(404, 'Doctor not found.');
+
+    const hasUsernameField = payload.portal_username !== undefined;
+    const normalizedUsername = hasUsernameField
+      ? (payload.portal_username || '').trim().toLowerCase()
+      : (current.portal_username || '').trim().toLowerCase();
+    const rawPassword = (payload.portal_password || '').trim();
+    const portalEnabled =
+      payload.portal_enabled !== undefined ? (payload.portal_enabled === 0 ? 0 : 1) : (current.portal_enabled ?? 1);
+
+    if (normalizedUsername) {
+      if (normalizedUsername.length < 3) {
+        throw new StoreError(400, 'Portal username must be at least 3 characters.');
+      }
+      const conflict = await this.doctorsCol.findOne({
+        portal_username: normalizedUsername,
+        id: { $ne: id },
+        is_active: 1,
+      });
+      if (conflict) {
+        throw new StoreError(400, `Portal username "${normalizedUsername}" is already assigned to another doctor.`);
+      }
+    }
+
+    let nextPwHash = current.portal_password_hash || '';
+    let nextPwEnc = current.portal_password_enc || '';
+    if (!normalizedUsername) {
+      nextPwHash = '';
+      nextPwEnc = '';
+    } else if (rawPassword) {
+      if (rawPassword.length < 4) {
+        throw new StoreError(400, 'Portal password must be at least 4 characters.');
+      }
+      const secret = this.getAuthSecret();
+      nextPwHash = hashPassword(rawPassword);
+      nextPwEnc = encryptPortalPassword(rawPassword, secret);
+    } else if (!nextPwHash) {
+      throw new StoreError(400, 'Please enter a portal password (min 4 characters) for this doctor.');
+    }
+
     await this.doctorsCol.updateOne(
       { id },
       {
@@ -1760,6 +1846,10 @@ export class MongoLimsStore implements LimsStore {
           hospital: payload.hospital?.trim() || '',
           mobile: payload.mobile?.trim() || '',
           commission_pct: Number(payload.commission_pct || 0),
+          portal_username: normalizedUsername,
+          portal_password_hash: nextPwHash,
+          portal_password_enc: nextPwEnc,
+          portal_enabled: portalEnabled,
         },
       }
     );
@@ -3996,6 +4086,202 @@ export class MongoLimsStore implements LimsStore {
 
   async getPatientReportIfOwned(invoiceId: number, patientId: number): Promise<Record<string, unknown> | null> {
     const owns = await this.invoicesCol.findOne({ id: invoiceId, patient_id: patientId }, { projection: { id: 1 } });
+    if (!owns) return null;
+    return this.getFullInvoice(invoiceId, false, false);
+  }
+
+  async findDoctorByPortalUsername(normalizedUsername: string) {
+    const clean = normalizedUsername.trim().toLowerCase();
+    const doc = await this.doctorsCol.findOne(
+      { portal_username: clean, is_active: 1 },
+      { projection: { _id: 0 } }
+    );
+    if (!doc) return null;
+    return {
+      id: doc.id,
+      name: doc.name,
+      degree: doc.degree || '',
+      hospital: doc.hospital || '',
+      mobile: doc.mobile || '',
+      commission_pct: Number(doc.commission_pct || 0),
+      portal_username: doc.portal_username || '',
+      portal_password_hash: doc.portal_password_hash || '',
+      portal_enabled: doc.portal_enabled ?? 1,
+      is_active: doc.is_active,
+      last_commission_paid_up_to: doc.last_commission_paid_up_to || '',
+    };
+  }
+
+  async findDoctorPortalProfileById(doctorId: number): Promise<Record<string, unknown> | null> {
+    const doc = await this.doctorsCol.findOne(
+      { id: doctorId, is_active: 1 },
+      {
+        projection: {
+          _id: 0,
+          id: 1,
+          name: 1,
+          degree: 1,
+          hospital: 1,
+          mobile: 1,
+          commission_pct: 1,
+          portal_username: 1,
+          portal_enabled: 1,
+          is_active: 1,
+          last_commission_paid_up_to: 1,
+        },
+      }
+    );
+    return doc ? { ...doc, portal_enabled: doc.portal_enabled ?? 1 } : null;
+  }
+
+  async getDoctorPortalDashboard(doctorId: number, days = 30): Promise<Record<string, unknown> | null> {
+    const doctor = await this.findDoctorPortalProfileById(doctorId);
+    if (!doctor || Number(doctor.portal_enabled ?? 1) === 0) return null;
+
+    const clampedDays = Math.min(31, Math.max(1, Math.round(Number(days || 30))));
+    const to = getTodayDateStr();
+    const from = addDaysToIsoDate(to, -clampedDays);
+    const lastPaidUpTo = String(doctor.last_commission_paid_up_to || '').trim();
+
+    const invs = await this.invoicesCol
+      .find(
+        { doctor_id: doctorId, created_at: { $gte: from, $lte: `${to}\uffff` } },
+        { projection: { _id: 0 } }
+      )
+      .sort({ created_at: -1, id: -1 })
+      .toArray();
+
+    const patIds = Array.from(new Set(invs.map((i) => i.patient_id)));
+    const invIds = invs.map((i) => i.id);
+
+    const [pats, invTests] = await Promise.all([
+      patIds.length ? this.patientsCol.find({ id: { $in: patIds } }).toArray() : Promise.resolve([]),
+      invIds.length
+        ? this.invoiceTestsCol.find({ invoice_id: { $in: invIds } }).sort({ id: 1 }).toArray()
+        : Promise.resolve([]),
+    ]);
+
+    const itIds = invTests.map((t) => t.id);
+    const results = itIds.length
+      ? await this.testResultsCol.find({ invoice_test_id: { $in: itIds } }).toArray()
+      : [];
+
+    const abnByIt = new Map<number, number>();
+    for (const r of results) {
+      if (r.flag !== 'Normal' && r.result_value !== '') {
+        abnByIt.set(r.invoice_test_id, (abnByIt.get(r.invoice_test_id) || 0) + 1);
+      }
+    }
+
+    const patMap = new Map(pats.map((p) => [p.id, p]));
+    const testsByInv = new Map<number, InvoiceTestDoc[]>();
+    for (const it of invTests) {
+      const list = testsByInv.get(it.invoice_id) || [];
+      list.push(it);
+      testsByInv.set(it.invoice_id, list);
+    }
+
+    let readyReportsCount = 0;
+    let pendingReportsCount = 0;
+    let totalChargedGross = 0;
+    let totalDiscount = 0;
+    let totalNetCharged = 0;
+    let totalCommission = 0;
+    let unpaidCommission = 0;
+    let paidCommission = 0;
+
+    const patients = invs.map((i) => {
+      const p = patMap.get(i.patient_id);
+      const tests = testsByInv.get(i.id) || [];
+      const totalTests = tests.length;
+      const readyTests = tests.filter((t) => t.status === 'Ready').length;
+      const abnormalCount = tests.reduce((acc, t) => acc + (abnByIt.get(t.id) || 0), 0);
+      const invDate = datePart(i.created_at);
+      const isCommissionPaid = i.commission_paid === 1 || (Boolean(lastPaidUpTo) && invDate <= lastPaidUpTo);
+      const discountPct =
+        typeof i.discount_pct === 'number'
+          ? i.discount_pct
+          : i.subtotal > 0
+          ? roundCurrency((i.discount_amount / i.subtotal) * 100)
+          : 0;
+
+      if (totalTests > 0 && readyTests === totalTests) {
+        readyReportsCount += 1;
+      } else {
+        pendingReportsCount += 1;
+      }
+      totalChargedGross = roundCurrency(totalChargedGross + Number(i.subtotal || 0));
+      totalDiscount = roundCurrency(totalDiscount + Number(i.discount_amount || 0));
+      totalNetCharged = roundCurrency(totalNetCharged + Number(i.net_total || 0));
+      totalCommission = roundCurrency(totalCommission + Number(i.commission_amount || 0));
+      if (isCommissionPaid) {
+        paidCommission = roundCurrency(paidCommission + Number(i.commission_amount || 0));
+      } else {
+        unpaidCommission = roundCurrency(unpaidCommission + Number(i.commission_amount || 0));
+      }
+
+      return {
+        invoice_id: i.id,
+        invoice_no: i.invoice_no,
+        created_at: i.created_at,
+        patient_uid: p?.patient_uid || '',
+        patient_name: p?.name || '',
+        age_years: p?.age_years || 0,
+        age_months: p?.age_months || 0,
+        age_days: p?.age_days || 0,
+        gender: p?.gender || 'Male',
+        patient_mobile: p?.mobile || '',
+        subtotal: i.subtotal,
+        discount_type: i.discount_type,
+        discount_value: i.discount_value,
+        discount_pct: discountPct,
+        discount_amount: i.discount_amount,
+        net_total: i.net_total,
+        paid_amount: i.paid_amount,
+        due_amount: i.due_amount,
+        payment_status: i.payment_status,
+        commission_type: i.commission_type || 'percent',
+        commission_value: Number(i.commission_value ?? i.commission_pct ?? 0),
+        commission_pct: i.commission_pct,
+        commission_amount: i.commission_amount,
+        is_commission_paid: isCommissionPaid,
+        total_tests: totalTests,
+        ready_tests: readyTests,
+        abnormal_count: abnormalCount,
+        tests: tests.map((t) => ({
+          id: t.id,
+          test_name: t.test_name,
+          category_name: t.category_name,
+          sample_type: t.sample_type,
+          status: t.status,
+          collected_at: t.collected_at,
+          verified_at: t.verified_at,
+          ready_at: t.ready_at,
+        })),
+      };
+    });
+
+    return {
+      doctor,
+      from,
+      to,
+      summary: {
+        totalPatients: patients.length,
+        readyReportsCount,
+        pendingReportsCount,
+        totalChargedGross,
+        totalDiscount,
+        totalNetCharged,
+        totalCommission,
+        unpaidCommission,
+        paidCommission,
+      },
+      patients,
+    };
+  }
+
+  async getDoctorReportIfOwned(invoiceId: number, doctorId: number): Promise<Record<string, unknown> | null> {
+    const owns = await this.invoicesCol.findOne({ id: invoiceId, doctor_id: doctorId }, { projection: { id: 1 } });
     if (!owns) return null;
     return this.getFullInvoice(invoiceId, false, false);
   }

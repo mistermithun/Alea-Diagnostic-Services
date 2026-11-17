@@ -553,7 +553,7 @@ export class SqliteLimsStore implements LimsStore {
         `SELECT id, name, degree, hospital, mobile,
                 ${
                   includeCommission
-                    ? 'commission_pct, last_commission_paid_up_to, last_commission_settled_at, last_commission_paid_amount,'
+                    ? 'commission_pct, last_commission_paid_up_to, last_commission_settled_at, last_commission_paid_amount, portal_username, portal_password_enc, portal_enabled,'
                     : ''
                 }
                 is_active, created_at
@@ -564,6 +564,9 @@ export class SqliteLimsStore implements LimsStore {
       last_commission_paid_up_to?: string;
       last_commission_settled_at?: string;
       last_commission_paid_amount?: number;
+      portal_username?: string;
+      portal_password_enc?: string;
+      portal_enabled?: number;
       [key: string]: unknown;
     }>;
 
@@ -578,6 +581,7 @@ export class SqliteLimsStore implements LimsStore {
       commission_paid: number;
     }>;
 
+    const secret = this.getAuthSecret();
     const docMap = new Map(docs.map((d) => [d.id, d]));
     const unpaidStats = new Map<number, { count: number; amount: number }>();
     for (const inv of allInvs) {
@@ -595,8 +599,13 @@ export class SqliteLimsStore implements LimsStore {
 
     return docs.map((d) => {
       const stats = unpaidStats.get(d.id) || { count: 0, amount: 0 };
+      const { portal_password_enc, ...rest } = d;
+      const decryptedPw = portal_password_enc ? decryptPortalPassword(portal_password_enc, secret) : '';
       return {
-        ...d,
+        ...rest,
+        portal_username: d.portal_username || '',
+        portal_password: decryptedPw,
+        portal_enabled: d.portal_enabled ?? 1,
         last_commission_paid_up_to: d.last_commission_paid_up_to || '',
         last_commission_settled_at: d.last_commission_settled_at || '',
         last_commission_paid_amount: Number(d.last_commission_paid_amount || 0),
@@ -612,23 +621,129 @@ export class SqliteLimsStore implements LimsStore {
     hospital?: string;
     mobile?: string;
     commission_pct?: number;
+    portal_username?: string;
+    portal_password?: string;
+    portal_enabled?: number;
   }): Promise<{ id: number }> {
+    const normalizedUsername = (payload.portal_username || '').trim().toLowerCase();
+    const rawPassword = (payload.portal_password || '').trim();
+    const portalEnabled = payload.portal_enabled === 0 ? 0 : 1;
+
+    if (normalizedUsername) {
+      if (normalizedUsername.length < 3) {
+        throw new StoreError(400, 'Portal username must be at least 3 characters.');
+      }
+      const existing = db
+        .prepare(`SELECT id FROM doctors WHERE LOWER(portal_username) = ? AND is_active = 1`)
+        .get(normalizedUsername) as { id: number } | undefined;
+      if (existing) {
+        throw new StoreError(400, `Portal username "${normalizedUsername}" is already assigned to another doctor.`);
+      }
+      if (!rawPassword || rawPassword.length < 4) {
+        throw new StoreError(400, 'Portal password (min 4 characters) is required when setting a portal username.');
+      }
+    }
+
+    const secret = this.getAuthSecret();
+    const pwHash = normalizedUsername && rawPassword ? hashPassword(rawPassword) : '';
+    const pwEnc = normalizedUsername && rawPassword ? encryptPortalPassword(rawPassword, secret) : '';
+
     const info = db
-      .prepare('INSERT INTO doctors (name, degree, hospital, mobile, commission_pct) VALUES (?, ?, ?, ?, ?)')
-      .run(payload.name.trim(), payload.degree?.trim() || '', payload.hospital?.trim() || '', payload.mobile?.trim() || '', Number(payload.commission_pct || 0));
+      .prepare(
+        `INSERT INTO doctors (name, degree, hospital, mobile, commission_pct, portal_username, portal_password_hash, portal_password_enc, portal_enabled)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        payload.name.trim(),
+        payload.degree?.trim() || '',
+        payload.hospital?.trim() || '',
+        payload.mobile?.trim() || '',
+        Number(payload.commission_pct || 0),
+        normalizedUsername,
+        pwHash,
+        pwEnc,
+        portalEnabled
+      );
     return { id: Number(info.lastInsertRowid) };
   }
 
   async updateDoctor(
     id: number,
-    payload: { name: string; degree?: string; hospital?: string; mobile?: string; commission_pct?: number }
+    payload: {
+      name: string;
+      degree?: string;
+      hospital?: string;
+      mobile?: string;
+      commission_pct?: number;
+      portal_username?: string;
+      portal_password?: string;
+      portal_enabled?: number;
+    }
   ): Promise<void> {
-    db.prepare('UPDATE doctors SET name = ?, degree = ?, hospital = ?, mobile = ?, commission_pct = ? WHERE id = ?').run(
+    const current = db
+      .prepare(`SELECT id, portal_username, portal_password_hash, portal_password_enc, portal_enabled FROM doctors WHERE id = ?`)
+      .get(id) as
+      | {
+          id: number;
+          portal_username: string;
+          portal_password_hash: string;
+          portal_password_enc: string;
+          portal_enabled: number;
+        }
+      | undefined;
+    if (!current) throw new StoreError(404, 'Doctor not found.');
+
+    const hasUsernameField = payload.portal_username !== undefined;
+    const normalizedUsername = hasUsernameField
+      ? (payload.portal_username || '').trim().toLowerCase()
+      : (current.portal_username || '').trim().toLowerCase();
+    const rawPassword = (payload.portal_password || '').trim();
+    const portalEnabled =
+      payload.portal_enabled !== undefined ? (payload.portal_enabled === 0 ? 0 : 1) : (current.portal_enabled ?? 1);
+
+    if (normalizedUsername) {
+      if (normalizedUsername.length < 3) {
+        throw new StoreError(400, 'Portal username must be at least 3 characters.');
+      }
+      const conflict = db
+        .prepare(`SELECT id FROM doctors WHERE LOWER(portal_username) = ? AND id != ? AND is_active = 1`)
+        .get(normalizedUsername, id) as { id: number } | undefined;
+      if (conflict) {
+        throw new StoreError(400, `Portal username "${normalizedUsername}" is already assigned to another doctor.`);
+      }
+    }
+
+    let nextPwHash = current.portal_password_hash || '';
+    let nextPwEnc = current.portal_password_enc || '';
+    if (!normalizedUsername) {
+      nextPwHash = '';
+      nextPwEnc = '';
+    } else if (rawPassword) {
+      if (rawPassword.length < 4) {
+        throw new StoreError(400, 'Portal password must be at least 4 characters.');
+      }
+      const secret = this.getAuthSecret();
+      nextPwHash = hashPassword(rawPassword);
+      nextPwEnc = encryptPortalPassword(rawPassword, secret);
+    } else if (!nextPwHash) {
+      throw new StoreError(400, 'Please enter a portal password (min 4 characters) for this doctor.');
+    }
+
+    db.prepare(
+      `UPDATE doctors
+       SET name = ?, degree = ?, hospital = ?, mobile = ?, commission_pct = ?,
+           portal_username = ?, portal_password_hash = ?, portal_password_enc = ?, portal_enabled = ?
+       WHERE id = ?`
+    ).run(
       payload.name.trim(),
       payload.degree?.trim() || '',
       payload.hospital?.trim() || '',
       payload.mobile?.trim() || '',
       Number(payload.commission_pct || 0),
+      normalizedUsername,
+      nextPwHash,
+      nextPwEnc,
+      portalEnabled,
       id
     );
   }
@@ -2903,6 +3018,213 @@ export class SqliteLimsStore implements LimsStore {
 
   async getPatientReportIfOwned(invoiceId: number, patientId: number): Promise<Record<string, unknown> | null> {
     const owns = db.prepare(`SELECT id FROM invoices WHERE id = ? AND patient_id = ?`).get(invoiceId, patientId);
+    if (!owns) return null;
+    return this.getFullInvoice(invoiceId, false, false);
+  }
+
+  async findDoctorByPortalUsername(normalizedUsername: string) {
+    const row = db
+      .prepare(
+        `SELECT id, name, degree, hospital, mobile, commission_pct,
+                portal_username, portal_password_hash, portal_enabled, is_active,
+                last_commission_paid_up_to
+         FROM doctors
+         WHERE LOWER(portal_username) = ? AND is_active = 1`
+      )
+      .get(normalizedUsername.trim().toLowerCase()) as
+      | {
+          id: number;
+          name: string;
+          degree: string;
+          hospital: string;
+          mobile: string;
+          commission_pct: number;
+          portal_username: string;
+          portal_password_hash: string;
+          portal_enabled: number;
+          is_active: number;
+          last_commission_paid_up_to: string;
+        }
+      | undefined;
+    return row || null;
+  }
+
+  async findDoctorPortalProfileById(doctorId: number): Promise<Record<string, unknown> | null> {
+    const row = db
+      .prepare(
+        `SELECT id, name, degree, hospital, mobile, commission_pct,
+                portal_username, portal_enabled, is_active, last_commission_paid_up_to
+         FROM doctors
+         WHERE id = ? AND is_active = 1`
+      )
+      .get(doctorId) as Record<string, unknown> | undefined;
+    return row || null;
+  }
+
+  async getDoctorPortalDashboard(doctorId: number, days = 30): Promise<Record<string, unknown> | null> {
+    const doctor = await this.findDoctorPortalProfileById(doctorId);
+    if (!doctor || Number(doctor.portal_enabled ?? 1) === 0) return null;
+
+    const clampedDays = Math.min(31, Math.max(1, Math.round(Number(days || 30))));
+    const to = getTodayDateStr();
+    const from = addDaysToIsoDate(to, -clampedDays);
+    const lastPaidUpTo = String(doctor.last_commission_paid_up_to || '').trim();
+
+    const rows = db
+      .prepare(
+        `SELECT i.id as invoice_id, i.invoice_no, i.created_at,
+                i.subtotal, i.discount_type, i.discount_value, i.discount_amount, i.discount_pct,
+                i.net_total, i.paid_amount, i.due_amount, i.payment_status,
+                i.commission_type, i.commission_value, i.commission_pct, i.commission_amount,
+                i.commission_paid, i.commission_paid_at,
+                p.patient_uid, p.name as patient_name, p.age_years, p.age_months, p.age_days,
+                p.gender, p.mobile as patient_mobile
+         FROM invoices i
+         JOIN patients p ON p.id = i.patient_id
+         WHERE i.doctor_id = ? AND substr(i.created_at, 1, 10) BETWEEN ? AND ?
+         ORDER BY i.created_at DESC, i.id DESC`
+      )
+      .all(doctorId, from, to) as Array<{
+      invoice_id: number;
+      invoice_no: string;
+      created_at: string;
+      subtotal: number;
+      discount_type: string;
+      discount_value: number;
+      discount_amount: number;
+      discount_pct: number;
+      net_total: number;
+      paid_amount: number;
+      due_amount: number;
+      payment_status: string;
+      commission_type: string;
+      commission_value: number;
+      commission_pct: number;
+      commission_amount: number;
+      commission_paid: number;
+      commission_paid_at: string;
+      patient_uid: string;
+      patient_name: string;
+      age_years: number;
+      age_months: number;
+      age_days: number;
+      gender: string;
+      patient_mobile: string;
+    }>;
+
+    const testsStmt = db.prepare(
+      `SELECT it.id, it.test_name, it.category_name, it.sample_type, it.status,
+              it.collected_at, it.verified_at, it.ready_at,
+              (SELECT COUNT(*) FROM test_results tr
+               WHERE tr.invoice_test_id = it.id AND tr.flag != 'Normal' AND tr.result_value != '') as abnormal_count
+       FROM invoice_tests it
+       WHERE it.invoice_id = ?
+       ORDER BY it.id ASC`
+    );
+
+    let readyReportsCount = 0;
+    let pendingReportsCount = 0;
+    let totalChargedGross = 0;
+    let totalDiscount = 0;
+    let totalNetCharged = 0;
+    let totalCommission = 0;
+    let unpaidCommission = 0;
+    let paidCommission = 0;
+
+    const patients = rows.map((r) => {
+      const tests = testsStmt.all(r.invoice_id) as Array<{
+        id: number;
+        test_name: string;
+        category_name: string;
+        sample_type: string;
+        status: string;
+        collected_at: string;
+        verified_at: string | null;
+        ready_at: string | null;
+        abnormal_count: number;
+      }>;
+      const totalTests = tests.length;
+      const readyTests = tests.filter((t) => t.status === 'Ready').length;
+      const abnormalCount = tests.reduce((acc, t) => acc + Number(t.abnormal_count || 0), 0);
+      const invDate = String(r.created_at || '').slice(0, 10);
+      const isCommissionPaid = r.commission_paid === 1 || (Boolean(lastPaidUpTo) && invDate <= lastPaidUpTo);
+      const discountPct =
+        Number(r.discount_pct) > 0 || r.discount_amount === 0
+          ? Number(r.discount_pct || 0)
+          : r.subtotal > 0
+          ? roundCurrency((r.discount_amount / r.subtotal) * 100)
+          : 0;
+
+      if (totalTests > 0 && readyTests === totalTests) {
+        readyReportsCount += 1;
+      } else {
+        pendingReportsCount += 1;
+      }
+      totalChargedGross = roundCurrency(totalChargedGross + Number(r.subtotal || 0));
+      totalDiscount = roundCurrency(totalDiscount + Number(r.discount_amount || 0));
+      totalNetCharged = roundCurrency(totalNetCharged + Number(r.net_total || 0));
+      totalCommission = roundCurrency(totalCommission + Number(r.commission_amount || 0));
+      if (isCommissionPaid) {
+        paidCommission = roundCurrency(paidCommission + Number(r.commission_amount || 0));
+      } else {
+        unpaidCommission = roundCurrency(unpaidCommission + Number(r.commission_amount || 0));
+      }
+
+      return {
+        invoice_id: r.invoice_id,
+        invoice_no: r.invoice_no,
+        created_at: r.created_at,
+        patient_uid: r.patient_uid,
+        patient_name: r.patient_name,
+        age_years: r.age_years,
+        age_months: r.age_months,
+        age_days: r.age_days,
+        gender: r.gender,
+        patient_mobile: r.patient_mobile,
+        subtotal: r.subtotal,
+        discount_type: r.discount_type,
+        discount_value: r.discount_value,
+        discount_pct: discountPct,
+        discount_amount: r.discount_amount,
+        net_total: r.net_total,
+        paid_amount: r.paid_amount,
+        due_amount: r.due_amount,
+        payment_status: r.payment_status,
+        commission_type: r.commission_type || 'percent',
+        commission_value: Number(r.commission_value ?? r.commission_pct ?? 0),
+        commission_pct: r.commission_pct,
+        commission_amount: r.commission_amount,
+        is_commission_paid: isCommissionPaid,
+        total_tests: totalTests,
+        ready_tests: readyTests,
+        abnormal_count: abnormalCount,
+        tests: tests.map(({ abnormal_count: _abn, ...t }) => t),
+      };
+    });
+
+    return {
+      doctor,
+      from,
+      to,
+      summary: {
+        totalPatients: patients.length,
+        readyReportsCount,
+        pendingReportsCount,
+        totalChargedGross,
+        totalDiscount,
+        totalNetCharged,
+        totalCommission,
+        unpaidCommission,
+        paidCommission,
+      },
+      patients,
+    };
+  }
+
+  async getDoctorReportIfOwned(invoiceId: number, doctorId: number): Promise<Record<string, unknown> | null> {
+    const owns = db
+      .prepare(`SELECT id FROM invoices WHERE id = ? AND doctor_id = ?`)
+      .get(invoiceId, doctorId);
     if (!owns) return null;
     return this.getFullInvoice(invoiceId, false, false);
   }

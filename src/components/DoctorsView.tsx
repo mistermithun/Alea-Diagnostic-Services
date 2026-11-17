@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Banknote, Edit2, FileSpreadsheet, Plus, Printer, Trash2, X } from 'lucide-react';
+import { Banknote, Check, Copy, Edit2, Eye, EyeOff, FileSpreadsheet, KeyRound, Plus, Printer, RefreshCw, Trash2, X } from 'lucide-react';
 import { apiFetch, formatBDT, formatDateTime, getMonthStartISO, getTodayISO } from '../lib/api.ts';
 import type { Doctor, DoctorStatementResponse, LabSettings } from '../types.ts';
 
@@ -20,6 +20,11 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout
   const [hospital, setHospital] = useState('');
   const [mobile, setMobile] = useState('');
   const [commissionPct, setCommissionPct] = useState('20');
+  const [portalUsername, setPortalUsername] = useState('');
+  const [portalPassword, setPortalPassword] = useState('');
+  const [portalEnabled, setPortalEnabled] = useState(true);
+  const [showPortalPassword, setShowPortalPassword] = useState(false);
+  const [copiedDoctorId, setCopiedDoctorId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Statement Generator
@@ -48,6 +53,29 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout
     setHospital('');
     setMobile('');
     setCommissionPct('20');
+    setPortalUsername('');
+    setPortalPassword('');
+    setPortalEnabled(true);
+    setShowPortalPassword(false);
+  };
+
+  const generateQuickUsername = (rawName: string) => {
+    const clean = rawName
+      .toLowerCase()
+      .replace(/^dr\.?\s*/i, 'dr.')
+      .replace(/[^a-z0-9.]+/g, '.')
+      .replace(/\.{2,}/g, '.')
+      .replace(/^\.+|\.+$/g, '');
+    return clean || `doctor.${Math.floor(100 + Math.random() * 900)}`;
+  };
+
+  const generateQuickPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    let out = '';
+    for (let i = 0; i < 8; i++) {
+      out += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return out;
   };
 
   const handleSaveDoctor = async (e: React.FormEvent) => {
@@ -62,6 +90,9 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout
         hospital: hospital.trim(),
         mobile: mobile.trim(),
         commission_pct: Number(commissionPct || 0),
+        portal_username: portalUsername.trim().toLowerCase(),
+        portal_password: portalPassword.trim(),
+        portal_enabled: portalEnabled ? 1 : 0,
       };
       if (editingId) {
         await apiFetch(`/api/admin/doctors/${editingId}`, {
@@ -92,6 +123,32 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout
     setHospital(doc.hospital || '');
     setMobile(doc.mobile || '');
     setCommissionPct(String(doc.commission_pct ?? 0));
+    setPortalUsername(doc.portal_username || '');
+    setPortalPassword(doc.portal_password || '');
+    setPortalEnabled((doc.portal_enabled ?? 1) !== 0);
+    setShowPortalPassword(false);
+  };
+
+  const handleCopyCredentials = async (doc: Doctor) => {
+    if (!doc.portal_username) return;
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const loginUrl = `${origin}/doctor-login`;
+    const text = [
+      `${settings.lab_name} — Doctor Portal Login`,
+      `Doctor: ${doc.name}`,
+      `Portal URL: ${loginUrl}`,
+      `Username: ${doc.portal_username}`,
+      doc.portal_password ? `Password: ${doc.portal_password}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedDoctorId(doc.id);
+      setTimeout(() => setCopiedDoctorId((prev) => (prev === doc.id ? null : prev)), 2500);
+    } catch {
+      setError('Clipboard copy was blocked by browser permissions.');
+    }
   };
 
   const handleDelete = async (doc: Doctor) => {
@@ -202,6 +259,85 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout
             </div>
           </div>
 
+          {/* Admin-Managed Doctor Portal Credentials */}
+          <div className="pt-3 border-t border-slate-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+                <KeyRound className="w-3.5 h-3.5 text-teal-700" />
+                <span>Doctor Portal Login (Optional)</span>
+              </div>
+              <label className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={portalEnabled}
+                  onChange={(e) => setPortalEnabled(e.target.checked)}
+                  className="accent-teal-600"
+                />
+                Enabled
+              </label>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-slate-700">Portal Username</label>
+                {name.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setPortalUsername(generateQuickUsername(name))}
+                    className="text-[11px] font-medium text-teal-700 hover:underline"
+                  >
+                    Auto-suggest
+                  </button>
+                )}
+              </div>
+              <input
+                type="text"
+                autoCapitalize="none"
+                autoCorrect="off"
+                value={portalUsername}
+                onChange={(e) => setPortalUsername(e.target.value)}
+                placeholder="e.g. dr.kamrul"
+                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-slate-700">
+                  Portal Password {editingId && portalUsername ? '(blank keeps current)' : ''}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPortalPassword(generateQuickPassword());
+                    setShowPortalPassword(true);
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-700 hover:underline"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Generate
+                </button>
+              </div>
+              <div className="relative">
+                <input
+                  type={showPortalPassword ? 'text' : 'password'}
+                  value={portalPassword}
+                  onChange={(e) => setPortalPassword(e.target.value)}
+                  placeholder="Min 4 characters"
+                  className="w-full pl-3 pr-9 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPortalPassword((prev) => !prev)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-800"
+                  aria-label={showPortalPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPortalPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+          </div>
+
           <button
             type="submit"
             disabled={saving}
@@ -223,6 +359,7 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout
                 <th className="py-2 pr-3 font-medium">Doctor &amp; Degree</th>
                 <th className="py-2 pr-3 font-medium">Hospital / Mobile</th>
                 <th className="py-2 pr-3 font-medium text-right">Default Rate</th>
+                <th className="py-2 pr-3 font-medium">Portal Login</th>
                 <th className="py-2 pr-3 font-medium">Last Settled Date</th>
                 <th className="py-2 pr-3 font-medium text-right">Unpaid Accrued</th>
                 <th className="py-2 font-medium text-right">Actions</th>
@@ -241,6 +378,50 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout
                   </td>
                   <td className="py-3 pr-3 text-right font-mono tabular-nums font-bold text-teal-700">
                     {d.commission_pct ?? 0}%
+                  </td>
+                  <td className="py-3 pr-3 text-xs">
+                    {d.portal_username ? (
+                      <div className="space-y-0.5">
+                        <div className="font-mono font-semibold text-slate-900">
+                          {d.portal_username}
+                          {(d.portal_enabled ?? 1) === 0 && (
+                            <span className="ml-1.5 text-[10px] font-sans font-semibold text-red-600">
+                              (Disabled)
+                            </span>
+                          )}
+                        </div>
+                        {d.portal_password && (
+                          <div className="font-mono text-[11px] text-slate-500">
+                            PW: {d.portal_password}
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleCopyCredentials(d)}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-700 hover:underline"
+                        >
+                          {copiedDoctorId === d.id ? (
+                            <>
+                              <Check className="w-3 h-3" />
+                              Copied Login
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              Copy Login
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleEdit(d)}
+                        className="text-[11px] text-slate-500 hover:text-teal-700 hover:underline"
+                      >
+                        Set credentials
+                      </button>
+                    )}
                   </td>
                   <td className="py-3 pr-3 text-xs font-mono tabular-nums">
                     {d.last_commission_paid_up_to ? (

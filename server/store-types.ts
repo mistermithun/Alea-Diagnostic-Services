@@ -158,6 +158,9 @@ export interface LimsStore {
     hospital?: string;
     mobile?: string;
     commission_pct?: number;
+    portal_username?: string;
+    portal_password?: string;
+    portal_enabled?: number;
   }): Promise<{ id: number }>;
   updateDoctor(
     id: number,
@@ -167,6 +170,9 @@ export interface LimsStore {
       hospital?: string;
       mobile?: string;
       commission_pct?: number;
+      portal_username?: string;
+      portal_password?: string;
+      portal_enabled?: number;
     }
   ): Promise<void>;
   softDeleteDoctor(id: number): Promise<void>;
@@ -281,6 +287,24 @@ export interface LimsStore {
     archive: unknown[];
   } | null>;
   getPatientReportIfOwned(invoiceId: number, patientId: number): Promise<Record<string, unknown> | null>;
+
+  // Doctor Portal (Strictly Isolated to Referring Doctor)
+  findDoctorByPortalUsername(normalizedUsername: string): Promise<{
+    id: number;
+    name: string;
+    degree: string;
+    hospital: string;
+    mobile: string;
+    commission_pct: number;
+    portal_username: string;
+    portal_password_hash: string;
+    portal_enabled: number;
+    is_active: number;
+    last_commission_paid_up_to: string;
+  } | null>;
+  findDoctorPortalProfileById(doctorId: number): Promise<Record<string, unknown> | null>;
+  getDoctorPortalDashboard(doctorId: number, days?: number): Promise<Record<string, unknown> | null>;
+  getDoctorReportIfOwned(invoiceId: number, doctorId: number): Promise<Record<string, unknown> | null>;
 
   // Backup
   createBackupPayload(): Promise<

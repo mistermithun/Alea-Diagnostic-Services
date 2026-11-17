@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, ClipboardList, ShieldCheck, UserCheck } from 'lucide-react';
+import { ArrowRight, ClipboardList, ShieldCheck, Stethoscope, UserCheck } from 'lucide-react';
 import type { LabSettings } from '../types.ts';
 
 interface LandingPortalViewProps {
@@ -7,6 +7,7 @@ interface LandingPortalViewProps {
   onSelectAdminLogin: () => void;
   onSelectStaffLogin: () => void;
   onSelectPatientLogin: () => void;
+  onSelectDoctorLogin: () => void;
 }
 
 export const LandingPortalView: React.FC<LandingPortalViewProps> = ({
@@ -14,6 +15,7 @@ export const LandingPortalView: React.FC<LandingPortalViewProps> = ({
   onSelectAdminLogin,
   onSelectStaffLogin,
   onSelectPatientLogin,
+  onSelectDoctorLogin,
 }) => {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
@@ -61,7 +63,7 @@ export const LandingPortalView: React.FC<LandingPortalViewProps> = ({
 
       {/* Main Portal Selection Stage */}
       <main className="flex-1 flex items-center justify-center px-4 sm:px-8 py-10 sm:py-16">
-        <div className="max-w-5xl w-full space-y-10">
+        <div className="max-w-6xl w-full space-y-10">
           {/* Hero Heading */}
           <div className="max-w-2xl space-y-3">
             <p className="text-xs font-semibold text-teal-700 tracking-wide">
@@ -71,12 +73,12 @@ export const LandingPortalView: React.FC<LandingPortalViewProps> = ({
               Welcome to {settings.lab_name}
             </h1>
             <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
-              Select your authorized portal below to access clinical operations, administrative analytics, or personal diagnostic reports.
+              Select your authorized portal below to access clinical operations, referral tracking, administrative analytics, or personal diagnostic reports.
             </p>
           </div>
 
-          {/* 3-Column Role Entry Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
+          {/* 4-Column Role Entry Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 items-stretch">
             {/* 1. Admin Login Card */}
             <section className="bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between gap-6">
               <div className="space-y-4">
@@ -154,6 +156,33 @@ export const LandingPortalView: React.FC<LandingPortalViewProps> = ({
                 className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors whitespace-nowrap shrink-0"
               >
                 <span>Patient Portal Login</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </section>
+
+            {/* 4. Referring Doctor Portal Card */}
+            <section className="bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between gap-6">
+              <div className="space-y-4">
+                <div className="w-11 h-11 rounded-lg bg-slate-900 text-teal-400 flex items-center justify-center">
+                  <Stethoscope className="w-5 h-5" />
+                </div>
+                <div className="space-y-2">
+                  <h2 className="text-lg font-bold text-slate-900">Doctor Portal</h2>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Referring physician portal for live last-30-day patient referrals, transparent billing &amp; commission tracking, and instant PDF reports.
+                  </p>
+                </div>
+                <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-500">
+                  Sign in with Doctor Username &amp; Password
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={onSelectDoctorLogin}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-slate-900 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
+              >
+                <span>Doctor Portal Login</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </section>

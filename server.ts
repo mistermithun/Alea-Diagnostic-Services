@@ -1,21 +1,26 @@
 import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
 import {
   createAdminToken,
+  createDoctorToken,
   createPatientToken,
   createStaffToken,
   decryptPatientQrToken,
+  type DoctorTokenPayload,
   extractTokenFromRequest,
   hashPassword,
   makeRequireAdmin,
+  makeRequireDoctor,
   makeRequirePatient,
   makeRequireStaffOrAdmin,
   type PatientTokenPayload,
   verifyAdminToken,
+  verifyDoctorToken,
   verifyPassword,
   verifyPatientToken,
   verifyStaffToken,
@@ -60,11 +65,22 @@ const asyncHandler =
     });
   };
 
+const doctorUpdateBus = new EventEmitter();
+doctorUpdateBus.setMaxListeners(200);
+
+function emitDoctorSync(doctorId?: number | null) {
+  doctorUpdateBus.emit('sync', {
+    doctorId: doctorId && doctorId > 0 ? Number(doctorId) : null,
+    at: Date.now(),
+  });
+}
+
 function registerRoutes(app: express.Express, store: LimsStore, port: number) {
   const getSecret = () => store.getAuthSecret();
   const requireAdmin = makeRequireAdmin(getSecret);
   const requireStaffOrAdmin = makeRequireStaffOrAdmin(getSecret);
   const requirePatient = makeRequirePatient(getSecret);
+  const requireDoctor = makeRequireDoctor(getSecret);
 
   const isAdminRequest = (req: Request): boolean => {
     const token = extractTokenFromRequest(req);
@@ -341,18 +357,31 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
     '/api/admin/doctors',
     requireAdmin,
     asyncHandler(async (req, res) => {
-      const { name, degree, hospital, mobile, commission_pct } = req.body as {
-        name?: string;
-        degree?: string;
-        hospital?: string;
-        mobile?: string;
-        commission_pct?: number;
-      };
+      const { name, degree, hospital, mobile, commission_pct, portal_username, portal_password, portal_enabled } =
+        req.body as {
+          name?: string;
+          degree?: string;
+          hospital?: string;
+          mobile?: string;
+          commission_pct?: number;
+          portal_username?: string;
+          portal_password?: string;
+          portal_enabled?: number;
+        };
       if (!name?.trim()) {
         res.status(400).json({ error: 'Doctor name is required.' });
         return;
       }
-      const created = await store.createDoctor({ name, degree, hospital, mobile, commission_pct });
+      const created = await store.createDoctor({
+        name,
+        degree,
+        hospital,
+        mobile,
+        commission_pct,
+        portal_username,
+        portal_password,
+        portal_enabled,
+      });
       res.json(created);
     })
   );
@@ -361,18 +390,33 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
     '/api/admin/doctors/:id',
     requireAdmin,
     asyncHandler(async (req, res) => {
-      const { name, degree, hospital, mobile, commission_pct } = req.body as {
-        name?: string;
-        degree?: string;
-        hospital?: string;
-        mobile?: string;
-        commission_pct?: number;
-      };
+      const { name, degree, hospital, mobile, commission_pct, portal_username, portal_password, portal_enabled } =
+        req.body as {
+          name?: string;
+          degree?: string;
+          hospital?: string;
+          mobile?: string;
+          commission_pct?: number;
+          portal_username?: string;
+          portal_password?: string;
+          portal_enabled?: number;
+        };
       if (!name?.trim()) {
         res.status(400).json({ error: 'Doctor name is required.' });
         return;
       }
-      await store.updateDoctor(Number(req.params.id), { name, degree, hospital, mobile, commission_pct });
+      const docId = Number(req.params.id);
+      await store.updateDoctor(docId, {
+        name,
+        degree,
+        hospital,
+        mobile,
+        commission_pct,
+        portal_username,
+        portal_password,
+        portal_enabled,
+      });
+      emitDoctorSync(docId);
       res.json({ success: true });
     })
   );
@@ -424,6 +468,7 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         note: note?.trim(),
         settledBy: adminPayload?.name || 'Admin',
       });
+      emitDoctorSync(doctorId);
       res.json(result);
     })
   );
@@ -450,6 +495,8 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         commissionValue,
         testCommissions,
       });
+      const updatedInv = (updated as { invoice?: { doctor_id?: number | null } }).invoice;
+      emitDoctorSync(updatedInv?.doctor_id ?? null);
       res.json(updated);
     })
   );
@@ -512,6 +559,8 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         return;
       }
       const created = await store.createInvoice({ ...body, isAdmin: isAdminRequest(req) });
+      const createdInv = (created as { invoice?: { doctor_id?: number | null } }).invoice;
+      emitDoctorSync(createdInv?.doctor_id ?? body.doctorId ?? null);
       res.json(created);
     })
   );
@@ -528,6 +577,8 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         isAdmin: Boolean(adminPayload),
         adjustedBy: adminPayload?.name || undefined,
       });
+      const updatedInv = (updated as { invoice?: { doctor_id?: number | null } }).invoice;
+      emitDoctorSync(updatedInv?.doctor_id ?? body.doctorId ?? null);
       res.json(updated);
     })
   );
@@ -558,6 +609,8 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         refundMethod,
         adjustedBy: adminPayload?.name || 'Admin',
       });
+      const adjustedInv = (updated as { invoice?: { doctor_id?: number | null } }).invoice;
+      emitDoctorSync(adjustedInv?.doctor_id ?? null);
       res.json(updated);
     })
   );
@@ -577,6 +630,8 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         invoiceTestId,
         isAdmin: isAdminRequest(req),
       });
+      const updatedInv = (updated as { invoice?: { doctor_id?: number | null } }).invoice;
+      emitDoctorSync(updatedInv?.doctor_id ?? null);
       res.json(updated);
     })
   );
@@ -597,6 +652,8 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         note,
         isAdmin: isAdminRequest(req),
       });
+      const updatedInv = (updated as { invoice?: { doctor_id?: number | null } }).invoice;
+      emitDoctorSync(updatedInv?.doctor_id ?? null);
       res.json(updated);
     })
   );
@@ -611,6 +668,7 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         return;
       }
       const deleted = await store.deleteInvoiceEntry(invoiceId);
+      emitDoctorSync(null);
       res.json(deleted);
     })
   );
@@ -659,6 +717,7 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         consultantName,
         consultantTitle,
       });
+      emitDoctorSync(null);
       res.json(updated);
     })
   );
@@ -960,6 +1019,146 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
       res.json(full);
     })
   );
+
+  // ============================================================================
+  // DOCTOR PORTAL API (Strictly Isolated to Authenticated Referring Doctor)
+  // ============================================================================
+  app.post(
+    '/api/doctor-auth/login',
+    asyncHandler(async (req, res) => {
+      const { username, password, rememberMe } = req.body as {
+        username?: string;
+        password?: string;
+        rememberMe?: boolean;
+      };
+      if (!username?.trim() || !password?.trim()) {
+        res.status(400).json({ error: 'Username and password are required.' });
+        return;
+      }
+
+      const normalizedUsername = username.trim().toLowerCase();
+      const doctor = await store.findDoctorByPortalUsername(normalizedUsername);
+      if (!doctor || !doctor.portal_password_hash) {
+        res.status(401).json({ error: 'Invalid username or password.' });
+        return;
+      }
+      if (Number(doctor.portal_enabled ?? 1) === 0) {
+        res.status(403).json({ error: 'Doctor portal access has been disabled by the administrator.' });
+        return;
+      }
+      if (!verifyPassword(password.trim(), doctor.portal_password_hash)) {
+        res.status(401).json({ error: 'Invalid username or password.' });
+        return;
+      }
+
+      const ttlHours = rememberMe === false ? 24 : 24 * 30;
+      const token = createDoctorToken(
+        getSecret(),
+        doctor.id,
+        doctor.portal_username,
+        doctor.name,
+        ttlHours
+      );
+
+      res.json({
+        token,
+        doctor: {
+          id: doctor.id,
+          name: doctor.name,
+          degree: doctor.degree,
+          hospital: doctor.hospital,
+          mobile: doctor.mobile,
+          commission_pct: doctor.commission_pct,
+          portal_username: doctor.portal_username,
+          last_commission_paid_up_to: doctor.last_commission_paid_up_to,
+        },
+      });
+    })
+  );
+
+  app.get(
+    '/api/doctor-auth/verify',
+    asyncHandler(async (req, res) => {
+      const token = extractTokenFromRequest(req);
+      const payload = verifyDoctorToken(token, getSecret());
+      if (!payload) {
+        res.json({ authenticated: false });
+        return;
+      }
+      const doctor = await store.findDoctorPortalProfileById(payload.doctorId);
+      if (!doctor || Number(doctor.portal_enabled ?? 1) === 0) {
+        res.json({ authenticated: false });
+        return;
+      }
+      res.json({ authenticated: true, doctor });
+    })
+  );
+
+  app.get(
+    '/api/doctor/portal-dashboard',
+    requireDoctor,
+    asyncHandler(async (req, res) => {
+      const auth = (req as Request & { doctorAuth: DoctorTokenPayload }).doctorAuth;
+      const daysRaw = typeof req.query.days === 'string' ? Number(req.query.days) : 30;
+      const days = Number.isFinite(daysRaw) ? Math.min(31, Math.max(1, daysRaw)) : 30;
+      const data = await store.getDoctorPortalDashboard(auth.doctorId, days);
+      if (!data) {
+        res.status(403).json({ error: 'Doctor portal access unavailable or disabled.' });
+        return;
+      }
+      res.json(data);
+    })
+  );
+
+  app.get(
+    '/api/doctor/reports/:invoiceId',
+    requireDoctor,
+    asyncHandler(async (req, res) => {
+      const auth = (req as Request & { doctorAuth: DoctorTokenPayload }).doctorAuth;
+      const invoiceId = Number(req.params.invoiceId);
+      if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
+        res.status(400).json({ error: 'Invalid report ID.' });
+        return;
+      }
+      const full = await store.getDoctorReportIfOwned(invoiceId, auth.doctorId);
+      if (!full) {
+        res.status(404).json({ error: 'Report not found or access denied.' });
+        return;
+      }
+      res.json(full);
+    })
+  );
+
+  app.get('/api/doctor/stream', requireDoctor, (req, res) => {
+    const auth = (req as Request & { doctorAuth: DoctorTokenPayload }).doctorAuth;
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    const sendEvent = (eventName: string, data: Record<string, unknown>) => {
+      res.write(`event: ${eventName}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    sendEvent('connected', { doctorId: auth.doctorId, at: Date.now() });
+
+    const onSync = (payload: { doctorId: number | null; at: number }) => {
+      if (payload.doctorId === null || payload.doctorId === auth.doctorId) {
+        sendEvent('refresh', { at: payload.at });
+      }
+    };
+
+    doctorUpdateBus.on('sync', onSync);
+    const heartbeat = setInterval(() => {
+      res.write(': heartbeat\n\n');
+    }, 25000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      doctorUpdateBus.off('sync', onSync);
+    });
+  });
 }
 
 function resolveServerPort(): number {
@@ -1002,6 +1201,8 @@ async function startServer() {
     app.use('/admin', express.static(distDir));
     app.use('/staff', express.static(distDir));
     app.use('/patient-dashboard', express.static(distDir));
+    app.use('/doctor-login', express.static(distDir));
+    app.use('/doctor-dashboard', express.static(distDir));
     app.use('/report', express.static(distDir));
     app.use('/view-report', express.static(distDir));
     app.get('*', (_req, res) => {

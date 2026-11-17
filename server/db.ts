@@ -216,6 +216,7 @@ export function initDatabase() {
   `);
 
   migratePatientPortalColumns();
+  migrateDoctorPortalColumns();
   migrateTestParameterDefaults();
   migrateInvoiceTestConsultantColumns();
   migrateCommissionTrackingColumns();
@@ -363,6 +364,23 @@ function migratePatientPortalColumns() {
   }
   if (!names.has('qr_token')) {
     db.exec(`ALTER TABLE patients ADD COLUMN qr_token TEXT DEFAULT ''`);
+  }
+}
+
+function migrateDoctorPortalColumns() {
+  const cols = db.prepare(`PRAGMA table_info(doctors)`).all() as Array<{ name: string }>;
+  const names = new Set(cols.map((c) => c.name));
+  if (!names.has('portal_username')) {
+    db.exec(`ALTER TABLE doctors ADD COLUMN portal_username TEXT DEFAULT ''`);
+  }
+  if (!names.has('portal_password_hash')) {
+    db.exec(`ALTER TABLE doctors ADD COLUMN portal_password_hash TEXT DEFAULT ''`);
+  }
+  if (!names.has('portal_password_enc')) {
+    db.exec(`ALTER TABLE doctors ADD COLUMN portal_password_enc TEXT DEFAULT ''`);
+  }
+  if (!names.has('portal_enabled')) {
+    db.exec(`ALTER TABLE doctors ADD COLUMN portal_enabled INTEGER NOT NULL DEFAULT 1`);
   }
 }
 

@@ -205,6 +205,83 @@ export function makeRequirePatient(getSecret: () => string) {
   };
 }
 
+export interface DoctorTokenPayload {
+  role: 'doctor';
+  doctorId: number;
+  username: string;
+  name: string;
+  iat: number;
+  exp: number;
+}
+
+export function createDoctorToken(
+  secret: string,
+  doctorId: number,
+  username: string,
+  name: string,
+  ttlHours = 24 * 30
+): string {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' }), 'utf8').toString('base64url');
+  const payload: DoctorTokenPayload = {
+    role: 'doctor',
+    doctorId,
+    username,
+    name,
+    iat: nowSec,
+    exp: nowSec + Math.round(ttlHours * 3600),
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const signingInput = `${header}.${encodedPayload}`;
+  const sig = crypto.createHmac('sha256', secret).update(signingInput).digest('base64url');
+  return `${signingInput}.${sig}`;
+}
+
+export function verifyDoctorToken(
+  token: string | undefined | null,
+  secret: string
+): DoctorTokenPayload | null {
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [header, encodedPayload, sig] = parts;
+  const signingInput = `${header}.${encodedPayload}`;
+  const expectedSig = crypto.createHmac('sha256', secret).update(signingInput).digest('base64url');
+  const sigBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as DoctorTokenPayload;
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (
+      parsed.role !== 'doctor' ||
+      typeof parsed.doctorId !== 'number' ||
+      typeof parsed.exp !== 'number' ||
+      parsed.exp < nowSec
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function makeRequireDoctor(getSecret: () => string) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const token = extractTokenFromRequest(req);
+    const verified = verifyDoctorToken(token, getSecret());
+    if (!verified) {
+      res.status(401).json({ error: 'Doctor authentication required.' });
+      return;
+    }
+    (req as Request & { doctorAuth?: DoctorTokenPayload }).doctorAuth = verified;
+    next();
+  };
+}
+
 export function generatePortalPassword(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const bytes = crypto.randomBytes(6);

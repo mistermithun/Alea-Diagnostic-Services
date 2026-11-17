@@ -20,6 +20,7 @@ import {
 import { BalanceLedgerView } from './components/BalanceLedgerView.tsx';
 import { DashboardView } from './components/DashboardView.tsx';
 import { DoctorPayoutView } from './components/DoctorPayoutView.tsx';
+import { DoctorPortalView } from './components/DoctorPortalView.tsx';
 import { DoctorsView } from './components/DoctorsView.tsx';
 import { DueLedgerView } from './components/DueLedgerView.tsx';
 import { ExpensesView } from './components/ExpensesView.tsx';
@@ -36,11 +37,14 @@ import { TestCatalogView } from './components/TestCatalogView.tsx';
 import {
   apiFetch,
   clearLabTokens,
+  doctorApiFetch,
   getAdminToken,
+  getDoctorToken,
   getLabToken,
   getPatientToken,
   patientApiFetch,
   resolvePublicBaseUrl,
+  setDoctorToken,
   setPatientToken,
 } from './lib/api.ts';
 import {
@@ -55,13 +59,16 @@ type AppRoute =
   | 'admin-login'
   | 'staff-login'
   | 'patient-login'
+  | 'doctor-login'
   | 'admin-dashboard'
   | 'staff-dashboard'
   | 'patient-dashboard'
+  | 'doctor-dashboard'
   | 'qr-report';
 
 type LabAuthStatus = 'checking' | 'unauthenticated' | 'admin' | 'staff';
 type PatientAuthStatus = 'checking' | 'unauthenticated' | 'authenticated';
+type DoctorAuthStatus = 'checking' | 'unauthenticated' | 'authenticated';
 
 const DEFAULT_SETTINGS: LabSettings = {
   lab_name: 'Alea Diagnostic Services',
@@ -103,9 +110,11 @@ function parseRouteSegment(segment: string): AppRoute {
   if (s === 'admin-login') return 'admin-login';
   if (s === 'staff-login') return 'staff-login';
   if (s === 'patient-login' || s === 'portal' || s === 'patient-portal') return 'patient-login';
+  if (s === 'doctor-login' || s === 'doctor-portal') return 'doctor-login';
   if (s === 'admin' || s.startsWith('admin/')) return 'admin-dashboard';
   if (s === 'staff' || s.startsWith('staff/')) return 'staff-dashboard';
   if (s === 'patient-dashboard' || s.startsWith('patient-dashboard/')) return 'patient-dashboard';
+  if (s === 'doctor-dashboard' || s === 'doctor' || s.startsWith('doctor-dashboard/')) return 'doctor-dashboard';
   if (s === 'view-report' || s === 'report' || s === 'r') return 'qr-report';
   return 'landing';
 }
@@ -152,7 +161,7 @@ function resolveRouteFromLocation(): AppRoute {
   const direct = parseRouteSegment(p);
   if (direct !== 'landing') return direct;
   const suffixMatch = p.match(
-    /\/(admin-login|staff-login|patient-login|portal|patient-portal|admin|staff|patient-dashboard|view-report|report)$/
+    /\/(admin-login|staff-login|patient-login|doctor-login|doctor-portal|portal|patient-portal|admin|staff|patient-dashboard|doctor-dashboard|doctor|view-report|report)$/
   );
   if (suffixMatch) return parseRouteSegment(suffixMatch[1]);
   return 'landing';
@@ -166,12 +175,16 @@ function pathForRoute(route: AppRoute): string {
       return '/staff-login';
     case 'patient-login':
       return '/patient-login';
+    case 'doctor-login':
+      return '/doctor-login';
     case 'admin-dashboard':
       return '/admin';
     case 'staff-dashboard':
       return '/staff';
     case 'patient-dashboard':
       return '/patient-dashboard';
+    case 'doctor-dashboard':
+      return '/doctor-dashboard';
     case 'qr-report':
       return '/view-report';
     default:
@@ -187,6 +200,9 @@ export default function App() {
   const [labOperatorName, setLabOperatorName] = useState('');
   const [patientAuthStatus, setPatientAuthStatus] = useState<PatientAuthStatus>(() =>
     getPatientToken() ? 'checking' : 'unauthenticated'
+  );
+  const [doctorAuthStatus, setDoctorAuthStatus] = useState<DoctorAuthStatus>(() =>
+    getDoctorToken() ? 'checking' : 'unauthenticated'
   );
 
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
@@ -290,6 +306,23 @@ export default function App() {
     } else {
       setPatientAuthStatus('unauthenticated');
     }
+
+    if (getDoctorToken()) {
+      try {
+        const dVerify = await doctorApiFetch<{ authenticated: boolean }>('/api/doctor-auth/verify');
+        if (dVerify.authenticated) {
+          setDoctorAuthStatus('authenticated');
+        } else {
+          setDoctorToken(null);
+          setDoctorAuthStatus('unauthenticated');
+        }
+      } catch {
+        setDoctorToken(null);
+        setDoctorAuthStatus('unauthenticated');
+      }
+    } else {
+      setDoctorAuthStatus('unauthenticated');
+    }
   }, []);
 
   useEffect(() => {
@@ -348,6 +381,14 @@ export default function App() {
       return;
     }
 
+    // Protected Doctor Route
+    if (route === 'doctor-dashboard') {
+      if (doctorAuthStatus === 'unauthenticated') {
+        navigateTo('doctor-login', true);
+      }
+      return;
+    }
+
     // Redirect already-authenticated users away from their own login route to their authorized dashboard
     if (route === 'admin-login' && labAuthStatus === 'admin') {
       setActiveTab('dashboard');
@@ -361,8 +402,12 @@ export default function App() {
     }
     if (route === 'patient-login' && patientAuthStatus === 'authenticated') {
       navigateTo('patient-dashboard', true);
+      return;
     }
-  }, [route, labAuthStatus, patientAuthStatus, navigateTo]);
+    if (route === 'doctor-login' && doctorAuthStatus === 'authenticated') {
+      navigateTo('doctor-dashboard', true);
+    }
+  }, [route, labAuthStatus, patientAuthStatus, doctorAuthStatus, navigateTo]);
 
   // Ensure initial default tab matches role on mount/refresh
   useEffect(() => {
@@ -407,6 +452,17 @@ export default function App() {
     setPatientToken(null);
     setPatientAuthStatus('unauthenticated');
     navigateTo('landing', true);
+  }, [navigateTo]);
+
+  const handleDoctorAuthenticated = () => {
+    setDoctorAuthStatus('authenticated');
+    navigateTo('doctor-dashboard');
+  };
+
+  const handleDoctorSignedOut = useCallback(() => {
+    setDoctorToken(null);
+    setDoctorAuthStatus('unauthenticated');
+    navigateTo('doctor-login', true);
   }, [navigateTo]);
 
   const handleOpenReceipt = async (invoiceId: number) => {
@@ -455,6 +511,13 @@ export default function App() {
             navigateTo('patient-dashboard');
           } else {
             navigateTo('patient-login');
+          }
+        }}
+        onSelectDoctorLogin={() => {
+          if (doctorAuthStatus === 'authenticated') {
+            navigateTo('doctor-dashboard');
+          } else {
+            navigateTo('doctor-login');
           }
         }}
       />
@@ -516,6 +579,26 @@ export default function App() {
     );
   }
 
+  if (route === 'doctor-login') {
+    if (doctorAuthStatus === 'checking') {
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-sm text-slate-600">
+          Checking doctor session...
+        </div>
+      );
+    }
+    return (
+      <DoctorPortalView
+        settings={settings}
+        publicBaseUrl={systemInfo.publicBaseUrl}
+        mode="login"
+        onAuthenticated={handleDoctorAuthenticated}
+        onSignedOut={handleDoctorSignedOut}
+        onBackToHome={() => navigateTo('landing')}
+      />
+    );
+  }
+
   // 2.5. Direct Passwordless QR Report Access (/view-report?id=...&token=...)
   if (route === 'qr-report') {
     const qrParams = getQrParamsFromLocation();
@@ -551,6 +634,7 @@ export default function App() {
           onSelectAdminLogin={() => navigateTo('admin-login')}
           onSelectStaffLogin={() => navigateTo('staff-login')}
           onSelectPatientLogin={() => navigateTo('patient-login')}
+          onSelectDoctorLogin={() => navigateTo('doctor-login')}
         />
       );
     }
@@ -561,6 +645,38 @@ export default function App() {
         mode="dashboard"
         onAuthenticated={handlePatientAuthenticated}
         onSignedOut={handlePatientSignedOut}
+        onBackToHome={() => navigateTo('landing')}
+      />
+    );
+  }
+
+  // 3.5. Protected Doctor Portal Dashboard (/doctor-dashboard)
+  if (route === 'doctor-dashboard') {
+    if (doctorAuthStatus === 'checking') {
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-sm text-slate-600">
+          Verifying doctor authorization...
+        </div>
+      );
+    }
+    if (doctorAuthStatus !== 'authenticated') {
+      return (
+        <LandingPortalView
+          settings={settings}
+          onSelectAdminLogin={() => navigateTo('admin-login')}
+          onSelectStaffLogin={() => navigateTo('staff-login')}
+          onSelectPatientLogin={() => navigateTo('patient-login')}
+          onSelectDoctorLogin={() => navigateTo('doctor-login')}
+        />
+      );
+    }
+    return (
+      <DoctorPortalView
+        settings={settings}
+        publicBaseUrl={systemInfo.publicBaseUrl}
+        mode="dashboard"
+        onAuthenticated={handleDoctorAuthenticated}
+        onSignedOut={handleDoctorSignedOut}
         onBackToHome={() => navigateTo('landing')}
       />
     );
@@ -587,6 +703,7 @@ export default function App() {
         onSelectAdminLogin={() => navigateTo('admin-login')}
         onSelectStaffLogin={() => navigateTo('staff-login')}
         onSelectPatientLogin={() => navigateTo('patient-login')}
+        onSelectDoctorLogin={() => navigateTo('doctor-login')}
       />
     );
   }

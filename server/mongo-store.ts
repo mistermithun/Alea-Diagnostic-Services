@@ -22,6 +22,7 @@ import {
   URINE_DESIRED_PARAMS,
 } from './clinical-rules.ts';
 import {
+  type AdjustInvoiceBillPayload,
   type CreateInvoicePayload,
   type LimsStore,
   type ParamPayload,
@@ -135,6 +136,11 @@ interface InvoiceDoc {
   paid_amount: number;
   due_amount: number;
   payment_status: 'Paid' | 'Partial' | 'Due';
+  adjustment_amount?: number;
+  adjustment_reason?: string;
+  adjusted_by?: string;
+  adjusted_at?: string;
+  initial_payment_method?: string;
   commission_pct: number;
   commission_amount: number;
   commission_type?: 'percent' | 'flat' | 'per_test';
@@ -183,10 +189,25 @@ interface DuePaymentDoc {
   id: number;
   invoice_id: number;
   amount: number;
+  entry_type?: 'payment' | 'refund';
   payment_method: string;
   note: string;
   collected_by: string;
   collected_at: string;
+}
+
+interface InvoiceAdjustmentDoc {
+  id: number;
+  invoice_id: number;
+  previous_net_total: number;
+  new_net_total: number;
+  adjustment_delta: number;
+  previous_paid_amount: number;
+  new_paid_amount: number;
+  refund_amount: number;
+  reason: string;
+  adjusted_by: string;
+  adjusted_at: string;
 }
 
 interface ExpenseDoc {
@@ -228,6 +249,7 @@ export class MongoLimsStore implements LimsStore {
   private invoiceTestsCol!: Collection<InvoiceTestDoc>;
   private testResultsCol!: Collection<TestResultDoc>;
   private duePaymentsCol!: Collection<DuePaymentDoc>;
+  private adjustmentsCol!: Collection<InvoiceAdjustmentDoc>;
   private payoutsCol!: Collection<DoctorCommissionPayoutDoc>;
   private expensesCol!: Collection<ExpenseDoc>;
 
@@ -265,11 +287,13 @@ export class MongoLimsStore implements LimsStore {
     this.invoiceTestsCol = this.db.collection<InvoiceTestDoc>('invoice_tests');
     this.testResultsCol = this.db.collection<TestResultDoc>('test_results');
     this.duePaymentsCol = this.db.collection<DuePaymentDoc>('due_payments');
+    this.adjustmentsCol = this.db.collection<InvoiceAdjustmentDoc>('invoice_adjustments');
     this.payoutsCol = this.db.collection<DoctorCommissionPayoutDoc>('doctor_commission_payouts');
     this.expensesCol = this.db.collection<ExpenseDoc>('expenses');
 
     await this.ensureIndexes();
     await this.seedDefaultSettings();
+    await this.migrateStaffDiscountLimitTo100();
     await this.seedCatalogIfEmpty();
     await this.syncExtendedCatalogV2();
     await this.seedInitialOperationalDataIfEmpty();
@@ -320,6 +344,8 @@ export class MongoLimsStore implements LimsStore {
       this.testResultsCol.createIndex({ invoice_test_id: 1, parameter_id: 1 }, { unique: true }),
       this.duePaymentsCol.createIndex({ id: 1 }, { unique: true }),
       this.duePaymentsCol.createIndex({ invoice_id: 1 }),
+      this.adjustmentsCol.createIndex({ id: 1 }, { unique: true }),
+      this.adjustmentsCol.createIndex({ invoice_id: 1 }),
       this.payoutsCol.createIndex({ id: 1 }, { unique: true }),
       this.payoutsCol.createIndex({ doctor_id: 1, settled_at: -1 }),
       this.expensesCol.createIndex({ id: 1 }, { unique: true }),
@@ -342,7 +368,7 @@ export class MongoLimsStore implements LimsStore {
       lab_address: 'Bank Mor, Halasa Bazar, Mirpur, Kushtia',
       proprietor_name: 'Md. Mishkatur Rahman',
       lab_phone: '+88 01720 660 824',
-      max_staff_discount_pct: '15',
+      max_staff_discount_pct: '100',
       technologist_name: 'Md. Tariqul Islam, B.Sc (MLT)',
       technologist_title: 'Medical Technologist (Lab)',
       pathologist_name: 'Dr. Farhana Yasmin, MBBS, M.Phil',
@@ -362,6 +388,16 @@ export class MongoLimsStore implements LimsStore {
       },
     }));
     await this.settingsCol.bulkWrite(ops);
+  }
+
+  private async migrateStaffDiscountLimitTo100(): Promise<void> {
+    const migrated = await this.getSetting('staff_discount_limit_100_migrated');
+    if (migrated === '1') return;
+    const current = (await this.getSetting('max_staff_discount_pct')).trim();
+    if (!current || current === '15') {
+      await this.setSetting('max_staff_discount_pct', '100');
+    }
+    await this.setSetting('staff_discount_limit_100_migrated', '1');
   }
 
   async getSetting(key: string): Promise<string> {
@@ -384,7 +420,9 @@ export class MongoLimsStore implements LimsStore {
         r.key === 'admin_password_hash' ||
         r.key === 'staff_password_hash' ||
         r.key === 'auth_secret' ||
-        r.key === 'initial_seed_done'
+        r.key === 'initial_seed_done' ||
+        r.key === 'catalog_v2_synced' ||
+        r.key === 'staff_discount_limit_100_migrated'
       ) {
         continue;
       }
@@ -399,13 +437,21 @@ export class MongoLimsStore implements LimsStore {
   ): Promise<Record<string, string>> {
     const ops = allowedKeys
       .filter((k) => updates[k] !== undefined && updates[k] !== null)
-      .map((k) => ({
-        updateOne: {
-          filter: { key: k },
-          update: { $set: { key: k, value: String(updates[k]).trim() } },
-          upsert: true,
-        },
-      }));
+      .map((k) => {
+        let val = String(updates[k]).trim();
+        if (k === 'max_staff_discount_pct') {
+          const num = Number(val);
+          const clamped = Number.isFinite(num) ? Math.min(100, Math.max(0, num)) : 100;
+          val = String(clamped);
+        }
+        return {
+          updateOne: {
+            filter: { key: k },
+            update: { $set: { key: k, value: val } },
+            upsert: true,
+          },
+        };
+      });
     if (ops.length > 0) {
       await this.settingsCol.bulkWrite(ops);
     }
@@ -1331,10 +1377,18 @@ export class MongoLimsStore implements LimsStore {
       initialPaid += Number(inv.paid_amount) - (dpSumByInvoice.get(inv.id) || 0);
     }
 
-    const dueRecovered = duePaymentsInRange.reduce((s, d) => s + Number(d.amount), 0);
+    let dueRecovered = 0;
+    let refunded = 0;
+    for (const d of duePaymentsInRange) {
+      const amt = Number(d.amount);
+      if (amt > 0) dueRecovered += amt;
+      else if (amt < 0) refunded += -amt;
+    }
+    dueRecovered = roundCurrency(dueRecovered);
+    refunded = roundCurrency(refunded);
     const totalExpenses = expensesInRange.reduce((s, e) => s + Number(e.amount), 0);
-    const netCollection = initialPaid + dueRecovered;
-    const netProfit = netCollection - doctorCommissionPayable - totalExpenses;
+    const netCollection = roundCurrency(initialPaid + dueRecovered - refunded);
+    const netProfit = roundCurrency(netCollection - doctorCommissionPayable - totalExpenses);
     const allTimeDue = allDueInvoices.reduce((s, i) => s + Number(i.due_amount), 0);
 
     const deptMap = new Map<string, { category: string; testCount: number; grossAmount: number }>();
@@ -2107,6 +2161,11 @@ export class MongoLimsStore implements LimsStore {
         paid_amount: i.paid_amount,
         due_amount: i.due_amount,
         payment_status: i.payment_status,
+        adjustment_amount: Number(i.adjustment_amount || 0),
+        adjustment_reason: i.adjustment_reason || '',
+        adjusted_by: i.adjusted_by || '',
+        adjusted_at: i.adjusted_at || '',
+        initial_payment_method: i.initial_payment_method || 'Cash',
         notes: i.notes,
         created_by: i.created_by,
         created_at: i.created_at,
@@ -2171,11 +2230,12 @@ export class MongoLimsStore implements LimsStore {
     const inv = await this.invoicesCol.findOne({ id: invoiceId }, { projection: { _id: 0 } });
     if (!inv) return null;
 
-    const [patient, doctor, tests, duePayments] = await Promise.all([
+    const [patient, doctor, tests, duePayments, adjustments] = await Promise.all([
       this.patientsCol.findOne({ id: inv.patient_id }, { projection: { _id: 0 } }),
       inv.doctor_id ? this.doctorsCol.findOne({ id: inv.doctor_id }, { projection: { _id: 0 } }) : Promise.resolve(null),
       this.invoiceTestsCol.find({ invoice_id: invoiceId }, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
       this.duePaymentsCol.find({ invoice_id: invoiceId }, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
+      this.adjustmentsCol.find({ invoice_id: invoiceId }, { projection: { _id: 0 } }).sort({ id: -1 }).toArray(),
     ]);
 
     const itIds = tests.map((t) => t.id);
@@ -2231,6 +2291,11 @@ export class MongoLimsStore implements LimsStore {
       paid_amount: inv.paid_amount,
       due_amount: inv.due_amount,
       payment_status: inv.payment_status,
+      adjustment_amount: Number(inv.adjustment_amount || 0),
+      adjustment_reason: inv.adjustment_reason || '',
+      adjusted_by: inv.adjusted_by || '',
+      adjusted_at: inv.adjusted_at || '',
+      initial_payment_method: inv.initial_payment_method || 'Cash',
       notes: inv.notes,
       created_by: inv.created_by,
       created_at: inv.created_at,
@@ -2293,6 +2358,7 @@ export class MongoLimsStore implements LimsStore {
       invoice: invoiceOut,
       tests: enrichedTests,
       duePayments,
+      adjustments,
     };
   }
 
@@ -2313,7 +2379,9 @@ export class MongoLimsStore implements LimsStore {
     let discountAmount = dType === 'percent' ? (subtotal * dVal) / 100 : dVal;
     discountAmount = Math.min(subtotal, Math.round(discountAmount * 100) / 100);
 
-    const maxStaffPct = Number((await this.getSetting('max_staff_discount_pct')) || '15');
+    const rawCap = await this.getSetting('max_staff_discount_pct');
+    const maxStaffPct =
+      rawCap !== '' && Number.isFinite(Number(rawCap)) ? Math.min(100, Math.max(0, Number(rawCap))) : 100;
     const effectivePct = subtotal > 0 ? (discountAmount / subtotal) * 100 : 0;
     if (!payload.isAdmin && effectivePct > maxStaffPct + 0.01) {
       throw new StoreError(
@@ -2411,6 +2479,11 @@ export class MongoLimsStore implements LimsStore {
       paid_amount: paid,
       due_amount: due,
       payment_status: paymentStatus,
+      adjustment_amount: 0,
+      adjustment_reason: '',
+      adjusted_by: '',
+      adjusted_at: '',
+      initial_payment_method: payload.paymentMethod?.trim() || 'Cash',
       commission_pct: computedComm.invoiceCommissionPct,
       commission_amount: computedComm.invoiceCommissionAmount,
       commission_type: computedComm.invoiceCommissionType,
@@ -2553,7 +2626,9 @@ export class MongoLimsStore implements LimsStore {
       (payload.discountValue !== undefined && Number(payload.discountValue) !== Number(existingInv.discount_value));
 
     if (discountChanged) {
-      const maxStaffPct = Number((await this.getSetting('max_staff_discount_pct')) || '15');
+      const rawCap = await this.getSetting('max_staff_discount_pct');
+      const maxStaffPct =
+        rawCap !== '' && Number.isFinite(Number(rawCap)) ? Math.min(100, Math.max(0, Number(rawCap))) : 100;
       const effectivePct = newSubtotal > 0 ? (discountAmount / newSubtotal) * 100 : 0;
       if (!payload.isAdmin && effectivePct > maxStaffPct + 0.01) {
         throw new StoreError(
@@ -2563,7 +2638,12 @@ export class MongoLimsStore implements LimsStore {
       }
     }
 
-    const netTotal = Math.max(0, Math.round((newSubtotal - discountAmount) * 100) / 100);
+    const existingAdjAmt = Number(existingInv.adjustment_amount || 0);
+    const nextAdjustmentAmount =
+      payload.isAdmin && payload.adjustmentAmount !== undefined && payload.adjustmentAmount !== null
+        ? roundCurrency(Number(payload.adjustmentAmount || 0))
+        : existingAdjAmt;
+    const netTotal = Math.max(0, Math.round((newSubtotal - discountAmount - nextAdjustmentAmount) * 100) / 100);
     const discountPct = newSubtotal > 0 ? roundCurrency((discountAmount / newSubtotal) * 100) : 0;
     const nextDoctorId = payload.doctorId !== undefined ? payload.doctorId : existingInv.doctor_id;
     let docCommissionPct = 0;
@@ -2630,9 +2710,12 @@ export class MongoLimsStore implements LimsStore {
     });
 
     const extraPayRaw = Math.max(0, Math.round(Number(payload.additionalPayment || 0) * 100) / 100);
-    const maxCollectable = Math.max(0, Math.round((netTotal - Number(existingInv.paid_amount)) * 100) / 100);
+    const prevPaid = Number(existingInv.paid_amount || 0);
+    const maxCollectable = Math.max(0, Math.round((netTotal - prevPaid) * 100) / 100);
     const appliedExtraPay = Math.min(extraPayRaw, maxCollectable);
-    const newPaid = Math.round((Number(existingInv.paid_amount) + appliedExtraPay) * 100) / 100;
+    const shouldRefundExcess = Boolean(payload.isAdmin && payload.refundExcess && prevPaid > netTotal);
+    const refundAmount = shouldRefundExcess ? roundCurrency(prevPaid - netTotal) : 0;
+    const newPaid = shouldRefundExcess ? netTotal : Math.round((prevPaid + appliedExtraPay) * 100) / 100;
     const newDue = Math.max(0, Math.round((netTotal - newPaid) * 100) / 100);
     const newStatus: 'Paid' | 'Partial' | 'Due' = newDue <= 0 ? 'Paid' : newPaid > 0 ? 'Partial' : 'Due';
     const nowTs = getLocalTimestampStr();
@@ -2763,10 +2846,52 @@ export class MongoLimsStore implements LimsStore {
         id: dpId,
         invoice_id: payload.invoiceId,
         amount: appliedExtraPay,
+        entry_type: 'payment',
         payment_method: payload.paymentMethod?.trim() || 'Cash',
         note: testsToAdd.length > 0 ? 'Payment on added tests' : 'Updated invoice payment',
         collected_by: payload.isAdmin ? 'Admin' : 'Staff',
         collected_at: nowTs,
+      });
+    }
+
+    if (refundAmount > 0) {
+      const dpId = await this.nextSeq('due_payments');
+      await this.duePaymentsCol.insertOne({
+        id: dpId,
+        invoice_id: payload.invoiceId,
+        amount: -refundAmount,
+        entry_type: 'refund',
+        payment_method: payload.refundMethod?.trim() || 'Cash',
+        note: payload.adjustmentReason?.trim()
+          ? `Admin Bill Adjustment Refund: ${payload.adjustmentReason.trim()}`
+          : 'Admin Bill Adjustment Refund',
+        collected_by: payload.adjustedBy?.trim() || 'Admin',
+        collected_at: nowTs,
+      });
+    }
+
+    const prevNetTotal = Number(existingInv.net_total || 0);
+    const adjChanged =
+      payload.isAdmin &&
+      (Math.abs(nextAdjustmentAmount - existingAdjAmt) > 0.01 ||
+        refundAmount > 0 ||
+        (payload.adjustmentReason !== undefined &&
+          payload.adjustmentReason.trim() !== String(existingInv.adjustment_reason || '').trim()));
+
+    if (adjChanged && Math.abs(netTotal - prevNetTotal) + refundAmount > 0.001) {
+      const adjId = await this.nextSeq('invoice_adjustments');
+      await this.adjustmentsCol.insertOne({
+        id: adjId,
+        invoice_id: payload.invoiceId,
+        previous_net_total: prevNetTotal,
+        new_net_total: netTotal,
+        adjustment_delta: roundCurrency(prevNetTotal - netTotal),
+        previous_paid_amount: prevPaid,
+        new_paid_amount: newPaid,
+        refund_amount: refundAmount,
+        reason: payload.adjustmentReason?.trim() || '',
+        adjusted_by: payload.adjustedBy?.trim() || 'Admin',
+        adjusted_at: nowTs,
       });
     }
 
@@ -2780,6 +2905,13 @@ export class MongoLimsStore implements LimsStore {
           discount_value: dVal,
           discount_amount: discountAmount,
           discount_pct: discountPct,
+          adjustment_amount: nextAdjustmentAmount,
+          adjustment_reason:
+            payload.isAdmin && payload.adjustmentReason !== undefined
+              ? payload.adjustmentReason.trim()
+              : existingInv.adjustment_reason || '',
+          adjusted_by: adjChanged ? payload.adjustedBy?.trim() || 'Admin' : existingInv.adjusted_by || '',
+          adjusted_at: adjChanged ? nowTs : existingInv.adjusted_at || '',
           net_total: netTotal,
           paid_amount: newPaid,
           due_amount: newDue,
@@ -2842,11 +2974,15 @@ export class MongoLimsStore implements LimsStore {
 
     const inv = await this.invoicesCol.findOne({ id: payload.invoiceId });
     if (!inv) throw new StoreError(404, 'Invoice not found.');
+    if (inv.due_amount <= 0) {
+      throw new StoreError(400, 'This invoice has no pending due balance.');
+    }
     if (payAmt > inv.due_amount + 0.01) {
       throw new StoreError(400, `Payment exceeds current due of ৳${inv.due_amount}.`);
     }
 
-    const newPaid = Math.round((inv.paid_amount + payAmt) * 100) / 100;
+    const appliedPay = Math.min(payAmt, inv.due_amount);
+    const newPaid = Math.round((inv.paid_amount + appliedPay) * 100) / 100;
     const newDue = Math.max(0, Math.round((inv.net_total - newPaid) * 100) / 100);
     const newStatus: 'Paid' | 'Partial' = newDue <= 0 ? 'Paid' : 'Partial';
     const nowTs = getLocalTimestampStr();
@@ -2855,7 +2991,8 @@ export class MongoLimsStore implements LimsStore {
     await this.duePaymentsCol.insertOne({
       id: dpId,
       invoice_id: payload.invoiceId,
-      amount: payAmt,
+      amount: appliedPay,
+      entry_type: 'payment',
       payment_method: payload.paymentMethod?.trim() || 'Cash',
       note: payload.note?.trim() || '',
       collected_by: payload.isAdmin ? 'Admin' : 'Staff',
@@ -2868,6 +3005,158 @@ export class MongoLimsStore implements LimsStore {
     );
 
     const full = await this.getFullInvoice(payload.invoiceId, payload.isAdmin, true);
+    return full!;
+  }
+
+  async adjustInvoiceBill(payload: AdjustInvoiceBillPayload): Promise<Record<string, unknown>> {
+    const inv = await this.invoicesCol.findOne({ id: payload.invoiceId }, { projection: { _id: 0 } });
+    if (!inv) throw new StoreError(404, 'Invoice not found.');
+
+    const baseNetAfterDiscount = Math.max(0, roundCurrency(Number(inv.subtotal) - Number(inv.discount_amount)));
+    let targetNet = Number(inv.net_total);
+
+    if (payload.targetNetTotal !== undefined && payload.targetNetTotal !== null) {
+      const parsed = Number(payload.targetNetTotal);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new StoreError(400, 'Adjusted Net Bill must be 0 or greater.');
+      }
+      targetNet = roundCurrency(parsed);
+    } else if (payload.reductionAmount !== undefined && payload.reductionAmount !== null) {
+      const reduction = Number(payload.reductionAmount);
+      if (!Number.isFinite(reduction) || reduction < 0) {
+        throw new StoreError(400, 'Reduction amount must be 0 or greater.');
+      }
+      targetNet = Math.max(0, roundCurrency(Number(inv.net_total) - reduction));
+    } else {
+      throw new StoreError(400, 'Provide either targetNetTotal or reductionAmount.');
+    }
+
+    const newAdjustmentAmount = roundCurrency(baseNetAfterDiscount - targetNet);
+    const prevNet = Number(inv.net_total);
+    const prevPaid = Number(inv.paid_amount);
+    const refundExcess = payload.refundExcess !== false;
+
+    let refundAmount = 0;
+    let newPaid = prevPaid;
+    let newDue = 0;
+    let newStatus: 'Paid' | 'Partial' | 'Due' = 'Paid';
+
+    if (prevPaid > targetNet) {
+      if (refundExcess) {
+        refundAmount = roundCurrency(prevPaid - targetNet);
+        newPaid = targetNet;
+      }
+      newDue = 0;
+      newStatus = 'Paid';
+    } else {
+      newDue = Math.max(0, roundCurrency(targetNet - newPaid));
+      newStatus = newDue <= 0 ? 'Paid' : newPaid > 0 ? 'Partial' : 'Due';
+    }
+
+    const invTests = await this.invoiceTestsCol
+      .find({ invoice_id: payload.invoiceId }, { projection: { _id: 0 } })
+      .toArray();
+
+    let docCommissionPct = 0;
+    if (inv.doctor_id) {
+      const doc = await this.doctorsCol.findOne({ id: inv.doctor_id });
+      if (doc) docCommissionPct = Number(doc.commission_pct || 0);
+    }
+
+    const resolvedMode: 'doctor_default' | 'custom_invoice' | 'custom_per_test' =
+      inv.commission_type === 'per_test'
+        ? 'custom_per_test'
+        : inv.commission_type === 'flat' ||
+          (typeof inv.commission_value === 'number' && Math.abs(inv.commission_value - docCommissionPct) > 0.01)
+        ? 'custom_invoice'
+        : 'doctor_default';
+
+    const computedComm = computeInvoiceCommission({
+      tests: invTests.map((it) => ({ test_id: it.test_id, price: Number(it.price) })),
+      subtotal: Number(inv.subtotal),
+      netTotal: targetNet,
+      hasDoctor: Boolean(inv.doctor_id),
+      doctorCommissionPct: docCommissionPct,
+      commissionMode: resolvedMode,
+      commissionType: inv.commission_type === 'flat' ? 'flat' : 'percent',
+      commissionValue: typeof inv.commission_value === 'number' ? inv.commission_value : inv.commission_pct,
+      testCommissions: invTests.map((it) => ({
+        testId: it.test_id,
+        commissionType: it.commission_type === 'flat' ? 'flat' : 'percent',
+        commissionValue: typeof it.commission_value === 'number' ? it.commission_value : docCommissionPct,
+      })),
+    });
+
+    const nowTs = getLocalTimestampStr();
+    const reason = payload.reason?.trim() || '';
+    const adjustedBy = payload.adjustedBy?.trim() || 'Admin';
+
+    await this.invoicesCol.updateOne(
+      { id: payload.invoiceId },
+      {
+        $set: {
+          adjustment_amount: newAdjustmentAmount,
+          adjustment_reason: reason,
+          adjusted_by: adjustedBy,
+          adjusted_at: nowTs,
+          net_total: targetNet,
+          paid_amount: newPaid,
+          due_amount: newDue,
+          payment_status: newStatus,
+          commission_pct: computedComm.invoiceCommissionPct,
+          commission_amount: computedComm.invoiceCommissionAmount,
+          commission_type: computedComm.invoiceCommissionType,
+          commission_value: computedComm.invoiceCommissionValue,
+        },
+      }
+    );
+
+    for (const it of invTests) {
+      const tc = computedComm.perTestMap.get(it.test_id);
+      if (tc) {
+        await this.invoiceTestsCol.updateOne(
+          { id: it.id },
+          {
+            $set: {
+              commission_type: tc.commission_type,
+              commission_value: tc.commission_value,
+              commission_amount: tc.commission_amount,
+            },
+          }
+        );
+      }
+    }
+
+    if (refundAmount > 0) {
+      const dpId = await this.nextSeq('due_payments');
+      await this.duePaymentsCol.insertOne({
+        id: dpId,
+        invoice_id: payload.invoiceId,
+        amount: -refundAmount,
+        entry_type: 'refund',
+        payment_method: payload.refundMethod?.trim() || 'Cash',
+        note: reason ? `Admin Bill Reduction Refund: ${reason}` : 'Admin Bill Reduction Refund',
+        collected_by: adjustedBy,
+        collected_at: nowTs,
+      });
+    }
+
+    const adjId = await this.nextSeq('invoice_adjustments');
+    await this.adjustmentsCol.insertOne({
+      id: adjId,
+      invoice_id: payload.invoiceId,
+      previous_net_total: prevNet,
+      new_net_total: targetNet,
+      adjustment_delta: roundCurrency(prevNet - targetNet),
+      previous_paid_amount: prevPaid,
+      new_paid_amount: newPaid,
+      refund_amount: refundAmount,
+      reason,
+      adjusted_by: adjustedBy,
+      adjusted_at: nowTs,
+    });
+
+    const full = await this.getFullInvoice(payload.invoiceId, true, true);
     return full!;
   }
 
@@ -2901,6 +3190,7 @@ export class MongoLimsStore implements LimsStore {
       deletedResultsCount = resDel.deletedCount;
     }
 
+    await this.adjustmentsCol.deleteMany({ invoice_id: invoiceId });
     await this.duePaymentsCol.deleteMany({ invoice_id: invoiceId });
     const testsDel = await this.invoiceTestsCol.deleteMany({ invoice_id: invoiceId });
     await this.invoicesCol.deleteOne({ id: invoiceId });
@@ -3432,6 +3722,7 @@ export class MongoLimsStore implements LimsStore {
       invoice_tests,
       test_results,
       due_payments,
+      invoice_adjustments,
       expenses,
     ] = await Promise.all([
       this.getAllSettings(),
@@ -3447,6 +3738,7 @@ export class MongoLimsStore implements LimsStore {
       this.invoiceTestsCol.find({}, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
       this.testResultsCol.find({}, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
       this.duePaymentsCol.find({}, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
+      this.adjustmentsCol.find({}, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
       this.expensesCol.find({}, { projection: { _id: 0 } }).sort({ id: 1 }).toArray(),
     ]);
 
@@ -3466,6 +3758,7 @@ export class MongoLimsStore implements LimsStore {
         invoice_tests,
         test_results,
         due_payments,
+        invoice_adjustments,
         expenses,
       },
     };

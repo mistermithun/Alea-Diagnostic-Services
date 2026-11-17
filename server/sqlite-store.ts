@@ -24,6 +24,7 @@ import {
   initDatabase,
 } from './db.ts';
 import {
+  type AdjustInvoiceBillPayload,
   type CreateInvoicePayload,
   type LimsStore,
   type ParamPayload,
@@ -80,7 +81,13 @@ export class SqliteLimsStore implements LimsStore {
     const tx = db.transaction(() => {
       for (const k of allowedKeys) {
         if (updates[k] !== undefined && updates[k] !== null) {
-          upsert.run(k, String(updates[k]).trim());
+          let val = String(updates[k]).trim();
+          if (k === 'max_staff_discount_pct') {
+            const num = Number(val);
+            const clamped = Number.isFinite(num) ? Math.min(100, Math.max(0, num)) : 100;
+            val = String(clamped);
+          }
+          upsert.run(k, val);
         }
       }
     });
@@ -251,11 +258,13 @@ export class SqliteLimsStore implements LimsStore {
 
     const dueRecoveredRow = db
       .prepare(
-        `SELECT COALESCE(SUM(amount), 0) as recovered
+        `SELECT
+           COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as recovered,
+           COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0) as refunded
          FROM due_payments
          WHERE substr(collected_at, 1, 10) BETWEEN ? AND ?`
       )
-      .get(from, to) as { recovered: number };
+      .get(from, to) as { recovered: number; refunded: number };
 
     const expenseRow = db
       .prepare(
@@ -289,8 +298,10 @@ export class SqliteLimsStore implements LimsStore {
       )
       .get(from, to) as { initialPaid: number };
 
-    const netCollection = initialCashRow.initialPaid + dueRecoveredRow.recovered;
-    const netProfit = netCollection - invoiceAgg.doctorCommissionPayable - expenseRow.totalExpenses;
+    const netCollection = roundCurrency(
+      initialCashRow.initialPaid + dueRecoveredRow.recovered - dueRecoveredRow.refunded
+    );
+    const netProfit = roundCurrency(netCollection - invoiceAgg.doctorCommissionPayable - expenseRow.totalExpenses);
 
     const departmentBreakdown = db
       .prepare(
@@ -1020,6 +1031,7 @@ export class SqliteLimsStore implements LimsStore {
                      WHEN i.subtotal > 0 THEN ROUND((i.discount_amount / i.subtotal) * 100, 2)
                      ELSE 0 END as discount_pct,
                 i.net_total, i.paid_amount, i.due_amount, i.payment_status,
+                i.adjustment_amount, i.adjustment_reason, i.adjusted_by, i.adjusted_at, i.initial_payment_method,
                 ${
                   filters.includeCommission
                     ? 'i.commission_pct, i.commission_amount, i.commission_type, i.commission_value, i.commission_paid, i.commission_paid_at,'
@@ -1098,6 +1110,7 @@ export class SqliteLimsStore implements LimsStore {
                      WHEN i.subtotal > 0 THEN ROUND((i.discount_amount / i.subtotal) * 100, 2)
                      ELSE 0 END as discount_pct,
                 i.net_total, i.paid_amount, i.due_amount, i.payment_status,
+                i.adjustment_amount, i.adjustment_reason, i.adjusted_by, i.adjusted_at, i.initial_payment_method,
                 ${
                   includeCommission
                     ? 'i.commission_pct, i.commission_amount, i.commission_type, i.commission_value, i.commission_paid, i.commission_paid_at,'
@@ -1165,8 +1178,9 @@ export class SqliteLimsStore implements LimsStore {
     });
 
     const duePayments = db.prepare(`SELECT * FROM due_payments WHERE invoice_id = ? ORDER BY id ASC`).all(invoiceId);
+    const adjustments = db.prepare(`SELECT * FROM invoice_adjustments WHERE invoice_id = ? ORDER BY id DESC`).all(invoiceId);
 
-    return { invoice, tests: enrichedTests, duePayments };
+    return { invoice, tests: enrichedTests, duePayments, adjustments };
   }
 
   async createInvoice(payload: CreateInvoicePayload): Promise<Record<string, unknown>> {
@@ -1194,7 +1208,9 @@ export class SqliteLimsStore implements LimsStore {
     let discountAmount = dType === 'percent' ? (subtotal * dVal) / 100 : dVal;
     discountAmount = Math.min(subtotal, Math.round(discountAmount * 100) / 100);
 
-    const maxStaffPct = Number(sqliteGetSetting('max_staff_discount_pct') || '15');
+    const rawCap = sqliteGetSetting('max_staff_discount_pct');
+    const maxStaffPct =
+      rawCap !== '' && Number.isFinite(Number(rawCap)) ? Math.min(100, Math.max(0, Number(rawCap))) : 100;
     const effectivePct = subtotal > 0 ? (discountAmount / subtotal) * 100 : 0;
     if (!payload.isAdmin && effectivePct > maxStaffPct + 0.01) {
       throw new StoreError(
@@ -1296,9 +1312,10 @@ export class SqliteLimsStore implements LimsStore {
           `INSERT INTO invoices (
             invoice_no, patient_id, doctor_id, subtotal, discount_type, discount_value, discount_amount, discount_pct,
             net_total, paid_amount, due_amount, payment_status,
+            initial_payment_method,
             commission_pct, commission_amount, commission_type, commission_value, commission_paid,
             notes, created_by, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
         )
         .run(
           invoiceNo,
@@ -1313,6 +1330,7 @@ export class SqliteLimsStore implements LimsStore {
           paid,
           due,
           paymentStatus,
+          payload.paymentMethod?.trim() || 'Cash',
           computedComm.invoiceCommissionPct,
           computedComm.invoiceCommissionAmount,
           computedComm.invoiceCommissionType,
@@ -1498,7 +1516,9 @@ export class SqliteLimsStore implements LimsStore {
       (payload.discountValue !== undefined && Number(payload.discountValue) !== Number(existingInv.discount_value));
 
     if (discountChanged) {
-      const maxStaffPct = Number(sqliteGetSetting('max_staff_discount_pct') || '15');
+      const rawCap = sqliteGetSetting('max_staff_discount_pct');
+      const maxStaffPct =
+        rawCap !== '' && Number.isFinite(Number(rawCap)) ? Math.min(100, Math.max(0, Number(rawCap))) : 100;
       const effectivePct = newSubtotal > 0 ? (discountAmount / newSubtotal) * 100 : 0;
       if (!payload.isAdmin && effectivePct > maxStaffPct + 0.01) {
         throw new StoreError(
@@ -1508,7 +1528,12 @@ export class SqliteLimsStore implements LimsStore {
       }
     }
 
-    const netTotal = Math.max(0, Math.round((newSubtotal - discountAmount) * 100) / 100);
+    const existingAdjAmt = Number((existingInv as { adjustment_amount?: number }).adjustment_amount || 0);
+    const nextAdjustmentAmount =
+      payload.isAdmin && payload.adjustmentAmount !== undefined && payload.adjustmentAmount !== null
+        ? roundCurrency(Number(payload.adjustmentAmount || 0))
+        : existingAdjAmt;
+    const netTotal = Math.max(0, Math.round((newSubtotal - discountAmount - nextAdjustmentAmount) * 100) / 100);
     const discountPct = newSubtotal > 0 ? roundCurrency((discountAmount / newSubtotal) * 100) : 0;
     const nextDoctorId = payload.doctorId !== undefined ? payload.doctorId : existingInv.doctor_id;
     let docCommissionPct = 0;
@@ -1577,9 +1602,14 @@ export class SqliteLimsStore implements LimsStore {
     });
 
     const extraPayRaw = Math.max(0, Math.round(Number(payload.additionalPayment || 0) * 100) / 100);
-    const maxCollectable = Math.max(0, Math.round((netTotal - Number(existingInv.paid_amount)) * 100) / 100);
+    const prevPaid = Number(existingInv.paid_amount || 0);
+    const maxCollectable = Math.max(0, Math.round((netTotal - prevPaid) * 100) / 100);
     const appliedExtraPay = Math.min(extraPayRaw, maxCollectable);
-    const newPaid = Math.round((Number(existingInv.paid_amount) + appliedExtraPay) * 100) / 100;
+    const shouldRefundExcess = Boolean(payload.isAdmin && payload.refundExcess && prevPaid > netTotal);
+    const refundAmount = shouldRefundExcess ? roundCurrency(prevPaid - netTotal) : 0;
+    const newPaid = shouldRefundExcess
+      ? netTotal
+      : Math.round((prevPaid + appliedExtraPay) * 100) / 100;
     const newDue = Math.max(0, Math.round((netTotal - newPaid) * 100) / 100);
     const newStatus = newDue <= 0 ? 'Paid' : newPaid > 0 ? 'Partial' : 'Due';
     const nowTs = getLocalTimestampStr();
@@ -1731,8 +1761,8 @@ export class SqliteLimsStore implements LimsStore {
 
       if (appliedExtraPay > 0) {
         db.prepare(
-          `INSERT INTO due_payments (invoice_id, amount, payment_method, note, collected_by, collected_at)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO due_payments (invoice_id, amount, entry_type, payment_method, note, collected_by, collected_at)
+           VALUES (?, ?, 'payment', ?, ?, ?, ?)`
         ).run(
           payload.invoiceId,
           appliedExtraPay,
@@ -1743,9 +1773,54 @@ export class SqliteLimsStore implements LimsStore {
         );
       }
 
+      if (refundAmount > 0) {
+        db.prepare(
+          `INSERT INTO due_payments (invoice_id, amount, entry_type, payment_method, note, collected_by, collected_at)
+           VALUES (?, ?, 'refund', ?, ?, ?, ?)`
+        ).run(
+          payload.invoiceId,
+          -refundAmount,
+          payload.refundMethod?.trim() || 'Cash',
+          payload.adjustmentReason?.trim()
+            ? `Admin Bill Adjustment Refund: ${payload.adjustmentReason.trim()}`
+            : 'Admin Bill Adjustment Refund',
+          payload.adjustedBy?.trim() || 'Admin',
+          nowTs
+        );
+      }
+
+      const prevNetTotal = Number((existingInv as { net_total?: number }).net_total || 0);
+      const adjChanged =
+        payload.isAdmin &&
+        (Math.abs(nextAdjustmentAmount - existingAdjAmt) > 0.01 ||
+          refundAmount > 0 ||
+          (payload.adjustmentReason !== undefined &&
+            payload.adjustmentReason.trim() !== String((existingInv as { adjustment_reason?: string }).adjustment_reason || '').trim()));
+
+      if (adjChanged && Math.abs(netTotal - prevNetTotal) + refundAmount > 0.001) {
+        db.prepare(
+          `INSERT INTO invoice_adjustments (
+            invoice_id, previous_net_total, new_net_total, adjustment_delta,
+            previous_paid_amount, new_paid_amount, refund_amount, reason, adjusted_by, adjusted_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          payload.invoiceId,
+          prevNetTotal,
+          netTotal,
+          roundCurrency(prevNetTotal - netTotal),
+          prevPaid,
+          newPaid,
+          refundAmount,
+          payload.adjustmentReason?.trim() || '',
+          payload.adjustedBy?.trim() || 'Admin',
+          nowTs
+        );
+      }
+
       db.prepare(
         `UPDATE invoices
          SET doctor_id = ?, subtotal = ?, discount_type = ?, discount_value = ?, discount_amount = ?, discount_pct = ?,
+             adjustment_amount = ?, adjustment_reason = ?, adjusted_by = ?, adjusted_at = ?,
              net_total = ?, paid_amount = ?, due_amount = ?, payment_status = ?,
              commission_pct = ?, commission_amount = ?, commission_type = ?, commission_value = ?, notes = ?
          WHERE id = ?`
@@ -1756,6 +1831,12 @@ export class SqliteLimsStore implements LimsStore {
         dVal,
         discountAmount,
         discountPct,
+        nextAdjustmentAmount,
+        payload.isAdmin && payload.adjustmentReason !== undefined
+          ? payload.adjustmentReason.trim()
+          : (existingInv as { adjustment_reason?: string }).adjustment_reason || '',
+        adjChanged ? payload.adjustedBy?.trim() || 'Admin' : (existingInv as { adjusted_by?: string }).adjusted_by || '',
+        adjChanged ? nowTs : (existingInv as { adjusted_at?: string }).adjusted_at || '',
         netTotal,
         newPaid,
         newDue,
@@ -1833,19 +1914,26 @@ export class SqliteLimsStore implements LimsStore {
       | { id: number; net_total: number; paid_amount: number; due_amount: number }
       | undefined;
     if (!inv) throw new StoreError(404, 'Invoice not found.');
+    if (inv.due_amount <= 0) {
+      throw new StoreError(400, 'This invoice has no pending due balance.');
+    }
     if (payAmt > inv.due_amount + 0.01) {
       throw new StoreError(400, `Payment exceeds current due of ৳${inv.due_amount}.`);
     }
 
-    const newPaid = Math.round((inv.paid_amount + payAmt) * 100) / 100;
+    const appliedPay = Math.min(payAmt, inv.due_amount);
+    const newPaid = Math.round((inv.paid_amount + appliedPay) * 100) / 100;
     const newDue = Math.max(0, Math.round((inv.net_total - newPaid) * 100) / 100);
     const newStatus = newDue <= 0 ? 'Paid' : 'Partial';
     const nowTs = getLocalTimestampStr();
 
     db.transaction(() => {
-      db.prepare('INSERT INTO due_payments (invoice_id, amount, payment_method, note, collected_by, collected_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+      db.prepare(
+        `INSERT INTO due_payments (invoice_id, amount, entry_type, payment_method, note, collected_by, collected_at)
+         VALUES (?, ?, 'payment', ?, ?, ?, ?)`
+      ).run(
         payload.invoiceId,
-        payAmt,
+        appliedPay,
         payload.paymentMethod?.trim() || 'Cash',
         payload.note?.trim() || '',
         payload.isAdmin ? 'Admin' : 'Staff',
@@ -1860,6 +1948,180 @@ export class SqliteLimsStore implements LimsStore {
     })();
 
     return (await this.getFullInvoice(payload.invoiceId, payload.isAdmin, true))!;
+  }
+
+  async adjustInvoiceBill(payload: AdjustInvoiceBillPayload): Promise<Record<string, unknown>> {
+    const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(payload.invoiceId) as
+      | {
+          id: number;
+          doctor_id: number | null;
+          subtotal: number;
+          discount_amount: number;
+          adjustment_amount?: number;
+          net_total: number;
+          paid_amount: number;
+          due_amount: number;
+          commission_type?: string;
+          commission_value?: number;
+          commission_pct: number;
+        }
+      | undefined;
+    if (!inv) throw new StoreError(404, 'Invoice not found.');
+
+    const baseNetAfterDiscount = Math.max(0, roundCurrency(Number(inv.subtotal) - Number(inv.discount_amount)));
+    let targetNet = Number(inv.net_total);
+
+    if (payload.targetNetTotal !== undefined && payload.targetNetTotal !== null) {
+      const parsed = Number(payload.targetNetTotal);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new StoreError(400, 'Adjusted Net Bill must be 0 or greater.');
+      }
+      targetNet = roundCurrency(parsed);
+    } else if (payload.reductionAmount !== undefined && payload.reductionAmount !== null) {
+      const reduction = Number(payload.reductionAmount);
+      if (!Number.isFinite(reduction) || reduction < 0) {
+        throw new StoreError(400, 'Reduction amount must be 0 or greater.');
+      }
+      targetNet = Math.max(0, roundCurrency(Number(inv.net_total) - reduction));
+    } else {
+      throw new StoreError(400, 'Provide either targetNetTotal or reductionAmount.');
+    }
+
+    const newAdjustmentAmount = roundCurrency(baseNetAfterDiscount - targetNet);
+    const prevNet = Number(inv.net_total);
+    const prevPaid = Number(inv.paid_amount);
+    const refundExcess = payload.refundExcess !== false;
+
+    let refundAmount = 0;
+    let newPaid = prevPaid;
+    let newDue = 0;
+    let newStatus: 'Paid' | 'Partial' | 'Due' = 'Paid';
+
+    if (prevPaid > targetNet) {
+      if (refundExcess) {
+        refundAmount = roundCurrency(prevPaid - targetNet);
+        newPaid = targetNet;
+      }
+      newDue = 0;
+      newStatus = 'Paid';
+    } else {
+      newDue = Math.max(0, roundCurrency(targetNet - newPaid));
+      newStatus = newDue <= 0 ? 'Paid' : newPaid > 0 ? 'Partial' : 'Due';
+    }
+
+    const invTests = db
+      .prepare('SELECT id, test_id, price, commission_type, commission_value FROM invoice_tests WHERE invoice_id = ?')
+      .all(payload.invoiceId) as Array<{
+      id: number;
+      test_id: number;
+      price: number;
+      commission_type?: string;
+      commission_value?: number;
+    }>;
+
+    let docCommissionPct = 0;
+    if (inv.doctor_id) {
+      const doc = db.prepare('SELECT commission_pct FROM doctors WHERE id = ?').get(inv.doctor_id) as
+        | { commission_pct: number }
+        | undefined;
+      if (doc) docCommissionPct = Number(doc.commission_pct || 0);
+    }
+
+    const resolvedMode: 'doctor_default' | 'custom_invoice' | 'custom_per_test' =
+      inv.commission_type === 'per_test'
+        ? 'custom_per_test'
+        : inv.commission_type === 'flat' ||
+          (typeof inv.commission_value === 'number' && Math.abs(inv.commission_value - docCommissionPct) > 0.01)
+        ? 'custom_invoice'
+        : 'doctor_default';
+
+    const computedComm = computeInvoiceCommission({
+      tests: invTests.map((it) => ({ test_id: it.test_id, price: Number(it.price) })),
+      subtotal: Number(inv.subtotal),
+      netTotal: targetNet,
+      hasDoctor: Boolean(inv.doctor_id),
+      doctorCommissionPct: docCommissionPct,
+      commissionMode: resolvedMode,
+      commissionType: inv.commission_type === 'flat' ? 'flat' : 'percent',
+      commissionValue: typeof inv.commission_value === 'number' ? inv.commission_value : inv.commission_pct,
+      testCommissions: invTests.map((it) => ({
+        testId: it.test_id,
+        commissionType: it.commission_type === 'flat' ? 'flat' : 'percent',
+        commissionValue: typeof it.commission_value === 'number' ? it.commission_value : docCommissionPct,
+      })),
+    });
+
+    const nowTs = getLocalTimestampStr();
+    const reason = payload.reason?.trim() || '';
+    const adjustedBy = payload.adjustedBy?.trim() || 'Admin';
+
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE invoices
+         SET adjustment_amount = ?, adjustment_reason = ?, adjusted_by = ?, adjusted_at = ?,
+             net_total = ?, paid_amount = ?, due_amount = ?, payment_status = ?,
+             commission_pct = ?, commission_amount = ?, commission_type = ?, commission_value = ?
+         WHERE id = ?`
+      ).run(
+        newAdjustmentAmount,
+        reason,
+        adjustedBy,
+        nowTs,
+        targetNet,
+        newPaid,
+        newDue,
+        newStatus,
+        computedComm.invoiceCommissionPct,
+        computedComm.invoiceCommissionAmount,
+        computedComm.invoiceCommissionType,
+        computedComm.invoiceCommissionValue,
+        payload.invoiceId
+      );
+
+      const updIt = db.prepare(
+        `UPDATE invoice_tests SET commission_type = ?, commission_value = ?, commission_amount = ? WHERE id = ?`
+      );
+      for (const it of invTests) {
+        const tc = computedComm.perTestMap.get(it.test_id);
+        if (tc) {
+          updIt.run(tc.commission_type, tc.commission_value, tc.commission_amount, it.id);
+        }
+      }
+
+      if (refundAmount > 0) {
+        db.prepare(
+          `INSERT INTO due_payments (invoice_id, amount, entry_type, payment_method, note, collected_by, collected_at)
+           VALUES (?, ?, 'refund', ?, ?, ?, ?)`
+        ).run(
+          payload.invoiceId,
+          -refundAmount,
+          payload.refundMethod?.trim() || 'Cash',
+          reason ? `Admin Bill Reduction Refund: ${reason}` : 'Admin Bill Reduction Refund',
+          adjustedBy,
+          nowTs
+        );
+      }
+
+      db.prepare(
+        `INSERT INTO invoice_adjustments (
+          invoice_id, previous_net_total, new_net_total, adjustment_delta,
+          previous_paid_amount, new_paid_amount, refund_amount, reason, adjusted_by, adjusted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        payload.invoiceId,
+        prevNet,
+        targetNet,
+        roundCurrency(prevNet - targetNet),
+        prevPaid,
+        newPaid,
+        refundAmount,
+        reason,
+        adjustedBy,
+        nowTs
+      );
+    })();
+
+    return (await this.getFullInvoice(payload.invoiceId, true, true))!;
   }
 
   async deleteInvoiceEntry(invoiceId: number): Promise<{
@@ -1902,6 +2164,7 @@ export class SqliteLimsStore implements LimsStore {
         deletedResultsCount = resDel.changes;
       }
 
+      db.prepare('DELETE FROM invoice_adjustments WHERE invoice_id = ?').run(invoiceId);
       db.prepare('DELETE FROM due_payments WHERE invoice_id = ?').run(invoiceId);
       const testsDel = db.prepare('DELETE FROM invoice_tests WHERE invoice_id = ?').run(invoiceId);
       deletedTestsCount = testsDel.changes;

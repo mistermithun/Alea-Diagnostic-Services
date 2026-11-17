@@ -57,6 +57,10 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   const [discountType, setDiscountType] = useState<'flat' | 'percent'>('flat');
   const [discountValue, setDiscountValue] = useState('0');
   const [additionalPayment, setAdditionalPayment] = useState('0');
+  const [adjustmentAmount, setAdjustmentAmount] = useState('0');
+  const [adjustmentReason, setAdjustmentReason] = useState('');
+  const [refundExcess, setRefundExcess] = useState(true);
+  const [refundMethod, setRefundMethod] = useState('Cash');
 
   // Admin-only custom doctor commission setup
   const [commissionMode, setCommissionMode] = useState<'doctor_default' | 'custom_invoice' | 'custom_per_test'>('doctor_default');
@@ -86,6 +90,10 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
         setDiscountType(res.invoice.discount_type || 'flat');
         setDiscountValue(String(res.invoice.discount_value ?? 0));
         setAdditionalPayment('0');
+        setAdjustmentAmount(String(res.invoice.adjustment_amount ?? 0));
+        setAdjustmentReason(res.invoice.adjustment_reason || '');
+        setRefundExcess(true);
+        setRefundMethod('Cash');
         setAddedTestIds([]);
         setRemovedInvoiceTestIds([]);
 
@@ -181,15 +189,27 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     return Math.min(newSubtotal, Math.round(amt * 100) / 100);
   }, [newSubtotal, discountType, discountValue]);
 
-  const newNetTotal = Math.max(0, Math.round((newSubtotal - newDiscountAmount) * 100) / 100);
+  const activeAdjAmt = isAdmin
+    ? Number(adjustmentAmount || 0)
+    : Number(fullData?.invoice.adjustment_amount || 0);
+  const newNetTotal = Math.max(
+    0,
+    Math.round((newSubtotal - newDiscountAmount - (Number.isFinite(activeAdjAmt) ? activeAdjAmt : 0)) * 100) / 100
+  );
   const alreadyPaid = Number(fullData?.invoice.paid_amount || 0);
   const maxExtraPay = Math.max(0, Math.round((newNetTotal - alreadyPaid) * 100) / 100);
   const appliedExtraPay = Math.min(maxExtraPay, Math.max(0, Number(additionalPayment || 0)));
-  const newPaidTotal = Math.round((alreadyPaid + appliedExtraPay) * 100) / 100;
-  const newDue = Math.max(0, Math.round((newNetTotal - newPaidTotal) * 100) / 100);
   const overpaidCredit = Math.max(0, Math.round((alreadyPaid - newNetTotal) * 100) / 100);
+  const willRefundAmount = isAdmin && refundExcess && overpaidCredit > 0 ? overpaidCredit : 0;
+  const newPaidTotal =
+    willRefundAmount > 0 ? newNetTotal : Math.round((alreadyPaid + appliedExtraPay) * 100) / 100;
+  const newDue = Math.max(0, Math.round((newNetTotal - newPaidTotal) * 100) / 100);
 
-  const maxStaffPct = Number(settings.max_staff_discount_pct || 15);
+  const rawMaxStaff = settings.max_staff_discount_pct;
+  const maxStaffPct =
+    rawMaxStaff !== undefined && rawMaxStaff !== '' && Number.isFinite(Number(rawMaxStaff))
+      ? Math.min(100, Math.max(0, Number(rawMaxStaff)))
+      : 100;
   const discountChanged =
     fullData !== null &&
     (discountType !== fullData.invoice.discount_type ||
@@ -323,6 +343,10 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
           notes: notes.trim(),
           ...(isAdmin
             ? {
+                adjustmentAmount: Number.isFinite(Number(adjustmentAmount)) ? Number(adjustmentAmount) : 0,
+                adjustmentReason: adjustmentReason.trim(),
+                refundExcess,
+                refundMethod,
                 commissionMode,
                 commissionType: customCommType,
                 commissionValue: Number(customCommValue || 0),
@@ -731,7 +755,21 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
               <h3 className="text-sm font-semibold text-slate-900">04. Updated Billing Summary</h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">Less / Discount</label>
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <label className="block font-medium text-slate-700">Less / Discount</label>
+                    {(isAdmin || maxStaffPct >= 100) && newSubtotal > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDiscountType('percent');
+                          setDiscountValue('100');
+                        }}
+                        className="px-1.5 py-0.5 text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded hover:bg-teal-100"
+                      >
+                        100% Free
+                      </button>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1.5">
                     <select
                       value={discountType}
@@ -788,6 +826,14 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                       -{formatBDT(newDiscountAmount)}
                     </span>
                   </div>
+                  {activeAdjAmt !== 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Admin Adjustment:</span>
+                      <span className="font-mono tabular-nums font-semibold text-amber-700">
+                        {activeAdjAmt > 0 ? `-${formatBDT(activeAdjAmt)}` : `+${formatBDT(Math.abs(activeAdjAmt))}`}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-slate-600">New Net Bill:</span>
                     <span className="font-mono tabular-nums font-bold text-teal-700">
@@ -798,6 +844,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                     <span className="text-slate-600">Total Paid:</span>
                     <span className="font-mono tabular-nums font-semibold text-emerald-700">
                       {formatBDT(newPaidTotal)}
+                      {willRefundAmount > 0 ? ` (-${formatBDT(willRefundAmount)})` : ''}
                     </span>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-slate-200">
@@ -810,7 +857,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                       {formatBDT(newDue)}
                     </span>
                   </div>
-                  {overpaidCredit > 0 && (
+                  {overpaidCredit > 0 && !willRefundAmount && (
                     <div className="flex justify-between text-[11px] text-amber-800 font-medium pt-0.5">
                       <span>Overpaid / Refund Credit:</span>
                       <span className="font-mono tabular-nums">{formatBDT(overpaidCredit)}</span>
@@ -818,6 +865,66 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                   )}
                 </div>
               </div>
+
+              {isAdmin && (
+                <div className="bg-amber-50/60 border border-amber-200 rounded-md p-3 space-y-2.5 text-xs">
+                  <div className="font-semibold text-amber-900">
+                    Admin Bill Amount Reduction / Post-Payment Adjustment
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                        Bill Reduction / Adjustment Amount (BDT)
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={adjustmentAmount}
+                        onChange={(e) => setAdjustmentAmount(e.target.value)}
+                        placeholder="e.g. 200 to reduce net bill by ৳200"
+                        className="w-full px-2.5 py-1.5 text-xs font-mono tabular-nums border border-amber-300 rounded-md bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                        Adjustment Reason (Audit Note)
+                      </label>
+                      <input
+                        type="text"
+                        value={adjustmentReason}
+                        onChange={(e) => setAdjustmentReason(e.target.value)}
+                        placeholder="Reason for bill reduction / correction"
+                        className="w-full px-2.5 py-1.5 text-xs border border-amber-300 rounded-md bg-white"
+                      />
+                    </div>
+                  </div>
+                  {overpaidCredit > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-amber-200/80">
+                      <label className="flex items-center gap-2 font-medium text-amber-950 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={refundExcess}
+                          onChange={(e) => setRefundExcess(e.target.checked)}
+                          className="rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                        />
+                        <span>Refund excess paid cash ({formatBDT(overpaidCredit)}) back to patient</span>
+                      </label>
+                      {refundExcess && (
+                        <select
+                          value={refundMethod}
+                          onChange={(e) => setRefundMethod(e.target.value)}
+                          className="px-2 py-1 text-xs border border-amber-300 rounded bg-white"
+                        >
+                          <option value="Cash">Refund via Cash</option>
+                          <option value="bKash">Refund via bKash</option>
+                          <option value="Nagad">Refund via Nagad</option>
+                          <option value="Bank">Refund via Bank</option>
+                        </select>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Admin-only Patient / Per-Test Commission Override */}
               {isAdmin && doctorId && (

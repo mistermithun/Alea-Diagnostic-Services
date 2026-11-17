@@ -48,6 +48,7 @@ export interface CreateInvoicePayload {
   discountType?: 'percent' | 'flat';
   discountValue?: number;
   paidAmount?: number;
+  paymentMethod?: string;
   notes?: string;
   commissionMode?: 'doctor_default' | 'custom_invoice' | 'custom_per_test';
   commissionType?: 'percent' | 'flat';
@@ -59,6 +60,7 @@ export interface CreateInvoicePayload {
 export interface UpdateInvoicePayload {
   invoiceId: number;
   isAdmin: boolean;
+  adjustedBy?: string;
   patient?: {
     name?: string;
     ageYears?: number;
@@ -74,6 +76,10 @@ export interface UpdateInvoicePayload {
   removeTestIds?: number[];
   discountType?: 'percent' | 'flat';
   discountValue?: number;
+  adjustmentAmount?: number;
+  adjustmentReason?: string;
+  refundExcess?: boolean;
+  refundMethod?: string;
   additionalPayment?: number;
   paymentMethod?: string;
   notes?: string;
@@ -81,6 +87,16 @@ export interface UpdateInvoicePayload {
   commissionType?: 'percent' | 'flat';
   commissionValue?: number;
   testCommissions?: TestCommissionOverride[];
+}
+
+export interface AdjustInvoiceBillPayload {
+  invoiceId: number;
+  targetNetTotal?: number;
+  reductionAmount?: number;
+  reason?: string;
+  refundExcess?: boolean;
+  refundMethod?: string;
+  adjustedBy?: string;
 }
 
 export interface UpdateLabResultsPayload {
@@ -203,6 +219,7 @@ export interface LimsStore {
     note?: string;
     isAdmin: boolean;
   }): Promise<Record<string, unknown>>;
+  adjustInvoiceBill(payload: AdjustInvoiceBillPayload): Promise<Record<string, unknown>>;
   deleteInvoiceEntry(invoiceId: number): Promise<{
     success: boolean;
     deletedInvoiceId: number;

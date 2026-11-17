@@ -66,7 +66,7 @@ const DEFAULT_SETTINGS: LabSettings = {
   lab_address: 'Bank Mor, Halasa Bazar, Mirpur, Kushtia',
   proprietor_name: 'Md. Mishkatur Rahman',
   lab_phone: '+88 01720 660 824',
-  max_staff_discount_pct: '15',
+  max_staff_discount_pct: '100',
   technologist_name: 'Md. Mishkatur Rahman, B.Sc (MLT)',
   technologist_title: 'Medical Technologist (Lab)',
   pathologist_name: 'Dr. Farhana Yasmin, MBBS, M.Phil',
@@ -809,7 +809,7 @@ export default function App() {
           )}
 
           {resolvedTab === 'dues' && (
-            <DueLedgerView onOpenReceipt={handleOpenReceipt} />
+            <DueLedgerView isAdmin={isAdmin} onOpenReceipt={handleOpenReceipt} />
           )}
 
           {resolvedTab === 'catalog' && isAdmin && <TestCatalogView />}

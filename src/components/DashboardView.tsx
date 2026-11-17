@@ -7,6 +7,7 @@ import {
   FlaskConical,
   Printer,
   RefreshCw,
+  ShieldCheck,
   Trash2,
   UserPlus,
 } from 'lucide-react';
@@ -19,7 +20,9 @@ import type {
   StaffOverviewData,
   StaffOverviewPatientGroup,
 } from '../types.ts';
+import { AdminAdjustBillModal } from './AdminAdjustBillModal.tsx';
 import { DeletePatientConfirmModal } from './DeletePatientConfirmModal.tsx';
+import { DuePaymentModal } from './DuePaymentModal.tsx';
 import { SampleTimerControl } from './SampleTimerControl.tsx';
 
 function getTestStatusDotClass(status: string): string {
@@ -69,6 +72,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [error, setError] = useState('');
   const [deleteBanner, setDeleteBanner] = useState('');
   const [deletingInvoice, setDeletingInvoice] = useState<InvoiceSummary | null>(null);
+  const [duePaymentInvoiceId, setDuePaymentInvoiceId] = useState<number | null>(null);
+  const [adjustBillInvoiceId, setAdjustBillInvoiceId] = useState<number | null>(null);
   const [showDailyClosing, setShowDailyClosing] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -482,7 +487,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         />
                       </td>
                       <td className="py-2.5 pr-3 text-right font-mono tabular-nums font-medium whitespace-nowrap">
-                        {formatBDT(inv.net_total)}
+                        <div>{formatBDT(inv.net_total)}</div>
+                        {Number(inv.adjustment_amount || 0) !== 0 && (
+                          <div className="text-[11px] font-semibold text-amber-700">
+                            Adj: {Number(inv.adjustment_amount) > 0 ? `-${formatBDT(inv.adjustment_amount)}` : `+${formatBDT(Math.abs(Number(inv.adjustment_amount)))}`}
+                          </div>
+                        )}
                       </td>
                       <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-red-700 font-medium whitespace-nowrap">
                         {inv.due_amount > 0 ? formatBDT(inv.due_amount) : '—'}
@@ -501,7 +511,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </span>
                       </td>
                       <td className="py-2.5 text-right">
-                        <div className="inline-flex items-center justify-end gap-2">
+                        <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                          {inv.due_amount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setDuePaymentInvoiceId(inv.id)}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 whitespace-nowrap shrink-0"
+                            >
+                              <CreditCard className="w-3 h-3" />
+                              Pay Due
+                            </button>
+                          )}
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => setAdjustBillInvoiceId(inv.id)}
+                              title="Adjust or reduce net bill (Admin only)"
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-md hover:bg-amber-100 whitespace-nowrap shrink-0"
+                            >
+                              <ShieldCheck className="w-3 h-3" />
+                              Adjust Bill
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => onOpenReceipt(inv.id)}
@@ -690,6 +721,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </table>
           </div>
         </>
+      )}
+
+      <DuePaymentModal
+        invoiceId={duePaymentInvoiceId}
+        isAdmin={isAdmin}
+        onClose={() => setDuePaymentInvoiceId(null)}
+        onOpenReceipt={onOpenReceipt}
+        onOpenAdminAdjust={isAdmin ? (invId) => setAdjustBillInvoiceId(invId) : undefined}
+        onPaymentRecorded={async (updated) => {
+          setDeleteBanner(
+            `Payment recorded for ${updated.invoice.invoice_no} (${updated.invoice.patient_name}) · Due: ${formatBDT(updated.invoice.due_amount)}`
+          );
+          await loadData();
+        }}
+      />
+
+      {isAdmin && (
+        <AdminAdjustBillModal
+          invoiceId={adjustBillInvoiceId}
+          onClose={() => setAdjustBillInvoiceId(null)}
+          onAdjusted={async (updated) => {
+            setDeleteBanner(
+              `Admin adjusted bill for ${updated.invoice.invoice_no} (${updated.invoice.patient_name}) · New Net: ${formatBDT(updated.invoice.net_total)} · Due: ${formatBDT(updated.invoice.due_amount)}`
+            );
+            await loadData();
+          }}
+        />
       )}
 
       <DeletePatientConfirmModal

@@ -520,11 +520,43 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
     '/api/invoices/:id',
     requireStaffOrAdmin,
     asyncHandler(async (req, res) => {
-      const body = req.body as Omit<UpdateInvoicePayload, 'invoiceId' | 'isAdmin'>;
+      const body = req.body as Omit<UpdateInvoicePayload, 'invoiceId' | 'isAdmin' | 'adjustedBy'>;
+      const adminPayload = verifyAdminToken(extractTokenFromRequest(req), getSecret());
       const updated = await store.updateInvoice({
         ...body,
         invoiceId: Number(req.params.id),
-        isAdmin: isAdminRequest(req),
+        isAdmin: Boolean(adminPayload),
+        adjustedBy: adminPayload?.name || undefined,
+      });
+      res.json(updated);
+    })
+  );
+
+  app.post(
+    '/api/admin/invoices/:id/adjust-bill',
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const invoiceId = Number(req.params.id);
+      if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
+        res.status(400).json({ error: 'Invalid invoice ID.' });
+        return;
+      }
+      const { targetNetTotal, reductionAmount, reason, refundExcess, refundMethod } = req.body as {
+        targetNetTotal?: number;
+        reductionAmount?: number;
+        reason?: string;
+        refundExcess?: boolean;
+        refundMethod?: string;
+      };
+      const adminPayload = verifyAdminToken(extractTokenFromRequest(req), getSecret());
+      const updated = await store.adjustInvoiceBill({
+        invoiceId,
+        targetNetTotal,
+        reductionAmount,
+        reason,
+        refundExcess,
+        refundMethod,
+        adjustedBy: adminPayload?.name || 'Admin',
       });
       res.json(updated);
     })

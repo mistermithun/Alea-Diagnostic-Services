@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Edit3, FileText, Plus, Printer, Search, Trash2, UserPlus } from 'lucide-react';
+import { Check, CreditCard, Edit3, FileText, Plus, Printer, Search, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import { apiFetch, formatAge, formatBDT, formatDateTime } from '../lib/api.ts';
 import type { DiagnosticTest, Doctor, InvoiceSummary, LabSettings, PatientProfile, TestCategory } from '../types.ts';
+import { AdminAdjustBillModal } from './AdminAdjustBillModal.tsx';
 import { DeletePatientConfirmModal } from './DeletePatientConfirmModal.tsx';
+import { DuePaymentModal } from './DuePaymentModal.tsx';
 import { EditInvoiceModal } from './EditInvoiceModal.tsx';
 import { SampleTimerControl } from './SampleTimerControl.tsx';
 
@@ -48,6 +50,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
   const [discountValue, setDiscountValue] = useState<string>('0');
   const [paidAmount, setPaidAmount] = useState<string>('');
   const [paidTouched, setPaidTouched] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [notes, setNotes] = useState('');
 
   // Admin-only custom doctor commission setup (per-patient or per-test)
@@ -58,10 +61,12 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
     Record<number, { type: 'percent' | 'flat'; value: string }>
   >({});
 
-  // List filter & Edit modal
+  // List filter & Modals
   const [listSearch, setListSearch] = useState('');
   const [todayOnly, setTodayOnly] = useState(true);
   const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
+  const [duePaymentInvoiceId, setDuePaymentInvoiceId] = useState<number | null>(null);
+  const [adjustBillInvoiceId, setAdjustBillInvoiceId] = useState<number | null>(null);
   const [deletingInvoice, setDeletingInvoice] = useState<InvoiceSummary | null>(null);
   const [listBanner, setListBanner] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -147,7 +152,11 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
 
   const effectivePaid = Math.min(netTotal, Math.max(0, Number(paidAmount || 0)));
   const dueAmount = Math.max(0, Math.round((netTotal - effectivePaid) * 100) / 100);
-  const maxStaffPct = Number(settings.max_staff_discount_pct || 15);
+  const rawMaxStaff = settings.max_staff_discount_pct;
+  const maxStaffPct =
+    rawMaxStaff !== undefined && rawMaxStaff !== '' && Number.isFinite(Number(rawMaxStaff))
+      ? Math.min(100, Math.max(0, Number(rawMaxStaff)))
+      : 100;
   const currentDiscountPct = subtotal > 0 ? Math.round(((discountAmount / subtotal) * 100) * 100) / 100 : 0;
   const exceedsStaffCap = !isAdmin && currentDiscountPct > maxStaffPct + 0.01;
 
@@ -279,6 +288,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
     setDiscountValue('0');
     setPaidAmount('0');
     setPaidTouched(false);
+    setPaymentMethod('Cash');
     setNotes('');
     setCommissionMode('doctor_default');
     setCustomCommType('percent');
@@ -336,6 +346,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
           discountType,
           discountValue: Number(discountValue || 0),
           paidAmount: effectivePaid,
+          paymentMethod,
           notes: notes.trim(),
           ...(isAdmin
             ? {
@@ -742,27 +753,41 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
 
               {/* Less / Discount */}
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <label className="text-xs font-medium text-slate-700">Less / Discount</label>
-                  <div className="flex items-center gap-1 p-0.5 bg-slate-100 rounded-md">
-                    <button
-                      type="button"
-                      onClick={() => setDiscountType('flat')}
-                      className={`px-2 py-0.5 text-xs font-medium rounded ${
-                        discountType === 'flat' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-                      }`}
-                    >
-                      ৳ Flat
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDiscountType('percent')}
-                      className={`px-2 py-0.5 text-xs font-medium rounded ${
-                        discountType === 'percent' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-                      }`}
-                    >
-                      % Pct
-                    </button>
+                  <div className="flex items-center gap-1.5">
+                    {(isAdmin || maxStaffPct >= 100) && subtotal > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDiscountType('percent');
+                          setDiscountValue('100');
+                        }}
+                        className="px-2 py-0.5 text-[11px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded hover:bg-teal-100"
+                      >
+                        100% Free
+                      </button>
+                    )}
+                    <div className="flex items-center gap-1 p-0.5 bg-slate-100 rounded-md">
+                      <button
+                        type="button"
+                        onClick={() => setDiscountType('flat')}
+                        className={`px-2 py-0.5 text-xs font-medium rounded ${
+                          discountType === 'flat' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
+                        }`}
+                      >
+                        ৳ Flat
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDiscountType('percent')}
+                        className={`px-2 py-0.5 text-xs font-medium rounded ${
+                          discountType === 'percent' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
+                        }`}
+                      >
+                        % Pct
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <input
@@ -774,11 +799,16 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                   className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
                 />
                 <div className="flex items-center justify-between text-xs text-slate-600">
-                  <span>Recorded Discount</span>
+                  <span>Recorded Discount (Cap: {isAdmin ? '100% Admin' : `${maxStaffPct}%`})</span>
                   <span className="font-mono tabular-nums font-semibold text-amber-700">
                     -{formatBDT(discountAmount)} ({currentDiscountPct}%)
                   </span>
                 </div>
+                {subtotal > 0 && netTotal === 0 && (
+                  <p className="text-xs font-medium text-teal-700">
+                    100% Complimentary / Free Testing applied (Net Payable: ৳0).
+                  </p>
+                )}
                 {exceedsStaffCap && (
                   <p className="text-xs font-medium text-red-600">
                     Exceeds Staff discount limit ({maxStaffPct}%). Admin approval required.
@@ -925,20 +955,66 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Paid Amount (BDT)</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={netTotal}
-                  step="any"
-                  value={paidAmount}
-                  onChange={(e) => {
-                    setPaidTouched(true);
-                    setPaidAmount(e.target.value);
-                  }}
-                  className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
-                />
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block text-xs font-medium text-slate-700">Paid Amount (BDT)</label>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaidTouched(true);
+                        setPaidAmount('0');
+                      }}
+                      className={`px-2 py-0.5 text-[11px] font-semibold rounded border transition-colors ${
+                        paidTouched && Number(paidAmount || 0) === 0
+                          ? 'bg-amber-100 text-amber-900 border-amber-300'
+                          : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                      }`}
+                    >
+                      ৳0 Credit (Due)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaidTouched(false);
+                        setPaidAmount(String(netTotal));
+                      }}
+                      className="px-2 py-0.5 text-[11px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded hover:bg-teal-100"
+                    >
+                      Full Pay
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    max={netTotal}
+                    step="any"
+                    value={paidAmount}
+                    onChange={(e) => {
+                      setPaidTouched(true);
+                      setPaidAmount(e.target.value);
+                    }}
+                    className="col-span-2 px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                  />
+                  <select
+                    value={paymentMethod}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                    className="px-2.5 py-2 text-xs border border-slate-300 rounded-lg bg-white"
+                    aria-label="Payment method"
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="bKash">bKash</option>
+                    <option value="Nagad">Nagad</option>
+                    <option value="Bank">Bank</option>
+                  </select>
+                </div>
+                {netTotal > 0 && effectivePaid === 0 && (
+                  <p className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5">
+                    Credit / Unpaid Entry: Patient will be saved with ৳0 paid and {formatBDT(netTotal)} due. Tests & reports proceed normally.
+                  </p>
+                )}
               </div>
 
               <div className="flex justify-between items-center text-sm">
@@ -1141,7 +1217,12 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                           )}
                         </td>
                         <td className="py-3 pr-3 text-right font-mono tabular-nums font-medium">
-                          {formatBDT(inv.net_total)}
+                          <div>{formatBDT(inv.net_total)}</div>
+                          {Number(inv.adjustment_amount || 0) !== 0 && (
+                            <div className="text-[11px] font-semibold text-amber-700">
+                              Adj: {Number(inv.adjustment_amount) > 0 ? `-${formatBDT(inv.adjustment_amount)}` : `+${formatBDT(Math.abs(Number(inv.adjustment_amount)))}`}
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 pr-3 text-right font-mono tabular-nums text-emerald-700">
                           {formatBDT(inv.paid_amount)}
@@ -1150,7 +1231,36 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                           {inv.due_amount > 0 ? formatBDT(inv.due_amount) : '—'}
                         </td>
                         <td className="py-3 text-right">
-                          <div className="inline-flex items-center gap-2">
+                          <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setListBanner('');
+                                setDuePaymentInvoiceId(inv.id);
+                              }}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border whitespace-nowrap shrink-0 ${
+                                inv.due_amount > 0
+                                  ? 'text-emerald-800 bg-emerald-50 border-emerald-300 hover:bg-emerald-100'
+                                  : 'text-slate-700 bg-white border-slate-300 hover:bg-slate-100'
+                              }`}
+                            >
+                              <CreditCard className="w-3.5 h-3.5" />
+                              {inv.due_amount > 0 ? 'Pay Due' : 'Ledger'}
+                            </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setListBanner('');
+                                  setAdjustBillInvoiceId(inv.id);
+                                }}
+                                title="Adjust or reduce net bill (Admin only)"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-300 rounded-md hover:bg-amber-100 whitespace-nowrap shrink-0"
+                              >
+                                <ShieldCheck className="w-3.5 h-3.5" />
+                                Adjust Bill
+                              </button>
+                            )}
                             {canEdit && (
                               <button
                                 type="button"
@@ -1227,6 +1337,39 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
             if (printReceipt) {
               onOpenReceipt(updated.id);
             }
+          }}
+        />
+      )}
+
+      <DuePaymentModal
+        invoiceId={duePaymentInvoiceId}
+        isAdmin={isAdmin}
+        onClose={() => setDuePaymentInvoiceId(null)}
+        onOpenReceipt={onOpenReceipt}
+        onOpenAdminAdjust={isAdmin ? (invId) => setAdjustBillInvoiceId(invId) : undefined}
+        onPaymentRecorded={async (updated) => {
+          setInvoices((prev) =>
+            prev.map((inv) => (inv.id === updated.invoice.id ? { ...inv, ...updated.invoice } : inv))
+          );
+          setListBanner(
+            `Updated payment for ${updated.invoice.invoice_no} (${updated.invoice.patient_name}) · Remaining due: ${formatBDT(updated.invoice.due_amount)}`
+          );
+          await loadInvoices();
+        }}
+      />
+
+      {isAdmin && (
+        <AdminAdjustBillModal
+          invoiceId={adjustBillInvoiceId}
+          onClose={() => setAdjustBillInvoiceId(null)}
+          onAdjusted={async (updated) => {
+            setInvoices((prev) =>
+              prev.map((inv) => (inv.id === updated.invoice.id ? { ...inv, ...updated.invoice } : inv))
+            );
+            setListBanner(
+              `Admin adjusted bill for ${updated.invoice.invoice_no} (${updated.invoice.patient_name}) · New Net: ${formatBDT(updated.invoice.net_total)} · Due: ${formatBDT(updated.invoice.due_amount)}`
+            );
+            await loadInvoices();
           }}
         />
       )}

@@ -182,6 +182,9 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                 className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg"
                 required
               />
+              <p className="text-[11px] text-slate-500 mt-1">
+                0–100% (100% lets staff authorize up to 100% complimentary/free testing).
+              </p>
             </div>
           </div>
 

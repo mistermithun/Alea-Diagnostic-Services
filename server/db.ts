@@ -185,12 +185,28 @@ export function initDatabase() {
       created_by TEXT DEFAULT 'Admin',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS invoice_adjustments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_id INTEGER NOT NULL,
+      previous_net_total REAL NOT NULL,
+      new_net_total REAL NOT NULL,
+      adjustment_delta REAL NOT NULL,
+      previous_paid_amount REAL NOT NULL DEFAULT 0,
+      new_paid_amount REAL NOT NULL DEFAULT 0,
+      refund_amount REAL NOT NULL DEFAULT 0,
+      reason TEXT DEFAULT '',
+      adjusted_by TEXT DEFAULT 'Admin',
+      adjusted_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+    );
   `);
 
   migratePatientPortalColumns();
   migrateTestParameterDefaults();
   migrateInvoiceTestConsultantColumns();
   migrateCommissionTrackingColumns();
+  migrateBillingAndDiscountEnhancements();
   seedDefaultSettings();
   seedCatalogIfEmpty();
   syncExtendedCatalogV2();
@@ -198,6 +214,47 @@ export function initDatabase() {
   migrateCbcParameters();
   migrateUrineReParameters();
   ensurePatientPortalCredentials();
+}
+
+function migrateBillingAndDiscountEnhancements() {
+  const invCols = new Set(
+    (db.prepare(`PRAGMA table_info(invoices)`).all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  if (!invCols.has('adjustment_amount')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN adjustment_amount REAL NOT NULL DEFAULT 0`);
+  }
+  if (!invCols.has('adjustment_reason')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN adjustment_reason TEXT DEFAULT ''`);
+  }
+  if (!invCols.has('adjusted_by')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN adjusted_by TEXT DEFAULT ''`);
+  }
+  if (!invCols.has('adjusted_at')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN adjusted_at TEXT DEFAULT ''`);
+  }
+  if (!invCols.has('initial_payment_method')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN initial_payment_method TEXT DEFAULT 'Cash'`);
+  }
+
+  const dpCols = new Set(
+    (db.prepare(`PRAGMA table_info(due_payments)`).all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  if (!dpCols.has('entry_type')) {
+    db.exec(`ALTER TABLE due_payments ADD COLUMN entry_type TEXT NOT NULL DEFAULT 'payment'`);
+  }
+
+  const migratedRow = db
+    .prepare(`SELECT value FROM settings WHERE key = 'staff_discount_limit_100_migrated'`)
+    .get() as { value: string } | undefined;
+  if (migratedRow?.value !== '1') {
+    const capRow = db
+      .prepare(`SELECT value FROM settings WHERE key = 'max_staff_discount_pct'`)
+      .get() as { value: string } | undefined;
+    if (!capRow || capRow.value.trim() === '' || capRow.value.trim() === '15') {
+      db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('max_staff_discount_pct', '100')`).run();
+    }
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('staff_discount_limit_100_migrated', '1')`).run();
+  }
 }
 
 function migrateCommissionTrackingColumns() {
@@ -343,7 +400,7 @@ function seedDefaultSettings() {
     lab_address: 'Bank Mor, Halasa Bazar, Mirpur, Kushtia',
     proprietor_name: 'Md. Mishkatur Rahman',
     lab_phone: '+88 01720 660 824',
-    max_staff_discount_pct: '15',
+    max_staff_discount_pct: '100',
     technologist_name: 'Md. Tariqul Islam, B.Sc (MLT)',
     technologist_title: 'Medical Technologist (Lab)',
     pathologist_name: 'Dr. Farhana Yasmin, MBBS, M.Phil',
@@ -376,7 +433,9 @@ export function getAllSettings(): Record<string, string> {
     if (
       r.key === 'admin_password_hash' ||
       r.key === 'staff_password_hash' ||
-      r.key === 'auth_secret'
+      r.key === 'auth_secret' ||
+      r.key === 'catalog_v2_synced' ||
+      r.key === 'staff_discount_limit_100_migrated'
     ) {
       continue;
     }

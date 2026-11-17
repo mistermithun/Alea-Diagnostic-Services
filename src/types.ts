@@ -118,6 +118,11 @@ export interface InvoiceSummary {
   paid_amount: number;
   due_amount: number;
   payment_status: 'Paid' | 'Partial' | 'Due';
+  adjustment_amount?: number;
+  adjustment_reason?: string;
+  adjusted_by?: string;
+  adjusted_at?: string;
+  initial_payment_method?: string;
   commission_type?: 'percent' | 'flat' | 'per_test';
   commission_value?: number;
   commission_pct?: number;
@@ -233,16 +238,32 @@ export interface DuePayment {
   id: number;
   invoice_id: number;
   amount: number;
+  entry_type?: 'payment' | 'refund';
   payment_method: string;
   note: string;
   collected_by: string;
   collected_at: string;
 }
 
+export interface InvoiceAdjustment {
+  id: number;
+  invoice_id: number;
+  previous_net_total: number;
+  new_net_total: number;
+  adjustment_delta: number;
+  previous_paid_amount: number;
+  new_paid_amount: number;
+  refund_amount: number;
+  reason: string;
+  adjusted_by: string;
+  adjusted_at: string;
+}
+
 export interface FullInvoice {
   invoice: InvoiceSummary;
   tests: InvoiceTestItem[];
   duePayments: DuePayment[];
+  adjustments?: InvoiceAdjustment[];
 }
 
 export interface LabQueueItem extends InvoiceTestItem {

@@ -223,12 +223,19 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
               )}
               {duePayments.length > 0 && (
                 <div>
-                  <p className="font-semibold text-slate-800 mb-1">Due Payment History</p>
-                  {duePayments.map((dp) => (
-                    <div key={dp.id} className="font-mono tabular-nums text-slate-600">
-                      {formatDateTime(dp.collected_at)} · {formatBDT(dp.amount)} ({dp.payment_method})
-                    </div>
-                  ))}
+                  <p className="font-semibold text-slate-800 mb-1">Payment &amp; Refund History</p>
+                  {duePayments.map((dp) => {
+                    const isRefund = dp.entry_type === 'refund' || Number(dp.amount) < 0;
+                    return (
+                      <div key={dp.id} className="font-mono tabular-nums text-slate-600">
+                        {formatDateTime(dp.collected_at)} ·{' '}
+                        {isRefund
+                          ? `Refund -${formatBDT(Math.abs(dp.amount))}`
+                          : formatBDT(dp.amount)}{' '}
+                        ({dp.payment_method})
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               <p className="pt-1 text-slate-500">
@@ -247,6 +254,16 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
                 </span>
                 <span className="font-mono tabular-nums">- {formatBDT(invoice.discount_amount)}</span>
               </div>
+              {Number(invoice.adjustment_amount || 0) !== 0 && (
+                <div className="flex justify-between text-amber-800">
+                  <span>Bill Adjustment</span>
+                  <span className="font-mono tabular-nums">
+                    {Number(invoice.adjustment_amount) > 0
+                      ? `- ${formatBDT(invoice.adjustment_amount)}`
+                      : `+ ${formatBDT(Math.abs(Number(invoice.adjustment_amount)))}`}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between font-semibold text-slate-900 pt-1.5 border-t border-slate-200">
                 <span>Net Payable</span>
                 <span className="font-mono tabular-nums">{formatBDT(invoice.net_total)}</span>
@@ -316,6 +333,16 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
               <span>Discount:</span>
               <span className="tabular-nums">- {formatBDT(invoice.discount_amount)}</span>
             </div>
+            {Number(invoice.adjustment_amount || 0) !== 0 && (
+              <div className="flex justify-between">
+                <span>Adjustment:</span>
+                <span className="tabular-nums">
+                  {Number(invoice.adjustment_amount) > 0
+                    ? `- ${formatBDT(invoice.adjustment_amount)}`
+                    : `+ ${formatBDT(Math.abs(Number(invoice.adjustment_amount)))}`}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between font-bold text-xs pt-1">
               <span>Net Total:</span>
               <span className="tabular-nums">{formatBDT(invoice.net_total)}</span>

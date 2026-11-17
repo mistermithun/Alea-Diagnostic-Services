@@ -814,59 +814,61 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                         ))}
                       </div>
 
-                      {/* Financial Breakdown: 1. Net Bill, 2. Total Charged (Gross), 3. Discount Given, 4. My Commission */}
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 sm:gap-3 pt-3 border-t border-slate-100 text-xs items-stretch">
-                        {/* 1. Net Bill (Primary Prominent Amount) */}
-                        <div className="flex items-center justify-between sm:flex-col sm:items-start sm:justify-center bg-teal-50/80 border border-teal-200 rounded-xl px-3.5 py-2.5">
+                      {/* Financial Breakdown: 1. Total Charge, 2. Paid Amount, 3. Discount, 4. Due Amount, 5. My Commission */}
+                      <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 sm:gap-3 pt-3 border-t border-slate-100 text-xs items-stretch">
+                        {/* 1. Total Charge (Gross) */}
+                        <div className="flex items-center justify-between sm:flex-col sm:items-start sm:justify-center bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2">
                           <div>
-                            <div className="text-[11px] font-semibold text-teal-900">Net Bill</div>
-                            <div className="text-[10px] text-teal-700 sm:hidden">
-                              {visit.due_amount > 0
-                                ? `Payable · Due ${formatBDT(visit.due_amount)}`
-                                : 'Final payable after discount'}
-                            </div>
+                            <div className="text-[11px] font-medium text-slate-600">Total Charge</div>
+                            <div className="text-[10px] text-slate-400 sm:hidden">Gross bill before discount</div>
                           </div>
                           <div className="text-right sm:text-left">
-                            <div className="font-mono tabular-nums font-extrabold text-slate-950 text-base sm:mt-0.5 leading-tight">
-                              {formatBDT(visit.net_total)}
-                            </div>
-                            <div className="hidden sm:block text-[11px] font-medium text-teal-800 mt-0.5">
-                              {visit.due_amount > 0 ? `Due ${formatBDT(visit.due_amount)}` : 'Final payable'}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* 2. Total Charged / Gross Amount */}
-                        <div className="flex items-center justify-between sm:flex-col sm:items-start sm:justify-center px-1 sm:px-2 py-1 sm:py-2">
-                          <div>
-                            <div className="text-[11px] text-slate-500">Total Charged (Gross)</div>
-                            <div className="text-[10px] text-slate-400 sm:hidden">Before discount</div>
-                          </div>
-                          <div className="text-right sm:text-left">
-                            <div className="font-mono tabular-nums font-semibold text-slate-800 text-sm sm:mt-0.5">
+                            <div className="font-mono tabular-nums font-bold text-slate-900 text-sm sm:mt-0.5">
                               {formatBDT(visit.subtotal)}
                             </div>
                             <div className="hidden sm:block text-[11px] text-slate-500 mt-0.5">
-                              Before discount
+                              Gross bill
                             </div>
                           </div>
                         </div>
 
-                        {/* 3. Discount Given */}
-                        <div className="flex items-center justify-between sm:flex-col sm:items-start sm:justify-center px-1 sm:px-2 py-1 sm:py-2">
+                        {/* 2. Paid Amount */}
+                        <div className="flex items-center justify-between sm:flex-col sm:items-start sm:justify-center bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2">
                           <div>
-                            <div className="text-[11px] text-slate-500">Discount Given</div>
+                            <div className="text-[11px] font-medium text-slate-600">Paid Amount</div>
+                            <div className="text-[10px] text-slate-400 sm:hidden">
+                              {visit.paid_amount > 0 ? 'Patient paid' : 'Not yet paid'}
+                            </div>
+                          </div>
+                          <div className="text-right sm:text-left">
+                            <div
+                              className={`font-mono tabular-nums font-bold text-sm sm:mt-0.5 ${
+                                visit.paid_amount > 0 ? 'text-emerald-700' : 'text-slate-500'
+                              }`}
+                            >
+                              {formatBDT(visit.paid_amount)}
+                            </div>
+                            <div className="hidden sm:block text-[11px] text-slate-500 mt-0.5">
+                              {visit.paid_amount > 0 ? 'Collected' : 'Unpaid'}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 3. Discount */}
+                        <div className="flex items-center justify-between sm:flex-col sm:items-start sm:justify-center bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2">
+                          <div>
+                            <div className="text-[11px] font-medium text-slate-600">Discount</div>
                             <div className="text-[10px] text-slate-400 sm:hidden">
                               {visit.discount_pct > 0 ? `${visit.discount_pct}% off` : 'No discount'}
                             </div>
                           </div>
                           <div className="text-right sm:text-left">
                             <div
-                              className={`font-mono tabular-nums font-semibold text-sm sm:mt-0.5 ${
-                                visit.discount_amount > 0 ? 'text-amber-700' : 'text-slate-400'
+                              className={`font-mono tabular-nums font-bold text-sm sm:mt-0.5 ${
+                                visit.discount_amount > 0 ? 'text-amber-700' : 'text-slate-500'
                               }`}
                             >
-                              {visit.discount_amount > 0 ? formatBDT(visit.discount_amount) : '৳ 0'}
+                              {formatBDT(visit.discount_amount)}
                             </div>
                             <div className="hidden sm:block text-[11px] font-mono tabular-nums text-slate-500 mt-0.5">
                               {visit.discount_pct > 0 ? `${visit.discount_pct}% off` : 'No discount'}
@@ -874,10 +876,36 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                           </div>
                         </div>
 
-                        {/* 4. My Commission */}
-                        <div className="flex items-center justify-between sm:flex-col sm:items-start sm:justify-center px-1 sm:px-2 py-1 sm:py-2">
+                        {/* 4. Due Amount */}
+                        <div className="flex items-center justify-between sm:flex-col sm:items-start sm:justify-center bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2">
                           <div>
-                            <div className="text-[11px] text-slate-500">My Commission</div>
+                            <div className="text-[11px] font-medium text-slate-600">Due Amount</div>
+                            <div className="text-[10px] text-slate-400 sm:hidden">
+                              {visit.due_amount > 0 ? 'Remaining balance' : 'No balance due'}
+                            </div>
+                          </div>
+                          <div className="text-right sm:text-left">
+                            <div
+                              className={`font-mono tabular-nums font-bold text-sm sm:mt-0.5 ${
+                                visit.due_amount > 0 ? 'text-rose-700' : 'text-slate-600'
+                              }`}
+                            >
+                              {formatBDT(visit.due_amount)}
+                            </div>
+                            <div
+                              className={`hidden sm:block text-[11px] font-medium mt-0.5 ${
+                                visit.due_amount > 0 ? 'text-rose-600' : 'text-slate-500'
+                              }`}
+                            >
+                              {visit.due_amount > 0 ? 'Balance due' : 'Fully settled'}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 5. My Commission */}
+                        <div className="flex items-center justify-between sm:flex-col sm:items-start sm:justify-center bg-teal-50/80 border border-teal-200 rounded-xl px-3 py-2">
+                          <div>
+                            <div className="text-[11px] font-semibold text-teal-900">My Commission</div>
                             <div
                               className={`text-[10px] font-medium sm:hidden ${
                                 visit.is_commission_paid ? 'text-emerald-700' : 'text-amber-700'
@@ -887,7 +915,7 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                             </div>
                           </div>
                           <div className="text-right sm:text-left">
-                            <div className="font-mono tabular-nums font-bold text-teal-700 text-sm sm:mt-0.5">
+                            <div className="font-mono tabular-nums font-extrabold text-teal-800 text-sm sm:mt-0.5">
                               {formatBDT(visit.commission_amount)}
                             </div>
                             <div

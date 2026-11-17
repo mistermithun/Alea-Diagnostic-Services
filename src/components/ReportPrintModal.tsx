@@ -479,9 +479,12 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     return segments;
   };
 
-  // Reserve exact vertical clearance above the fixed signature footer on EVERY printed page
-  // (Pad top/bottom blank margins are applied via scoped @page margins so <thead>/<tfoot> stay compact and always repeat)
-  const printFooterReserveHeight = portalMode ? '1.08in' : '1.04in';
+  // Reserve exact vertical clearance above the fixed signature footer + bottom pad margin on EVERY printed page
+  // Because @page uses margin: 0 (suppressing browser URL/date/title headers & footers),
+  // top clearance lives inside repeating <thead>, side clearance lives on .print-a4-page / .print-fixed-footer,
+  // and bottom clearance + signature height live synchronized between <tfoot> and .print-fixed-footer.
+  const printBottomPad = portalMode ? '10mm' : `${bottomMarginIn}in`;
+  const printFooterReserveHeight = `calc(1.22in + ${printBottomPad})`;
 
   return (
     <div
@@ -491,10 +494,8 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
           : 'print-modal-root fixed inset-0 z-50 bg-white overflow-y-auto px-3 py-4 sm:p-6 flex flex-col items-center'
       }
     >
-      {/* Dynamic A4 @page margins scoped to this report modal so Pre-Printed Pad or Digital Letterhead margins apply to EVERY printed page */}
-      <style>{`@media print { @page { size: A4 portrait; margin: ${
-        portalMode ? '8mm 12mm 8mm 12mm' : `${topMarginIn}in 12mm ${bottomMarginIn}in 12mm`
-      }; } }`}</style>
+      {/* Keep @page margin: 0 so desktop browsers never print auto-generated URLs, dates, or titles */}
+      <style>{`@media print { @page { size: A4 portrait; margin: 0; } }`}</style>
       {/* Print Controls Toolbar (Hidden on Paper) */}
       <div className="w-full max-w-4xl bg-slate-50/80 border border-slate-200 rounded-xl px-4 py-3 mb-4 space-y-2.5 no-print">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -616,26 +617,32 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
 
       {/* Clean White A4 Report Sheet — Repeating Patient Header on Every Page, Intact Large Test Blocks, Swapped Footer */}
       <div
+        style={{ '--print-pad-bottom': printBottomPad } as React.CSSProperties}
         className={`w-full max-w-[210mm] min-h-0 sm:min-h-[295.5mm] flex flex-col justify-between bg-white border border-slate-200 sm:rounded-lg shadow-none text-black print-pure-black print-a4-page ${
           portalMode ? 'p-4 sm:p-8 print-digital-report' : 'px-4 sm:px-10 py-0 print-report-pad'
         }`}
       >
-        {/* Outer Table Shell: guarantees <thead> (Patient Header + QR) and <tfoot> (Footer Clearance Spacer) repeat on EVERY printed A4 page */}
+        {/* Outer Table Shell: guarantees <thead> (Top Margin + Patient Header + QR) and <tfoot> (Footer Clearance Spacer) repeat on EVERY printed A4 page */}
         <table className="print-shell-table w-full border-collapse">
           <thead className="print-shell-head">
             <tr>
               <td className="p-0 pb-2.5 align-top">
-                {/* Screen preview of blank top clearance for pre-printed offset pad (on print, @page margin-top reserves this on EVERY page) */}
-                {!portalMode && (
-                  <div
-                    style={{ height: `${topMarginIn}in` }}
-                    className="no-print border-b border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-400"
-                  >
-                    <span>
+                {/* Top blank clearance inside repeating <thead> (reserves pre-printed pad header on EVERY page when @page margin is 0) */}
+                <div
+                  style={{ height: portalMode ? '10mm' : `${topMarginIn}in` }}
+                  className={
+                    portalMode
+                      ? 'hidden print:block'
+                      : 'border-b border-dashed border-slate-300 print:border-none flex items-center justify-center text-xs text-slate-400 print:block'
+                  }
+                >
+                  {!portalMode && (
+                    <span className="no-print">
                       Blank Header Area ({topMarginIn} inch — Reserved for Pre-Printed Offset Pad)
                     </span>
-                  </div>
-                )}
+                  )}
+                  <span className="hidden print:inline text-[1px] leading-none">&nbsp;</span>
+                </div>
 
                 {/* Full Official Digital Letterhead (Patient Portal / Direct QR Digital PDF Mode only) */}
                 {portalMode && (
@@ -1124,11 +1131,13 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
             });
           })}
 
-          {/* Invisible Bottom Spacer repeated on EVERY printed page so overflowing tables break BEFORE the fixed signature footer */}
-          <tfoot className="print-shell-foot hidden print:table-footer-group">
+          {/* Synchronized Bottom Spacer repeated on EVERY printed page so table rows always break cleanly ABOVE the fixed signature footer */}
+          <tfoot className="print-shell-foot">
             <tr aria-hidden="true">
               <td className="p-0">
-                <div style={{ height: printFooterReserveHeight }} />
+                <div style={{ height: printFooterReserveHeight }} className="text-[1px] leading-none">
+                  &nbsp;
+                </div>
               </td>
             </tr>
           </tfoot>

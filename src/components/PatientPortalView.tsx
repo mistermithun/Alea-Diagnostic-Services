@@ -239,7 +239,7 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
               <div className="font-semibold text-teal-900">How to find your login details:</div>
               <ol className="list-decimal list-inside space-y-1 text-slate-700">
                 <li>Check the <span className="font-semibold">Online Report Portal Access</span> box on your lab cash memo or money receipt.</li>
-                <li>Enter your <span className="font-mono font-semibold text-slate-900">Patient ID</span> (example: <span className="font-mono">ALEA-2601</span>) and 6-character <span className="font-semibold">Portal Password</span> below.</li>
+                <li>Enter your <span className="font-mono font-semibold text-slate-900">Patient ID</span> and 6-character <span className="font-semibold">Portal Password</span> below.</li>
               </ol>
             </div>
 
@@ -256,7 +256,7 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
                     autoFocus
                     value={patientUid}
                     onChange={(e) => setPatientUid(e.target.value)}
-                    placeholder="e.g. ALEA-2601"
+                    placeholder="Enter your Patient ID"
                     className="w-full pl-10 pr-4 py-2.5 text-sm font-mono uppercase border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
                     required
                   />
@@ -303,9 +303,6 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
               </div>
               <p>
                 For your privacy, only reports registered under your personal Patient ID are accessible here.
-              </p>
-              <p className="font-mono text-slate-600 pt-1">
-                Sample Patient: ALEA-2601 · Password: <span className="font-semibold">ALEA61</span>
               </p>
             </div>
           </div>

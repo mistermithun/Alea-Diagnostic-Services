@@ -88,9 +88,6 @@ export const AdminLoginView: React.FC<AdminLoginViewProps> = ({
                 required
               />
             </div>
-            <p className="text-[11px] text-slate-500 mt-1.5">
-              Default initial Admin password: <span className="font-mono font-semibold text-slate-700">alea2026</span>
-            </p>
           </div>
 
           {error && (
@@ -219,9 +216,6 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
                 required
               />
             </div>
-            <p className="text-[11px] text-slate-500 mt-1.5">
-              Default initial Staff password: <span className="font-mono font-semibold text-slate-700">staff2026</span>
-            </p>
           </div>
 
           {error && (

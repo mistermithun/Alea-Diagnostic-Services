@@ -125,9 +125,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     required
                   />
                 </div>
-                <p className="text-xs text-slate-500 mt-1.5">
-                  Default initial password is <span className="font-mono font-medium text-slate-700">alea2026</span> (changeable in Admin Settings).
-                </p>
               </div>
 
               {error && (

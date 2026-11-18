@@ -1,15 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
+  Banknote,
   Calendar,
+  CheckCircle2,
   CreditCard,
   FileText,
   FlaskConical,
   Printer,
   RefreshCw,
   ShieldCheck,
+  SlidersHorizontal,
   Trash2,
   UserPlus,
+  X,
 } from 'lucide-react';
 import { apiFetch, formatAge, formatBDT, formatDateTime, getTodayISO } from '../lib/api.ts';
 import type {
@@ -56,6 +60,7 @@ interface DashboardViewProps {
   settings: LabSettings;
   onNavigate: (tab: NavTab) => void;
   onOpenReceipt: (invoiceId: number) => void;
+  onOpenDoctorPayout?: (doctorId: number) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -63,6 +68,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   settings,
   onNavigate,
   onOpenReceipt,
+  onOpenDoctorPayout,
 }) => {
   const [fromDate, setFromDate] = useState(getTodayISO());
   const [toDate, setToDate] = useState(getTodayISO());
@@ -75,6 +81,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [duePaymentInvoiceId, setDuePaymentInvoiceId] = useState<number | null>(null);
   const [adjustBillInvoiceId, setAdjustBillInvoiceId] = useState<number | null>(null);
   const [showDailyClosing, setShowDailyClosing] = useState(false);
+
+  // Interactive Doctor Commission Manage / Disburse Modal state
+  const [commissionModalInvoice, setCommissionModalInvoice] = useState<InvoiceSummary | null>(null);
+  const [commissionModalTab, setCommissionModalTab] = useState<'disburse' | 'manage'>('disburse');
+  const [disburseNote, setDisburseNote] = useState('');
+  const [disbursingCommission, setDisbursingCommission] = useState(false);
+  const [editCommMode, setEditCommMode] = useState<'doctor_default' | 'custom_invoice' | 'custom_per_test'>(
+    'doctor_default'
+  );
+  const [editCustomType, setEditCustomType] = useState<'percent' | 'flat'>('percent');
+  const [editCustomValue, setEditCustomValue] = useState<string>('0');
+  const [editPerTestMap, setEditPerTestMap] = useState<
+    Record<number, { type: 'percent' | 'flat'; value: string }>
+  >({});
+  const [savingCommission, setSavingCommission] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -95,6 +116,112 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       setLoading(false);
     }
   }, [isAdmin, fromDate, toDate]);
+
+  const openCommissionModal = (inv: InvoiceSummary, preferredTab: 'disburse' | 'manage') => {
+    const docDefault = Number(inv.doctor_default_commission_pct ?? inv.commission_pct ?? 0);
+    setCommissionModalInvoice(inv);
+    setCommissionModalTab(
+      preferredTab === 'disburse' && !inv.is_commission_paid && Number(inv.commission_amount || 0) > 0
+        ? 'disburse'
+        : 'manage'
+    );
+    setDisburseNote('');
+    if (inv.commission_type === 'per_test') {
+      setEditCommMode('custom_per_test');
+      setEditCustomType('percent');
+      setEditCustomValue(String(docDefault));
+    } else if (
+      inv.commission_type === 'flat' ||
+      Math.abs(Number(inv.commission_value ?? docDefault) - docDefault) > 0.01
+    ) {
+      setEditCommMode('custom_invoice');
+      setEditCustomType(inv.commission_type === 'flat' ? 'flat' : 'percent');
+      setEditCustomValue(String(inv.commission_value ?? inv.commission_pct ?? 0));
+    } else {
+      setEditCommMode('doctor_default');
+      setEditCustomType('percent');
+      setEditCustomValue(String(docDefault));
+    }
+    const map: Record<number, { type: 'percent' | 'flat'; value: string }> = {};
+    for (const ti of inv.test_items || []) {
+      const key = ti.test_id ?? ti.id;
+      map[key] = {
+        type: ti.commission_type === 'flat' ? 'flat' : 'percent',
+        value: String(ti.commission_value ?? docDefault),
+      };
+    }
+    setEditPerTestMap(map);
+  };
+
+  const handleDisburseCommission = async () => {
+    if (!commissionModalInvoice) return;
+    setDisbursingCommission(true);
+    setError('');
+    try {
+      const res = await apiFetch<{
+        success: boolean;
+        invoiceNo: string;
+        doctorName: string;
+        commissionAmount: number;
+      }>(`/api/admin/invoices/${commissionModalInvoice.id}/disburse-commission`, {
+        method: 'POST',
+        body: JSON.stringify({ note: disburseNote.trim() }),
+      });
+      setCommissionModalInvoice(null);
+      setDisburseNote('');
+      setDeleteBanner(
+        `Disbursed ${formatBDT(res.commissionAmount)} commission to ${res.doctorName} for ${res.invoiceNo} · Master commission pool updated.`
+      );
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to disburse doctor commission.');
+    } finally {
+      setDisbursingCommission(false);
+    }
+  };
+
+  const handleSaveCommissionRate = async () => {
+    if (!commissionModalInvoice) return;
+    setSavingCommission(true);
+    setError('');
+    try {
+      const docDefault = Number(
+        commissionModalInvoice.doctor_default_commission_pct ?? commissionModalInvoice.commission_pct ?? 0
+      );
+      const testCommissions =
+        editCommMode === 'custom_per_test'
+          ? (commissionModalInvoice.test_items || [])
+              .filter((ti) => typeof ti.test_id === 'number')
+              .map((ti) => {
+                const entry = editPerTestMap[ti.test_id!];
+                return {
+                  testId: ti.test_id!,
+                  commissionType: (entry?.type === 'flat' ? 'flat' : 'percent') as 'percent' | 'flat',
+                  commissionValue: entry ? Math.max(0, Number(entry.value || 0)) : docDefault,
+                };
+              })
+          : undefined;
+
+      await apiFetch(`/api/admin/invoices/${commissionModalInvoice.id}/commission`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          commissionMode: editCommMode,
+          commissionType: editCustomType,
+          commissionValue: Math.max(0, Number(editCustomValue || 0)),
+          testCommissions,
+        }),
+      });
+      setCommissionModalInvoice(null);
+      setDeleteBanner(
+        `Updated doctor commission for ${commissionModalInvoice.invoice_no} (${commissionModalInvoice.patient_name}) · Master commission pool and Net Revenue recalculated.`
+      );
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update doctor commission.');
+    } finally {
+      setSavingCommission(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -273,7 +400,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
             <div>
               <div className="text-xs text-slate-500">Gross Billed</div>
               <div className="text-base font-bold font-mono tabular-nums text-slate-900 mt-0.5">
@@ -284,6 +411,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div className="text-xs text-slate-500">Total Less / Discount</div>
               <div className="text-base font-bold font-mono tabular-nums text-amber-700 mt-0.5">
                 - {formatBDT(adminData.metrics.totalDiscount)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Total Revenue (Net − Comm.)</div>
+              <div className="text-base font-bold font-mono tabular-nums text-slate-900 mt-0.5">
+                {formatBDT(adminData.metrics.netRevenue)}
               </div>
             </div>
             <div>
@@ -337,7 +470,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {formatBDT(adminData.metrics.netRevenue)}
               </div>
               <div className="text-xs text-slate-500 mt-2 font-mono tabular-nums">
-                Gross {formatBDT(adminData.metrics.totalBilled)}
+                Net Billed{' '}
+                {formatBDT(
+                  adminData.metrics.totalNetBilled ??
+                    adminData.metrics.netRevenue + adminData.metrics.doctorCommissionPayable
+                )}{' '}
+                − Comm. {formatBDT(adminData.metrics.doctorCommissionPayable)} · Gross{' '}
+                {formatBDT(adminData.metrics.totalBilled)}
               </div>
             </div>
 
@@ -358,8 +497,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-1.5">
                 {formatBDT(adminData.metrics.doctorCommissionPayable)}
               </div>
-              <div className="text-xs text-slate-500 mt-2">
-                Calculated on net patient bills
+              <div className="text-xs text-slate-500 mt-2 font-mono tabular-nums">
+                Unpaid in period {formatBDT(adminData.metrics.unpaidCommissionInRange ?? 0)} · Master Pool{' '}
+                {formatBDT(adminData.metrics.masterUnpaidCommissionPool ?? 0)}
               </div>
             </div>
 
@@ -390,177 +530,272 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          {/* Department Breakdown & Recent Invoices */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <h2 className="text-sm font-semibold text-slate-900 mb-3">Department Test Volume</h2>
-              {adminData.departmentBreakdown.length === 0 ? (
-                <p className="text-xs text-slate-500 py-6 text-center">No tests billed in selected period.</p>
-              ) : (
-                <div className="divide-y divide-slate-200">
-                  {adminData.departmentBreakdown.map((d) => (
-                    <div key={d.category} className="py-2.5 flex items-center justify-between gap-3 text-sm">
-                      <div>
-                        <div className="font-medium text-slate-800">{d.category}</div>
-                        <div className="text-xs text-slate-500 font-mono tabular-nums">{d.testCount} tests</div>
-                      </div>
-                      <div className="font-mono tabular-nums font-semibold text-slate-900">
-                        {formatBDT(d.grossAmount)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-xs text-slate-600">
-                <span>Expenses in period</span>
+          {/* Patient Invoices Table — Filtered Strictly by Selected Period Date Range */}
+          <div className="bg-white border border-slate-200 rounded-xl p-5 overflow-x-auto">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">
+                  Patient Invoices ({adminData.recentInvoices.length})
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Showing all patient invoices registered from{' '}
+                  <span className="font-mono tabular-nums font-medium text-slate-700">
+                    {adminData.from}
+                  </span>{' '}
+                  to{' '}
+                  <span className="font-mono tabular-nums font-medium text-slate-700">
+                    {adminData.to}
+                  </span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onNavigate('billing')}
+                className="text-xs font-medium text-teal-700 hover:underline whitespace-nowrap shrink-0"
+              >
+                View all invoices
+              </button>
+            </div>
+
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+                  <th className="py-2.5 pr-3 font-medium whitespace-nowrap">Invoice / Patient Info</th>
+                  <th className="py-2.5 pr-3 font-medium whitespace-nowrap">Referred By</th>
+                  <th className="py-2.5 pr-3 font-medium">Ordered Tests</th>
+                  <th className="py-2.5 pr-3 font-medium text-right whitespace-nowrap">Net Bill</th>
+                  <th className="py-2.5 pr-3 font-medium text-right whitespace-nowrap">Paid Amount</th>
+                  <th className="py-2.5 pr-3 font-medium text-right whitespace-nowrap">Due Amount</th>
+                  <th className="py-2.5 pr-3 font-medium text-right whitespace-nowrap">Doctor Commission</th>
+                  <th className="py-2.5 font-medium text-right whitespace-nowrap">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {adminData.recentInvoices.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-10 text-center text-sm text-slate-500">
+                      No patient invoices found for the selected period ({adminData.from} to {adminData.to}).
+                    </td>
+                  </tr>
+                ) : (
+                  adminData.recentInvoices.map((inv) => {
+                    const commAmt = Number(inv.commission_amount || 0);
+                    const hasDoctor = Boolean(inv.doctor_id);
+                    const isCommPaid = Boolean(inv.is_commission_paid);
+                    const commRateLabel =
+                      inv.commission_type === 'per_test'
+                        ? `Per-Test (${inv.commission_pct ?? 0}%)`
+                        : inv.commission_type === 'flat'
+                        ? `Flat`
+                        : `${inv.commission_pct ?? 0}%`;
+
+                    return (
+                      <tr key={inv.id} className="hover:bg-slate-50 align-top">
+                        {/* 1. Invoice / Patient Info */}
+                        <td className="py-2.5 pr-3 whitespace-nowrap">
+                          <div className="font-mono tabular-nums text-xs font-semibold text-slate-900">
+                            {inv.invoice_no}
+                          </div>
+                          <div className="font-medium text-slate-900 mt-0.5">{inv.patient_name}</div>
+                          <div className="text-xs text-slate-500 font-mono tabular-nums">
+                            {inv.patient_uid}
+                          </div>
+                        </td>
+
+                        {/* 2. Referred By */}
+                        <td className="py-2.5 pr-3">
+                          <div className="font-medium text-slate-900">
+                            {inv.doctor_name || 'Self'}
+                          </div>
+                          {inv.doctor_degree && (
+                            <div className="text-xs text-slate-500 max-w-[180px] truncate">
+                              {inv.doctor_degree}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 3. Ordered Tests */}
+                        <td className="py-2.5 pr-3">
+                          {inv.test_items && inv.test_items.length > 0 ? (
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap gap-1">
+                                {inv.test_items.map((t) => (
+                                  <span
+                                    key={t.id}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md bg-white border border-slate-200 text-slate-700"
+                                  >
+                                    <span className={`w-1.5 h-1.5 rounded-full ${getTestStatusDotClass(t.status)}`} />
+                                    <span className="truncate max-w-[140px]">{t.test_name}</span>
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="text-[11px] font-mono tabular-nums text-slate-500">
+                                {inv.ready_tests ?? 0}/{inv.total_tests ?? inv.test_items.length} Ready
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
+                        </td>
+
+                        {/* 4. Net Bill */}
+                        <td className="py-2.5 pr-3 text-right font-mono tabular-nums font-medium text-slate-900 whitespace-nowrap">
+                          <div>{formatBDT(inv.net_total)}</div>
+                          {Number(inv.adjustment_amount || 0) !== 0 && (
+                            <div className="text-[11px] font-semibold text-amber-700">
+                              Adj:{' '}
+                              {Number(inv.adjustment_amount) > 0
+                                ? `-${formatBDT(inv.adjustment_amount)}`
+                                : `+${formatBDT(Math.abs(Number(inv.adjustment_amount)))}`}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 5. Paid Amount */}
+                        <td className="py-2.5 pr-3 text-right font-mono tabular-nums font-medium text-teal-700 whitespace-nowrap">
+                          {formatBDT(inv.paid_amount)}
+                        </td>
+
+                        {/* 6. Due Amount */}
+                        <td className="py-2.5 pr-3 text-right font-mono tabular-nums font-medium whitespace-nowrap">
+                          {inv.due_amount > 0 ? (
+                            <span className="text-red-700">{formatBDT(inv.due_amount)}</span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+
+                        {/* 7. Doctor Commission (interactive disburse / manage) */}
+                        <td className="py-2.5 pr-3 text-right whitespace-nowrap">
+                          {hasDoctor ? (
+                            <div className="inline-flex flex-col items-end gap-1">
+                              <div className="font-mono tabular-nums font-semibold text-slate-900">
+                                {formatBDT(commAmt)}
+                              </div>
+                              <div className="text-[11px] text-slate-500 font-mono tabular-nums">
+                                {commRateLabel} ·{' '}
+                                <span
+                                  className={
+                                    isCommPaid ? 'font-semibold text-emerald-700' : 'font-semibold text-amber-700'
+                                  }
+                                >
+                                  {isCommPaid ? 'Paid' : 'Unpaid'}
+                                </span>
+                              </div>
+                              <div className="inline-flex items-center gap-1 mt-0.5">
+                                {!isCommPaid && commAmt > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openCommissionModal(inv, 'disburse')}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 whitespace-nowrap cursor-pointer"
+                                    title="Disburse doctor commission and update master pool"
+                                  >
+                                    <Banknote className="w-3 h-3" />
+                                    Disburse
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => openCommissionModal(inv, 'manage')}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-50 whitespace-nowrap cursor-pointer"
+                                  title="Manage or adjust commission for this patient invoice"
+                                >
+                                  <SlidersHorizontal className="w-3 h-3" />
+                                  Manage
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
+                        </td>
+
+                        {/* 8. Actions */}
+                        <td className="py-2.5 text-right">
+                          <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                            {inv.due_amount > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setDuePaymentInvoiceId(inv.id)}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 whitespace-nowrap shrink-0 cursor-pointer"
+                              >
+                                <CreditCard className="w-3 h-3" />
+                                Pay Due
+                              </button>
+                            )}
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => setAdjustBillInvoiceId(inv.id)}
+                                title="Adjust or reduce net bill (Admin only)"
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-md hover:bg-amber-100 whitespace-nowrap shrink-0 cursor-pointer"
+                              >
+                                <ShieldCheck className="w-3 h-3" />
+                                Adjust Bill
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onOpenReceipt(inv.id)}
+                              className="text-xs font-medium text-teal-700 hover:text-teal-900 whitespace-nowrap cursor-pointer"
+                            >
+                              Print
+                            </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDeleteBanner('');
+                                  setDeletingInvoice(inv);
+                                }}
+                                title="Delete patient record (Admin only)"
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Department Breakdown */}
+          <div className="bg-white border border-slate-200 rounded-xl p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <h2 className="text-sm font-semibold text-slate-900">Department Test Volume</h2>
+              <div className="text-xs text-slate-600">
+                Expenses in period:{' '}
                 <span className="font-mono font-semibold text-red-700 tabular-nums">
                   {formatBDT(adminData.metrics.totalExpenses)}
                 </span>
               </div>
             </div>
-
-            <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5 overflow-x-auto">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-semibold text-slate-900">Recent Patient Invoices</h2>
-                <button
-                  type="button"
-                  onClick={() => onNavigate('billing')}
-                  className="text-xs font-medium text-teal-700 hover:underline whitespace-nowrap shrink-0"
-                >
-                  View all invoices
-                </button>
+            {adminData.departmentBreakdown.length === 0 ? (
+              <p className="text-xs text-slate-500 py-6 text-center">No tests billed in selected period.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {adminData.departmentBreakdown.map((d) => (
+                  <div
+                    key={d.category}
+                    className="p-3 border border-slate-200 rounded-lg flex items-center justify-between gap-3 text-sm"
+                  >
+                    <div>
+                      <div className="font-medium text-slate-800">{d.category}</div>
+                      <div className="text-xs text-slate-500 font-mono tabular-nums">{d.testCount} tests</div>
+                    </div>
+                    <div className="font-mono tabular-nums font-semibold text-slate-900">
+                      {formatBDT(d.grossAmount)}
+                    </div>
+                  </div>
+                ))}
               </div>
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                    <th className="py-2 pr-3 font-medium">Invoice</th>
-                    <th className="py-2 pr-3 font-medium">Patient</th>
-                    <th className="py-2 pr-3 font-medium">Ordered Tests</th>
-                    <th className="py-2 pr-3 font-medium">Sample Timer</th>
-                    <th className="py-2 pr-3 font-medium text-right">Net Bill</th>
-                    <th className="py-2 pr-3 font-medium text-right">Due</th>
-                    <th className="py-2 pr-3 font-medium">Status</th>
-                    <th className="py-2 font-medium text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {adminData.recentInvoices.map((inv) => (
-                    <tr key={inv.id} className="hover:bg-slate-50 align-top">
-                      <td className="py-2.5 pr-3 font-mono tabular-nums text-xs font-semibold text-slate-800 whitespace-nowrap">
-                        {inv.invoice_no}
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <div className="font-medium text-slate-900">{inv.patient_name}</div>
-                        <div className="text-xs text-slate-500 font-mono tabular-nums">{inv.patient_uid}</div>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        {inv.test_items && inv.test_items.length > 0 ? (
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap gap-1">
-                              {inv.test_items.map((t) => (
-                                <span
-                                  key={t.id}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md bg-white border border-slate-200 text-slate-700"
-                                >
-                                  <span className={`w-1.5 h-1.5 rounded-full ${getTestStatusDotClass(t.status)}`} />
-                                  <span className="truncate max-w-[140px]">{t.test_name}</span>
-                                </span>
-                              ))}
-                            </div>
-                            <div className="text-[11px] font-mono tabular-nums text-slate-500">
-                              {inv.ready_tests ?? 0}/{inv.total_tests ?? inv.test_items.length} Ready
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-slate-400">—</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <SampleTimerControl
-                          compact
-                          alignRight={false}
-                          invoiceId={inv.id}
-                          invoiceNo={inv.invoice_no}
-                          patientUid={inv.patient_uid}
-                          patientName={inv.patient_name}
-                          tests={inv.test_items}
-                        />
-                      </td>
-                      <td className="py-2.5 pr-3 text-right font-mono tabular-nums font-medium whitespace-nowrap">
-                        <div>{formatBDT(inv.net_total)}</div>
-                        {Number(inv.adjustment_amount || 0) !== 0 && (
-                          <div className="text-[11px] font-semibold text-amber-700">
-                            Adj: {Number(inv.adjustment_amount) > 0 ? `-${formatBDT(inv.adjustment_amount)}` : `+${formatBDT(Math.abs(Number(inv.adjustment_amount)))}`}
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-2.5 pr-3 text-right font-mono tabular-nums text-red-700 font-medium whitespace-nowrap">
-                        {inv.due_amount > 0 ? formatBDT(inv.due_amount) : '—'}
-                      </td>
-                      <td className="py-2.5 pr-3 text-xs font-semibold whitespace-nowrap">
-                        <span
-                          className={
-                            inv.payment_status === 'Paid'
-                              ? 'text-emerald-700'
-                              : inv.payment_status === 'Partial'
-                              ? 'text-amber-700'
-                              : 'text-red-700'
-                          }
-                        >
-                          {inv.payment_status}
-                        </span>
-                      </td>
-                      <td className="py-2.5 text-right">
-                        <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-                          {inv.due_amount > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => setDuePaymentInvoiceId(inv.id)}
-                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 whitespace-nowrap shrink-0"
-                            >
-                              <CreditCard className="w-3 h-3" />
-                              Pay Due
-                            </button>
-                          )}
-                          {isAdmin && (
-                            <button
-                              type="button"
-                              onClick={() => setAdjustBillInvoiceId(inv.id)}
-                              title="Adjust or reduce net bill (Admin only)"
-                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-md hover:bg-amber-100 whitespace-nowrap shrink-0"
-                            >
-                              <ShieldCheck className="w-3 h-3" />
-                              Adjust Bill
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => onOpenReceipt(inv.id)}
-                            className="text-xs font-medium text-teal-700 hover:text-teal-900 whitespace-nowrap"
-                          >
-                            Print
-                          </button>
-                          {isAdmin && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setDeleteBanner('');
-                                setDeletingInvoice(inv);
-                              }}
-                              title="Delete patient record (Admin only)"
-                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors whitespace-nowrap shrink-0"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            )}
           </div>
         </>
       )}
@@ -763,6 +998,311 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           await loadData();
         }}
       />
+
+      {/* Interactive Doctor Commission Disburse & Manage Modal */}
+      {isAdmin && commissionModalInvoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Doctor Commission · {commissionModalInvoice.invoice_no}
+                </h3>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Patient: <span className="font-medium text-slate-800">{commissionModalInvoice.patient_name}</span>{' '}
+                  · Ref: <span className="font-medium text-slate-800">{commissionModalInvoice.doctor_name || 'Doctor'}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCommissionModalInvoice(null)}
+                className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                aria-label="Close commission modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Summary Strip */}
+            <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 grid grid-cols-3 gap-3 text-xs">
+              <div>
+                <div className="text-slate-500">Net Bill</div>
+                <div className="font-mono tabular-nums font-bold text-slate-900 mt-0.5">
+                  {formatBDT(commissionModalInvoice.net_total)}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-500">Commission</div>
+                <div className="font-mono tabular-nums font-bold text-teal-700 mt-0.5">
+                  {formatBDT(commissionModalInvoice.commission_amount || 0)}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-slate-500">Pool Status</div>
+                <div
+                  className={`font-semibold mt-0.5 ${
+                    commissionModalInvoice.is_commission_paid ? 'text-emerald-700' : 'text-amber-700'
+                  }`}
+                >
+                  {commissionModalInvoice.is_commission_paid ? 'Paid / Settled' : 'Unpaid in Pool'}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Mode Tabs */}
+            <div className="px-5 pt-3 flex items-center gap-2 border-b border-slate-200">
+              {!commissionModalInvoice.is_commission_paid &&
+                Number(commissionModalInvoice.commission_amount || 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setCommissionModalTab('disburse')}
+                    className={`pb-2.5 px-2 text-xs font-semibold border-b-2 transition-colors cursor-pointer ${
+                      commissionModalTab === 'disburse'
+                        ? 'border-teal-600 text-teal-700'
+                        : 'border-transparent text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Disburse Commission
+                  </button>
+                )}
+              <button
+                type="button"
+                onClick={() => setCommissionModalTab('manage')}
+                className={`pb-2.5 px-2 text-xs font-semibold border-b-2 transition-colors cursor-pointer ${
+                  commissionModalTab === 'manage'
+                    ? 'border-teal-600 text-teal-700'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Adjust Rate / Amount
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {commissionModalTab === 'disburse' && !commissionModalInvoice.is_commission_paid ? (
+                <>
+                  <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 space-y-1">
+                    <div className="font-semibold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                      <span>
+                        Confirm disbursement of {formatBDT(commissionModalInvoice.commission_amount || 0)}
+                      </span>
+                    </div>
+                    <p className="text-emerald-800 leading-relaxed">
+                      This marks this patient&apos;s referral commission as Paid, logs a settlement entry for{' '}
+                      {commissionModalInvoice.doctor_name}, and subtracts{' '}
+                      {formatBDT(commissionModalInvoice.commission_amount || 0)} from the master unpaid commission pool.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Settlement Note (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={disburseNote}
+                      onChange={(e) => setDisburseNote(e.target.value)}
+                      placeholder={`e.g. Paid cash for ${commissionModalInvoice.invoice_no}`}
+                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                    {commissionModalInvoice.doctor_id && onOpenDoctorPayout ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const docId = commissionModalInvoice.doctor_id!;
+                          setCommissionModalInvoice(null);
+                          onOpenDoctorPayout(docId);
+                        }}
+                        className="text-xs font-semibold text-teal-700 hover:underline cursor-pointer"
+                      >
+                        Open Full Doctor Payout Pool →
+                      </button>
+                    ) : (
+                      <span />
+                    )}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCommissionModalInvoice(null)}
+                        className="px-3.5 py-2 text-xs font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={disbursingCommission}
+                        onClick={handleDisburseCommission}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 disabled:opacity-50 cursor-pointer"
+                      >
+                        <Banknote className="w-3.5 h-3.5" />
+                        {disbursingCommission
+                          ? 'Disbursing...'
+                          : `Disburse ${formatBDT(commissionModalInvoice.commission_amount || 0)}`}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-2.5">
+                    <label className="block text-xs font-semibold text-slate-700">Commission Mode</label>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setEditCommMode('doctor_default')}
+                        className={`py-2 px-2.5 rounded-lg border font-medium cursor-pointer ${
+                          editCommMode === 'doctor_default'
+                            ? 'bg-slate-900 text-white border-slate-900'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        Doctor Default ({commissionModalInvoice.doctor_default_commission_pct ?? 0}%)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditCommMode('custom_invoice')}
+                        className={`py-2 px-2.5 rounded-lg border font-medium cursor-pointer ${
+                          editCommMode === 'custom_invoice'
+                            ? 'bg-slate-900 text-white border-slate-900'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        Custom Invoice
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditCommMode('custom_per_test')}
+                        className={`py-2 px-2.5 rounded-lg border font-medium cursor-pointer ${
+                          editCommMode === 'custom_per_test'
+                            ? 'bg-slate-900 text-white border-slate-900'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        Per-Test Override
+                      </button>
+                    </div>
+                  </div>
+
+                  {editCommMode === 'custom_invoice' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">Type</label>
+                        <select
+                          value={editCustomType}
+                          onChange={(e) => setEditCustomType(e.target.value as 'percent' | 'flat')}
+                          className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                        >
+                          <option value="percent">Percentage (%)</option>
+                          <option value="flat">Flat Amount (৳)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">
+                          {editCustomType === 'percent' ? 'Rate (%)' : 'Amount (৳)'}
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={editCustomValue}
+                          onChange={(e) => setEditCustomValue(e.target.value)}
+                          className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {editCommMode === 'custom_per_test' && (
+                    <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-200">
+                      {(commissionModalInvoice.test_items || []).map((ti) => {
+                        const key = ti.test_id ?? ti.id;
+                        const entry = editPerTestMap[key] || { type: 'percent', value: '0' };
+                        return (
+                          <div key={ti.id} className="p-2.5 flex items-center justify-between gap-2 text-xs">
+                            <div className="min-w-0">
+                              <div className="font-medium text-slate-900 truncate">{ti.test_name}</div>
+                              <div className="text-slate-500 font-mono tabular-nums">
+                                Fee: {formatBDT(ti.price || 0)}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <select
+                                value={entry.type}
+                                onChange={(e) =>
+                                  setEditPerTestMap((prev) => ({
+                                    ...prev,
+                                    [key]: { ...entry, type: e.target.value as 'percent' | 'flat' },
+                                  }))
+                                }
+                                className="px-2 py-1 border border-slate-300 rounded bg-white"
+                              >
+                                <option value="percent">%</option>
+                                <option value="flat">৳</option>
+                              </select>
+                              <input
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={entry.value}
+                                onChange={(e) =>
+                                  setEditPerTestMap((prev) => ({
+                                    ...prev,
+                                    [key]: { ...entry, value: e.target.value },
+                                  }))
+                                }
+                                className="w-20 px-2 py-1 font-mono tabular-nums border border-slate-300 rounded text-right"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
+                    {commissionModalInvoice.doctor_id && onOpenDoctorPayout ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const docId = commissionModalInvoice.doctor_id!;
+                          setCommissionModalInvoice(null);
+                          onOpenDoctorPayout(docId);
+                        }}
+                        className="text-xs font-semibold text-teal-700 hover:underline cursor-pointer"
+                      >
+                        Open Doctor Payout Pool →
+                      </button>
+                    ) : (
+                      <span />
+                    )}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCommissionModalInvoice(null)}
+                        className="px-3.5 py-2 text-xs font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={savingCommission}
+                        onClick={handleSaveCommissionRate}
+                        className="px-4 py-2 text-xs font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+                      >
+                        {savingCommission ? 'Saving...' : 'Save & Update Pool'}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

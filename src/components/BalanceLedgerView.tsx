@@ -294,7 +294,7 @@ export const BalanceLedgerView: React.FC<BalanceLedgerViewProps> = ({ settings, 
             Balance &amp; Daily Cash Ledger
           </h1>
           <p className="text-sm text-slate-600 mt-0.5">
-            Track daily opening carry-forward, collected lab revenue, non-lab income, and operational expenses or owner withdrawals.
+            Track daily opening carry-forward, net lab revenue (Net Billed − Doctor Commission), non-lab income, and operational expenses or owner withdrawals.
           </p>
         </div>
 
@@ -490,7 +490,7 @@ export const BalanceLedgerView: React.FC<BalanceLedgerViewProps> = ({ settings, 
               Chronological Daily Cash Flow Ledger
             </h2>
             <p className="text-xs text-slate-500">
-              Closing Balance = (Opening Balance + Lab Test Revenue + Revenue from Others) − Daily Expenses &amp; Withdrawals
+              Closing Balance = (Opening Balance + Lab Test Revenue [Net Billed − Doctor Comm.] + Revenue from Others) − Daily Expenses &amp; Withdrawals
             </p>
           </div>
           {ledger && (

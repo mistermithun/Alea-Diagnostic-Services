@@ -915,6 +915,10 @@ export default function App() {
               settings={settings}
               onNavigate={setActiveTab}
               onOpenReceipt={handleOpenReceipt}
+              onOpenDoctorPayout={(docId) => {
+                setSelectedPayoutDoctorId(docId);
+                setActiveTab('payouts');
+              }}
             />
           )}
 

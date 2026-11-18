@@ -1386,24 +1386,53 @@ export class MongoLimsStore implements LimsStore {
       pendingReports,
       readyReportsInRange,
       allDueInvoices,
-      recentInvDocs,
+      allDoctorCommissionInvs,
+      allDoctorsList,
     ] = await Promise.all([
-      this.invoicesCol.find({ created_at: rangeFilter }, { projection: { _id: 0 } }).toArray(),
+      this.invoicesCol.find({ created_at: rangeFilter }, { projection: { _id: 0 } }).sort({ id: -1 }).toArray(),
       this.duePaymentsCol.find({ collected_at: rangeFilter }, { projection: { _id: 0 } }).toArray(),
       this.expensesCol.find({ expense_date: { $gte: from, $lte: to } }, { projection: { _id: 0 } }).toArray(),
       this.invoiceTestsCol.countDocuments({ status: { $ne: 'Ready' } }),
       this.invoiceTestsCol.countDocuments({ status: 'Ready', collected_at: rangeFilter }),
       this.invoicesCol.find({ due_amount: { $gt: 0 } }, { projection: { due_amount: 1 } }).toArray(),
-      this.invoicesCol.find({}, { projection: { _id: 0 } }).sort({ id: -1 }).limit(8).toArray(),
+      this.invoicesCol
+        .find(
+          { doctor_id: { $ne: null } },
+          { projection: { _id: 0, doctor_id: 1, created_at: 1, commission_amount: 1, commission_paid: 1 } }
+        )
+        .toArray(),
+      this.doctorsCol
+        .find({}, { projection: { _id: 0, id: 1, name: 1, degree: 1, hospital: 1, commission_pct: 1, last_commission_paid_up_to: 1 } })
+        .toArray(),
     ]);
 
+    const docMasterMap = new Map(allDoctorsList.map((d) => [d.id, d]));
+
+    let masterUnpaidCommissionPool = 0;
+    for (const ci of allDoctorCommissionInvs) {
+      if (!ci.doctor_id) continue;
+      const doc = docMasterMap.get(ci.doctor_id);
+      const lastPaidUpTo = String(doc?.last_commission_paid_up_to || '').trim();
+      const invDate = datePart(ci.created_at);
+      const isPaid = ci.commission_paid === 1 || (Boolean(lastPaidUpTo) && invDate <= lastPaidUpTo);
+      if (!isPaid) {
+        masterUnpaidCommissionPool = roundCurrency(
+          masterUnpaidCommissionPool + Number(ci.commission_amount || 0)
+        );
+      }
+    }
+
     const rangeInvIds = invoicesInRange.map((i) => i.id);
-    const [allDuePaymentsForRangeInvoices, rangeInvoiceTests] = await Promise.all([
+    const recentPatIds = Array.from(new Set(invoicesInRange.map((i) => i.patient_id)));
+    const [allDuePaymentsForRangeInvoices, rangeInvoiceTests, pats] = await Promise.all([
       rangeInvIds.length > 0
         ? this.duePaymentsCol.find({ invoice_id: { $in: rangeInvIds } }).toArray()
         : Promise.resolve([]),
       rangeInvIds.length > 0
-        ? this.invoiceTestsCol.find({ invoice_id: { $in: rangeInvIds } }).toArray()
+        ? this.invoiceTestsCol.find({ invoice_id: { $in: rangeInvIds } }, { projection: { _id: 0 } }).sort({ id: 1 }).toArray()
+        : Promise.resolve([]),
+      recentPatIds.length > 0
+        ? this.patientsCol.find({ id: { $in: recentPatIds } }, { projection: { _id: 0 } }).toArray()
         : Promise.resolve([]),
     ]);
 
@@ -1414,19 +1443,39 @@ export class MongoLimsStore implements LimsStore {
 
     let totalBilled = 0;
     let totalDiscount = 0;
-    let netRevenue = 0;
+    let totalNetBilled = 0;
     let pendingDueInRange = 0;
     let doctorCommissionPayable = 0;
+    let unpaidCommissionInRange = 0;
+    let paidCommissionInRange = 0;
     let initialPaid = 0;
 
     for (const inv of invoicesInRange) {
       totalBilled += Number(inv.subtotal);
       totalDiscount += Number(inv.discount_amount);
-      netRevenue += Number(inv.net_total);
+      totalNetBilled += Number(inv.net_total);
       pendingDueInRange += Number(inv.due_amount);
-      doctorCommissionPayable += Number(inv.commission_amount);
+      const commAmt = Number(inv.commission_amount || 0);
+      doctorCommissionPayable += commAmt;
       initialPaid += Number(inv.paid_amount) - (dpSumByInvoice.get(inv.id) || 0);
+
+      if (inv.doctor_id) {
+        const doc = docMasterMap.get(inv.doctor_id);
+        const lastPaidUpTo = String(doc?.last_commission_paid_up_to || '').trim();
+        const invDate = datePart(inv.created_at);
+        const isCommPaid =
+          inv.commission_paid === 1 || (Boolean(lastPaidUpTo) && invDate <= lastPaidUpTo);
+        if (isCommPaid) paidCommissionInRange = roundCurrency(paidCommissionInRange + commAmt);
+        else unpaidCommissionInRange = roundCurrency(unpaidCommissionInRange + commAmt);
+      }
     }
+
+    totalBilled = roundCurrency(totalBilled);
+    totalDiscount = roundCurrency(totalDiscount);
+    totalNetBilled = roundCurrency(totalNetBilled);
+    pendingDueInRange = roundCurrency(pendingDueInRange);
+    doctorCommissionPayable = roundCurrency(doctorCommissionPayable);
+    const netRevenue = roundCurrency(totalNetBilled - doctorCommissionPayable);
 
     let dueRecovered = 0;
     let refunded = 0;
@@ -1437,43 +1486,60 @@ export class MongoLimsStore implements LimsStore {
     }
     dueRecovered = roundCurrency(dueRecovered);
     refunded = roundCurrency(refunded);
-    const totalExpenses = expensesInRange.reduce((s, e) => s + Number(e.amount), 0);
+    const totalExpenses = roundCurrency(expensesInRange.reduce((s, e) => s + Number(e.amount), 0));
     const netCollection = roundCurrency(initialPaid + dueRecovered - refunded);
     const netProfit = roundCurrency(netCollection - doctorCommissionPayable - totalExpenses);
-    const allTimeDue = allDueInvoices.reduce((s, i) => s + Number(i.due_amount), 0);
+    const allTimeDue = roundCurrency(allDueInvoices.reduce((s, i) => s + Number(i.due_amount), 0));
 
     const deptMap = new Map<string, { category: string; testCount: number; grossAmount: number }>();
+    const recentTestsByInv = new Map<
+      number,
+      Array<{
+        id: number;
+        test_id: number;
+        test_name: string;
+        category_name: string;
+        status: string;
+        price: number;
+        commission_type: string;
+        commission_value: number;
+        commission_amount: number;
+      }>
+    >();
+
     for (const it of rangeInvoiceTests) {
       const cur = deptMap.get(it.category_name) || { category: it.category_name, testCount: 0, grossAmount: 0 };
       cur.testCount += 1;
       cur.grossAmount += Number(it.price);
       deptMap.set(it.category_name, cur);
+
+      const arr = recentTestsByInv.get(it.invoice_id) || [];
+      arr.push({
+        id: it.id,
+        test_id: it.test_id,
+        test_name: it.test_name,
+        category_name: it.category_name,
+        status: it.status,
+        price: Number(it.price || 0),
+        commission_type: it.commission_type || 'percent',
+        commission_value: Number(it.commission_value || 0),
+        commission_amount: Number(it.commission_amount || 0),
+      });
+      recentTestsByInv.set(it.invoice_id, arr);
     }
     const departmentBreakdown = Array.from(deptMap.values()).sort((a, b) => b.grossAmount - a.grossAmount);
 
-    const recentPatIds = Array.from(new Set(recentInvDocs.map((i) => i.patient_id)));
-    const recentDocIds = Array.from(new Set(recentInvDocs.map((i) => i.doctor_id).filter((id): id is number => id !== null)));
-    const recentInvIds = recentInvDocs.map((i) => i.id);
-    const [pats, docs, recentInvTests] = await Promise.all([
-      this.patientsCol.find({ id: { $in: recentPatIds } }).toArray(),
-      recentDocIds.length > 0 ? this.doctorsCol.find({ id: { $in: recentDocIds } }).toArray() : Promise.resolve([]),
-      recentInvIds.length > 0
-        ? this.invoiceTestsCol.find({ invoice_id: { $in: recentInvIds } }, { projection: { _id: 0 } }).sort({ id: 1 }).toArray()
-        : Promise.resolve([]),
-    ]);
     const patMap = new Map(pats.map((p) => [p.id, p]));
-    const docMap = new Map(docs.map((d) => [d.id, d]));
-    const recentTestsByInv = new Map<number, Array<{ id: number; test_name: string; category_name: string; status: string }>>();
-    for (const it of recentInvTests) {
-      const arr = recentTestsByInv.get(it.invoice_id) || [];
-      arr.push({ id: it.id, test_name: it.test_name, category_name: it.category_name, status: it.status });
-      recentTestsByInv.set(it.invoice_id, arr);
-    }
 
-    const recentInvoices = recentInvDocs.map((inv) => {
+    const recentInvoices = invoicesInRange.map((inv) => {
       const p = patMap.get(inv.patient_id);
-      const d = inv.doctor_id ? docMap.get(inv.doctor_id) : undefined;
+      const d = inv.doctor_id ? docMasterMap.get(inv.doctor_id) : undefined;
       const items = recentTestsByInv.get(inv.id) || [];
+      const lastPaidUpTo = String(d?.last_commission_paid_up_to || '').trim();
+      const invDate = datePart(inv.created_at);
+      const isCommissionPaid =
+        Boolean(inv.doctor_id) &&
+        (inv.commission_paid === 1 || (Boolean(lastPaidUpTo) && invDate <= lastPaidUpTo));
       return {
         ...inv,
         patient_uid: p?.patient_uid || '',
@@ -1484,6 +1550,10 @@ export class MongoLimsStore implements LimsStore {
         gender: p?.gender || 'Male',
         patient_mobile: p?.mobile || '',
         doctor_name: d?.name,
+        doctor_degree: d?.degree,
+        doctor_hospital: d?.hospital,
+        doctor_default_commission_pct: Number(d?.commission_pct ?? 0),
+        is_commission_paid: isCommissionPaid,
         total_tests: items.length,
         ready_tests: items.filter((t) => t.status === 'Ready').length,
         test_items: items,
@@ -1497,11 +1567,15 @@ export class MongoLimsStore implements LimsStore {
         patientsCount: invoicesInRange.length,
         totalBilled,
         totalDiscount,
+        totalNetBilled,
         netRevenue,
         netCollection,
         dueRecovered,
         pendingDueInRange,
         doctorCommissionPayable,
+        unpaidCommissionInRange,
+        paidCommissionInRange,
+        masterUnpaidCommissionPool,
         totalExpenses,
         netProfit,
         pendingReports,
@@ -2206,6 +2280,76 @@ export class MongoLimsStore implements LimsStore {
     }
 
     return (await this.getFullInvoice(payload.invoiceId, true, true))!;
+  }
+
+  async disburseInvoiceCommission(payload: {
+    invoiceId: number;
+    note?: string;
+    settledBy?: string;
+  }): Promise<Record<string, unknown>> {
+    const inv = await this.invoicesCol.findOne({ id: payload.invoiceId });
+    if (!inv) throw new StoreError(404, 'Invoice not found.');
+    if (!inv.doctor_id) throw new StoreError(400, 'No referring doctor is assigned to this invoice.');
+
+    const doctor = await this.doctorsCol.findOne({ id: inv.doctor_id });
+    if (!doctor) throw new StoreError(404, 'Referring doctor not found.');
+
+    const invDate = datePart(inv.created_at);
+    const lastPaidUpTo = (doctor.last_commission_paid_up_to || '').trim();
+    const alreadyPaid = inv.commission_paid === 1 || (Boolean(lastPaidUpTo) && invDate <= lastPaidUpTo);
+    if (alreadyPaid) {
+      throw new StoreError(400, 'Doctor commission for this invoice has already been disbursed.');
+    }
+
+    const commissionAmount = roundCurrency(Number(inv.commission_amount || 0));
+    const nowTs = getLocalTimestampStr();
+    const payoutId = await this.nextSeq('doctor_commission_payouts');
+    const effectiveNote =
+      payload.note?.trim() || `Direct commission disbursement for ${inv.invoice_no}`;
+
+    await this.payoutsCol.insertOne({
+      id: payoutId,
+      doctor_id: doctor.id,
+      from_date: invDate,
+      paid_up_to_date: invDate,
+      patients_count: 1,
+      total_commission_paid: commissionAmount,
+      note: effectiveNote,
+      settled_by: payload.settledBy?.trim() || 'Admin',
+      settled_at: nowTs,
+    });
+
+    await this.invoicesCol.updateOne(
+      { id: inv.id },
+      {
+        $set: {
+          commission_paid: 1,
+          commission_paid_at: nowTs,
+          commission_payout_id: payoutId,
+        },
+      }
+    );
+
+    await this.doctorsCol.updateOne(
+      { id: doctor.id },
+      {
+        $set: {
+          last_commission_settled_at: nowTs,
+          last_commission_paid_amount: commissionAmount,
+        },
+      }
+    );
+
+    return {
+      success: true,
+      payoutId,
+      invoiceId: inv.id,
+      invoiceNo: inv.invoice_no,
+      doctorId: doctor.id,
+      doctorName: doctor.name,
+      commissionAmount,
+      settledAt: nowTs,
+    };
   }
 
   async listInvoices(filters: {
@@ -3723,32 +3867,22 @@ export class MongoLimsStore implements LimsStore {
   }
 
   private async getCumulativeCashBalanceBefore(cutoffDate: string): Promise<number> {
-    const [invDocs, dpDocsBefore, otherDocsBefore, expDocsBefore] = await Promise.all([
-      this.invoicesCol.find({ created_at: { $lt: cutoffDate } }, { projection: { _id: 0, id: 1, paid_amount: 1 } }).toArray(),
-      this.duePaymentsCol.find({ collected_at: { $lt: cutoffDate } }, { projection: { _id: 0, amount: 1 } }).toArray(),
+    const [invDocs, otherDocsBefore, expDocsBefore] = await Promise.all([
+      this.invoicesCol
+        .find({ created_at: { $lt: cutoffDate } }, { projection: { _id: 0, net_total: 1, commission_amount: 1 } })
+        .toArray(),
       this.otherRevenuesCol.find({ revenue_date: { $lt: cutoffDate } }, { projection: { _id: 0, amount: 1 } }).toArray(),
       this.expensesCol.find({ expense_date: { $lt: cutoffDate } }, { projection: { _id: 0, amount: 1 } }).toArray(),
     ]);
 
-    const invIds = invDocs.map((i) => i.id);
-    const allDpForInvs =
-      invIds.length > 0
-        ? await this.duePaymentsCol.find({ invoice_id: { $in: invIds } }, { projection: { _id: 0, invoice_id: 1, amount: 1 } }).toArray()
-        : [];
-    const dpSumByInv = new Map<number, number>();
-    for (const dp of allDpForInvs) {
-      dpSumByInv.set(dp.invoice_id, (dpSumByInv.get(dp.invoice_id) || 0) + Number(dp.amount || 0));
-    }
-
-    let initialBefore = 0;
-    for (const inv of invDocs) {
-      initialBefore += Number(inv.paid_amount || 0) - (dpSumByInv.get(inv.id) || 0);
-    }
-    const dpBefore = dpDocsBefore.reduce((s, d) => s + Number(d.amount || 0), 0);
+    const revBefore = invDocs.reduce(
+      (s, inv) => s + Number(inv.net_total || 0) - Number(inv.commission_amount || 0),
+      0
+    );
     const otherBefore = otherDocsBefore.reduce((s, o) => s + Number(o.amount || 0), 0);
     const expBefore = expDocsBefore.reduce((s, e) => s + Number(e.amount || 0), 0);
 
-    return roundCurrency(initialBefore + dpBefore + otherBefore - expBefore);
+    return roundCurrency(revBefore + otherBefore - expBefore);
   }
 
   async getBalanceLedger(from: string, to: string): Promise<Record<string, unknown>> {
@@ -3773,51 +3907,34 @@ export class MongoLimsStore implements LimsStore {
       priorOpeningBalance,
       todayOpeningBalance,
       rangeInvoices,
-      rangeDuePayments,
       otherRevenues,
       expenses,
       todayInvoices,
-      todayDuePayments,
       todayOtherDocs,
       todayExpenseDocs,
     ] = await Promise.all([
       this.getCumulativeCashBalanceBefore(cleanFrom),
       cleanFrom === today ? Promise.resolve(0) : this.getCumulativeCashBalanceBefore(today),
-      this.invoicesCol.find({ created_at: rangeFilter }, { projection: { _id: 0, id: 1, paid_amount: 1, created_at: 1 } }).toArray(),
-      this.duePaymentsCol.find({ collected_at: rangeFilter }, { projection: { _id: 0, amount: 1, collected_at: 1 } }).toArray(),
+      this.invoicesCol
+        .find({ created_at: rangeFilter }, { projection: { _id: 0, id: 1, net_total: 1, commission_amount: 1, created_at: 1 } })
+        .toArray(),
       this.otherRevenuesCol.find({ revenue_date: { $gte: cleanFrom, $lte: cleanTo } }, { projection: { _id: 0 } }).sort({ revenue_date: -1, id: -1 }).toArray(),
       this.expensesCol.find({ expense_date: { $gte: cleanFrom, $lte: cleanTo } }, { projection: { _id: 0 } }).sort({ expense_date: -1, id: -1 }).toArray(),
-      this.invoicesCol.find({ created_at: todayFilter }, { projection: { _id: 0, id: 1, paid_amount: 1 } }).toArray(),
-      this.duePaymentsCol.find({ collected_at: todayFilter }, { projection: { _id: 0, amount: 1 } }).toArray(),
+      this.invoicesCol
+        .find({ created_at: todayFilter }, { projection: { _id: 0, id: 1, net_total: 1, commission_amount: 1 } })
+        .toArray(),
       this.otherRevenuesCol.find({ revenue_date: today }, { projection: { _id: 0, amount: 1 } }).toArray(),
       this.expensesCol.find({ expense_date: today }, { projection: { _id: 0, category: 1, amount: 1 } }).toArray(),
     ]);
 
     const resolvedTodayOpening = cleanFrom === today ? priorOpeningBalance : todayOpeningBalance;
 
-    const invIdsNeeded = Array.from(new Set([...rangeInvoices.map((i) => i.id), ...todayInvoices.map((i) => i.id)]));
-    const allDpForNeededInvs =
-      invIdsNeeded.length > 0
-        ? await this.duePaymentsCol.find({ invoice_id: { $in: invIdsNeeded } }, { projection: { _id: 0, invoice_id: 1, amount: 1 } }).toArray()
-        : [];
-    const dpSumByInv = new Map<number, number>();
-    for (const dp of allDpForNeededInvs) {
-      dpSumByInv.set(dp.invoice_id, (dpSumByInv.get(dp.invoice_id) || 0) + Number(dp.amount || 0));
-    }
-
     const labRevMap = new Map<string, number>();
     const labCountMap = new Map<string, number>();
     for (const inv of rangeInvoices) {
       const d = datePart(inv.created_at);
-      const initAmt = Number(inv.paid_amount || 0) - (dpSumByInv.get(inv.id) || 0);
-      labRevMap.set(d, roundCurrency((labRevMap.get(d) || 0) + initAmt));
-      if (Math.abs(initAmt) > 0.001) {
-        labCountMap.set(d, (labCountMap.get(d) || 0) + 1);
-      }
-    }
-    for (const dp of rangeDuePayments) {
-      const d = datePart(dp.collected_at);
-      labRevMap.set(d, roundCurrency((labRevMap.get(d) || 0) + Number(dp.amount || 0)));
+      const netRev = Number(inv.net_total || 0) - Number(inv.commission_amount || 0);
+      labRevMap.set(d, roundCurrency((labRevMap.get(d) || 0) + netRev));
       labCountMap.set(d, (labCountMap.get(d) || 0) + 1);
     }
 
@@ -3900,12 +4017,12 @@ export class MongoLimsStore implements LimsStore {
       };
     });
 
-    let todayInitAmt = 0;
-    for (const inv of todayInvoices) {
-      todayInitAmt += Number(inv.paid_amount || 0) - (dpSumByInv.get(inv.id) || 0);
-    }
-    const todayDueAmt = todayDuePayments.reduce((s, d) => s + Number(d.amount || 0), 0);
-    const todayLabRevenue = roundCurrency(todayInitAmt + todayDueAmt);
+    const todayLabRevenue = roundCurrency(
+      todayInvoices.reduce(
+        (s, inv) => s + Number(inv.net_total || 0) - Number(inv.commission_amount || 0),
+        0
+      )
+    );
     const todayOtherRevenue = roundCurrency(todayOtherDocs.reduce((s, o) => s + Number(o.amount || 0), 0));
     const todayTotalInflow = roundCurrency(todayLabRevenue + todayOtherRevenue);
     const todayTotalAvailable = roundCurrency(resolvedTodayOpening + todayTotalInflow);

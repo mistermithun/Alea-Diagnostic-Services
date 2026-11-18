@@ -102,10 +102,15 @@ export interface TestCommissionOverride {
 
 export interface InvoiceTestBadgeItem {
   id: number;
+  test_id?: number;
   test_name: string;
   category_name: string;
   status: 'Sample Collected' | 'Processing' | 'Verified' | 'Ready';
   collected_at?: string;
+  price?: number;
+  commission_type?: 'percent' | 'flat';
+  commission_value?: number;
+  commission_amount?: number;
 }
 
 export interface InvoiceSummary {
@@ -149,6 +154,8 @@ export interface InvoiceSummary {
   doctor_name?: string;
   doctor_degree?: string;
   doctor_hospital?: string;
+  doctor_default_commission_pct?: number;
+  is_commission_paid?: boolean;
   total_tests?: number;
   ready_tests?: number;
   test_items?: InvoiceTestBadgeItem[];
@@ -364,11 +371,15 @@ export interface AdminDashboardData {
     patientsCount: number;
     totalBilled: number;
     totalDiscount: number;
+    totalNetBilled?: number;
     netRevenue: number;
     netCollection: number;
     dueRecovered: number;
     pendingDueInRange: number;
     doctorCommissionPayable: number;
+    unpaidCommissionInRange?: number;
+    paidCommissionInRange?: number;
+    masterUnpaidCommissionPool?: number;
     totalExpenses: number;
     netProfit: number;
     pendingReports: number;

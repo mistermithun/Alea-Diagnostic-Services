@@ -240,7 +240,7 @@ export class SqliteLimsStore implements LimsStore {
            COUNT(*) as patientsCount,
            COALESCE(SUM(subtotal), 0) as totalBilled,
            COALESCE(SUM(discount_amount), 0) as totalDiscount,
-           COALESCE(SUM(net_total), 0) as netRevenue,
+           COALESCE(SUM(net_total), 0) as totalNetBilled,
            COALESCE(SUM(paid_amount), 0) as collectedFromInvoices,
            COALESCE(SUM(due_amount), 0) as pendingDueInRange,
            COALESCE(SUM(commission_amount), 0) as doctorCommissionPayable
@@ -251,7 +251,7 @@ export class SqliteLimsStore implements LimsStore {
       patientsCount: number;
       totalBilled: number;
       totalDiscount: number;
-      netRevenue: number;
+      totalNetBilled: number;
       collectedFromInvoices: number;
       pendingDueInRange: number;
       doctorCommissionPayable: number;
@@ -299,10 +299,40 @@ export class SqliteLimsStore implements LimsStore {
       )
       .get(from, to) as { initialPaid: number };
 
+    // Master Unpaid Commission Pool across all referring doctors
+    const allCommissionInvs = db
+      .prepare(
+        `SELECT i.created_at, i.commission_amount, i.commission_paid, d.last_commission_paid_up_to
+         FROM invoices i
+         JOIN doctors d ON d.id = i.doctor_id
+         WHERE i.doctor_id IS NOT NULL`
+      )
+      .all() as Array<{
+      created_at: string;
+      commission_amount: number;
+      commission_paid: number;
+      last_commission_paid_up_to?: string;
+    }>;
+
+    let masterUnpaidCommissionPool = 0;
+    for (const ci of allCommissionInvs) {
+      const lastPaidUpTo = String(ci.last_commission_paid_up_to || '').trim();
+      const invDate = String(ci.created_at || '').slice(0, 10);
+      const isPaid = ci.commission_paid === 1 || (Boolean(lastPaidUpTo) && invDate <= lastPaidUpTo);
+      if (!isPaid) {
+        masterUnpaidCommissionPool = roundCurrency(
+          masterUnpaidCommissionPool + Number(ci.commission_amount || 0)
+        );
+      }
+    }
+
+    const totalNetBilled = roundCurrency(Number(invoiceAgg.totalNetBilled || 0));
+    const doctorCommissionPayable = roundCurrency(Number(invoiceAgg.doctorCommissionPayable || 0));
+    const netRevenue = roundCurrency(totalNetBilled - doctorCommissionPayable);
     const netCollection = roundCurrency(
       initialCashRow.initialPaid + dueRecoveredRow.recovered - dueRecoveredRow.refunded
     );
-    const netProfit = roundCurrency(netCollection - invoiceAgg.doctorCommissionPayable - expenseRow.totalExpenses);
+    const netProfit = roundCurrency(netCollection - doctorCommissionPayable - expenseRow.totalExpenses);
 
     const departmentBreakdown = db
       .prepare(
@@ -318,20 +348,44 @@ export class SqliteLimsStore implements LimsStore {
     const recentInvoicesRaw = db
       .prepare(
         `SELECT i.*, p.patient_uid, p.name as patient_name, p.age_years, p.age_months, p.age_days, p.gender, p.mobile as patient_mobile,
-                d.name as doctor_name
+                d.name as doctor_name, d.degree as doctor_degree, d.hospital as doctor_hospital,
+                d.commission_pct as doctor_default_commission_pct, d.last_commission_paid_up_to
          FROM invoices i
          JOIN patients p ON p.id = i.patient_id
          LEFT JOIN doctors d ON d.id = i.doctor_id
-         ORDER BY i.id DESC LIMIT 8`
+         WHERE substr(i.created_at, 1, 10) BETWEEN ? AND ?
+         ORDER BY i.id DESC`
       )
-      .all() as Array<Record<string, unknown> & { id: number }>;
+      .all(from, to) as Array<
+      Record<string, unknown> & {
+        id: number;
+        doctor_id: number | null;
+        created_at: string;
+        commission_amount: number;
+        commission_paid: number;
+        last_commission_paid_up_to?: string;
+      }
+    >;
 
     const recentInvIds = recentInvoicesRaw.map((r) => r.id);
-    const recentTestsByInv = new Map<number, Array<{ id: number; test_name: string; category_name: string; status: string }>>();
+    const recentTestsByInv = new Map<
+      number,
+      Array<{
+        id: number;
+        test_id: number;
+        test_name: string;
+        category_name: string;
+        status: string;
+        price: number;
+        commission_type: string;
+        commission_value: number;
+        commission_amount: number;
+      }>
+    >();
     if (recentInvIds.length > 0) {
       const recentTestRows = db
         .prepare(
-          `SELECT id, invoice_id, test_name, category_name, status
+          `SELECT id, invoice_id, test_id, test_name, category_name, status, price, commission_type, commission_value, commission_amount
            FROM invoice_tests
            WHERE invoice_id IN (${recentInvIds.map(() => '?').join(',')})
            ORDER BY id ASC`
@@ -339,21 +393,50 @@ export class SqliteLimsStore implements LimsStore {
         .all(...recentInvIds) as Array<{
         id: number;
         invoice_id: number;
+        test_id: number;
         test_name: string;
         category_name: string;
         status: string;
+        price: number;
+        commission_type: string;
+        commission_value: number;
+        commission_amount: number;
       }>;
       for (const tr of recentTestRows) {
         const list = recentTestsByInv.get(tr.invoice_id) || [];
-        list.push({ id: tr.id, test_name: tr.test_name, category_name: tr.category_name, status: tr.status });
+        list.push({
+          id: tr.id,
+          test_id: tr.test_id,
+          test_name: tr.test_name,
+          category_name: tr.category_name,
+          status: tr.status,
+          price: Number(tr.price || 0),
+          commission_type: tr.commission_type || 'percent',
+          commission_value: Number(tr.commission_value || 0),
+          commission_amount: Number(tr.commission_amount || 0),
+        });
         recentTestsByInv.set(tr.invoice_id, list);
       }
     }
 
+    let unpaidCommissionInRange = 0;
+    let paidCommissionInRange = 0;
+
     const recentInvoices = recentInvoicesRaw.map((inv) => {
       const items = recentTestsByInv.get(inv.id) || [];
+      const lastPaidUpTo = String(inv.last_commission_paid_up_to || '').trim();
+      const invDate = String(inv.created_at || '').slice(0, 10);
+      const isCommissionPaid =
+        Boolean(inv.doctor_id) &&
+        (Number(inv.commission_paid || 0) === 1 || (Boolean(lastPaidUpTo) && invDate <= lastPaidUpTo));
+      const commAmt = Number(inv.commission_amount || 0);
+      if (inv.doctor_id) {
+        if (isCommissionPaid) paidCommissionInRange = roundCurrency(paidCommissionInRange + commAmt);
+        else unpaidCommissionInRange = roundCurrency(unpaidCommissionInRange + commAmt);
+      }
       return {
         ...inv,
+        is_commission_paid: isCommissionPaid,
         total_tests: items.length,
         ready_tests: items.filter((t) => t.status === 'Ready').length,
         test_items: items,
@@ -365,14 +448,18 @@ export class SqliteLimsStore implements LimsStore {
       to,
       metrics: {
         patientsCount: invoiceAgg.patientsCount,
-        totalBilled: invoiceAgg.totalBilled,
-        totalDiscount: invoiceAgg.totalDiscount,
-        netRevenue: invoiceAgg.netRevenue,
+        totalBilled: roundCurrency(Number(invoiceAgg.totalBilled || 0)),
+        totalDiscount: roundCurrency(Number(invoiceAgg.totalDiscount || 0)),
+        totalNetBilled,
+        netRevenue,
         netCollection,
         dueRecovered: dueRecoveredRow.recovered,
-        pendingDueInRange: invoiceAgg.pendingDueInRange,
-        doctorCommissionPayable: invoiceAgg.doctorCommissionPayable,
-        totalExpenses: expenseRow.totalExpenses,
+        pendingDueInRange: roundCurrency(Number(invoiceAgg.pendingDueInRange || 0)),
+        doctorCommissionPayable,
+        unpaidCommissionInRange,
+        paidCommissionInRange,
+        masterUnpaidCommissionPool,
+        totalExpenses: roundCurrency(Number(expenseRow.totalExpenses || 0)),
         netProfit,
         pendingReports,
         readyReportsInRange,
@@ -1111,6 +1198,86 @@ export class SqliteLimsStore implements LimsStore {
     })();
 
     return (await this.getFullInvoice(payload.invoiceId, true, true))!;
+  }
+
+  async disburseInvoiceCommission(payload: {
+    invoiceId: number;
+    note?: string;
+    settledBy?: string;
+  }): Promise<Record<string, unknown>> {
+    const inv = db
+      .prepare(`SELECT id, invoice_no, doctor_id, created_at, commission_amount, commission_paid FROM invoices WHERE id = ?`)
+      .get(payload.invoiceId) as
+      | {
+          id: number;
+          invoice_no: string;
+          doctor_id: number | null;
+          created_at: string;
+          commission_amount: number;
+          commission_paid: number;
+        }
+      | undefined;
+
+    if (!inv) throw new StoreError(404, 'Invoice not found.');
+    if (!inv.doctor_id) throw new StoreError(400, 'No referring doctor is assigned to this invoice.');
+
+    const doctor = db
+      .prepare(`SELECT id, name, last_commission_paid_up_to FROM doctors WHERE id = ?`)
+      .get(inv.doctor_id) as { id: number; name: string; last_commission_paid_up_to?: string } | undefined;
+    if (!doctor) throw new StoreError(404, 'Referring doctor not found.');
+
+    const invDate = String(inv.created_at || '').slice(0, 10);
+    const lastPaidUpTo = String(doctor.last_commission_paid_up_to || '').trim();
+    const alreadyPaid = inv.commission_paid === 1 || (Boolean(lastPaidUpTo) && invDate <= lastPaidUpTo);
+    if (alreadyPaid) {
+      throw new StoreError(400, 'Doctor commission for this invoice has already been disbursed.');
+    }
+
+    const commissionAmount = roundCurrency(Number(inv.commission_amount || 0));
+    const nowTs = getLocalTimestampStr();
+    const effectiveNote =
+      payload.note?.trim() || `Direct commission disbursement for ${inv.invoice_no}`;
+
+    const payoutId = db.transaction(() => {
+      const pRes = db
+        .prepare(
+          `INSERT INTO doctor_commission_payouts (
+            doctor_id, from_date, paid_up_to_date, patients_count, total_commission_paid, note, settled_by, settled_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          doctor.id,
+          invDate,
+          invDate,
+          1,
+          commissionAmount,
+          effectiveNote,
+          payload.settledBy?.trim() || 'Admin',
+          nowTs
+        );
+      const newPayoutId = Number(pRes.lastInsertRowid);
+
+      db.prepare(
+        `UPDATE invoices SET commission_paid = 1, commission_paid_at = ?, commission_payout_id = ? WHERE id = ?`
+      ).run(nowTs, newPayoutId, inv.id);
+
+      db.prepare(
+        `UPDATE doctors SET last_commission_settled_at = ?, last_commission_paid_amount = ? WHERE id = ?`
+      ).run(nowTs, commissionAmount, doctor.id);
+
+      return newPayoutId;
+    })();
+
+    return {
+      success: true,
+      payoutId,
+      invoiceId: inv.id,
+      invoiceNo: inv.invoice_no,
+      doctorId: doctor.id,
+      doctorName: doctor.name,
+      commissionAmount,
+      settledAt: nowTs,
+    };
   }
 
   async listInvoices(filters: {
@@ -2633,18 +2800,12 @@ export class SqliteLimsStore implements LimsStore {
   }
 
   private getCumulativeCashBalanceBefore(cutoffDate: string): number {
-    const initialRow = db
+    const revRow = db
       .prepare(
-        `SELECT COALESCE(SUM(i.paid_amount - COALESCE(dp.dp_sum, 0)), 0) as amt
-         FROM invoices i
-         LEFT JOIN (SELECT invoice_id, SUM(amount) as dp_sum FROM due_payments GROUP BY invoice_id) dp
-           ON dp.invoice_id = i.id
-         WHERE substr(i.created_at, 1, 10) < ?`
+        `SELECT COALESCE(SUM(net_total - commission_amount), 0) as amt
+         FROM invoices
+         WHERE substr(created_at, 1, 10) < ?`
       )
-      .get(cutoffDate) as { amt: number };
-
-    const dpRow = db
-      .prepare(`SELECT COALESCE(SUM(amount), 0) as amt FROM due_payments WHERE substr(collected_at, 1, 10) < ?`)
       .get(cutoffDate) as { amt: number };
 
     const otherRow = db
@@ -2656,8 +2817,7 @@ export class SqliteLimsStore implements LimsStore {
       .get(cutoffDate) as { amt: number };
 
     return roundCurrency(
-      Number(initialRow.amt || 0) +
-        Number(dpRow.amt || 0) +
+      Number(revRow.amt || 0) +
         Number(otherRow.amt || 0) -
         Number(expRow.amt || 0)
     );
@@ -2680,38 +2840,21 @@ export class SqliteLimsStore implements LimsStore {
 
     const priorOpeningBalance = this.getCumulativeCashBalanceBefore(cleanFrom);
 
-    // 1. Lab Test Revenue in [cleanFrom, cleanTo] = initial booking cash + due collections - cash refunds
-    const initialByDateRows = db
+    // 1. Lab Test Revenue in [cleanFrom, cleanTo] = Total Revenue (Net Billed - Doctor Commission)
+    const revByDateRows = db
       .prepare(
-        `SELECT substr(i.created_at, 1, 10) as d,
-                COALESCE(SUM(i.paid_amount - COALESCE(dp.dp_sum, 0)), 0) as amt,
-                SUM(CASE WHEN ABS(i.paid_amount - COALESCE(dp.dp_sum, 0)) > 0.001 THEN 1 ELSE 0 END) as cnt
-         FROM invoices i
-         LEFT JOIN (SELECT invoice_id, SUM(amount) as dp_sum FROM due_payments GROUP BY invoice_id) dp
-           ON dp.invoice_id = i.id
-         WHERE substr(i.created_at, 1, 10) BETWEEN ? AND ?
-         GROUP BY substr(i.created_at, 1, 10)`
-      )
-      .all(cleanFrom, cleanTo) as Array<{ d: string; amt: number; cnt: number }>;
-
-    const dueByDateRows = db
-      .prepare(
-        `SELECT substr(collected_at, 1, 10) as d,
-                COALESCE(SUM(amount), 0) as amt,
+        `SELECT substr(created_at, 1, 10) as d,
+                COALESCE(SUM(net_total - commission_amount), 0) as amt,
                 COUNT(*) as cnt
-         FROM due_payments
-         WHERE substr(collected_at, 1, 10) BETWEEN ? AND ?
-         GROUP BY substr(collected_at, 1, 10)`
+         FROM invoices
+         WHERE substr(created_at, 1, 10) BETWEEN ? AND ?
+         GROUP BY substr(created_at, 1, 10)`
       )
       .all(cleanFrom, cleanTo) as Array<{ d: string; amt: number; cnt: number }>;
 
     const labRevMap = new Map<string, number>();
     const labCountMap = new Map<string, number>();
-    for (const r of initialByDateRows) {
-      labRevMap.set(r.d, roundCurrency((labRevMap.get(r.d) || 0) + Number(r.amt || 0)));
-      labCountMap.set(r.d, (labCountMap.get(r.d) || 0) + Number(r.cnt || 0));
-    }
-    for (const r of dueByDateRows) {
+    for (const r of revByDateRows) {
       labRevMap.set(r.d, roundCurrency((labRevMap.get(r.d) || 0) + Number(r.amt || 0)));
       labCountMap.set(r.d, (labCountMap.get(r.d) || 0) + Number(r.cnt || 0));
     }
@@ -2836,17 +2979,12 @@ export class SqliteLimsStore implements LimsStore {
     const todayOpeningBalance =
       cleanFrom === today ? priorOpeningBalance : this.getCumulativeCashBalanceBefore(today);
 
-    const todayInitRow = db
+    const todayRevRow = db
       .prepare(
-        `SELECT COALESCE(SUM(i.paid_amount - COALESCE(dp.dp_sum, 0)), 0) as amt
-         FROM invoices i
-         LEFT JOIN (SELECT invoice_id, SUM(amount) as dp_sum FROM due_payments GROUP BY invoice_id) dp
-           ON dp.invoice_id = i.id
-         WHERE substr(i.created_at, 1, 10) = ?`
+        `SELECT COALESCE(SUM(net_total - commission_amount), 0) as amt
+         FROM invoices
+         WHERE substr(created_at, 1, 10) = ?`
       )
-      .get(today) as { amt: number };
-    const todayDueRow = db
-      .prepare(`SELECT COALESCE(SUM(amount), 0) as amt FROM due_payments WHERE substr(collected_at, 1, 10) = ?`)
       .get(today) as { amt: number };
     const todayOtherRow = db
       .prepare(`SELECT COALESCE(SUM(amount), 0) as amt FROM other_revenues WHERE revenue_date = ?`)
@@ -2855,7 +2993,7 @@ export class SqliteLimsStore implements LimsStore {
       .prepare(`SELECT category, amount FROM expenses WHERE expense_date = ?`)
       .all(today) as Array<{ category: string; amount: number }>;
 
-    const todayLabRevenue = roundCurrency(Number(todayInitRow.amt || 0) + Number(todayDueRow.amt || 0));
+    const todayLabRevenue = roundCurrency(Number(todayRevRow.amt || 0));
     const todayOtherRevenue = roundCurrency(Number(todayOtherRow.amt || 0));
     const todayTotalInflow = roundCurrency(todayLabRevenue + todayOtherRevenue);
     const todayTotalAvailable = roundCurrency(todayOpeningBalance + todayTotalInflow);

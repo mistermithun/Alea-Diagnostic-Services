@@ -196,6 +196,11 @@ export interface LimsStore {
     commissionValue?: number;
     testCommissions?: TestCommissionOverride[];
   }): Promise<Record<string, unknown>>;
+  disburseInvoiceCommission(payload: {
+    invoiceId: number;
+    note?: string;
+    settledBy?: string;
+  }): Promise<Record<string, unknown>>;
 
   // Patients & Invoices
   listInvoices(filters: {

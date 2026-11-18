@@ -501,6 +501,25 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
     })
   );
 
+  app.post(
+    '/api/admin/invoices/:id/disburse-commission',
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const invoiceId = Number(req.params.id);
+      const { note } = (req.body || {}) as { note?: string };
+      const token = extractTokenFromRequest(req);
+      const adminPayload = verifyAdminToken(token, getSecret());
+      const result = await store.disburseInvoiceCommission({
+        invoiceId,
+        note: note?.trim(),
+        settledBy: adminPayload?.name || 'Admin',
+      });
+      const docId = Number((result as { doctorId?: number | null }).doctorId || 0) || null;
+      emitDoctorSync(docId);
+      res.json(result);
+    })
+  );
+
   // Patients & Invoices
   app.get(
     '/api/invoices',

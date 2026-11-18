@@ -21,6 +21,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   onSwitchToStaff,
 }) => {
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -33,9 +34,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     try {
       const res = await apiFetch<{ token: string; adminName: string }>('/api/auth/admin-login', {
         method: 'POST',
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password, rememberMe }),
       });
-      setAdminToken(res.token);
+      setAdminToken(res.token, rememberMe);
       setPassword('');
       onAuthenticated(res.adminName);
       onClose();
@@ -126,6 +127,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   />
                 </div>
               </div>
+
+              <label className="flex items-center gap-2.5 py-1 cursor-pointer select-none text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 accent-teal-600 rounded"
+                />
+                <span>Keep me logged in on this device (30 days)</span>
+              </label>
 
               {error && (
                 <div className="p-3 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg">

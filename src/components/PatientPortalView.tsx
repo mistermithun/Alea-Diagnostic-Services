@@ -52,6 +52,7 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
   // Login form state
   const [patientUid, setPatientUid] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
 
@@ -109,10 +110,11 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
           body: JSON.stringify({
             patientUid: patientUid.trim(),
             password: password.trim(),
+            rememberMe,
           }),
         }
       );
-      setPatientToken(res.token);
+      setPatientToken(res.token, rememberMe);
       setPassword('');
       setPatient(res.patient);
       onAuthenticated();
@@ -281,6 +283,16 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
                   />
                 </div>
               </div>
+
+              <label className="flex items-center gap-2.5 py-1 cursor-pointer select-none text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 accent-teal-600 rounded"
+                />
+                <span>Keep me logged in on this device (30 days)</span>
+              </label>
 
               {loginError && (
                 <div className="p-3 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg">

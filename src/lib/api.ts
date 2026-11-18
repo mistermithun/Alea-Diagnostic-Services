@@ -7,18 +7,30 @@ const DOCTOR_TOKEN_KEY = 'alea_doctor_token';
 
 export function getAdminToken(): string | null {
   try {
-    return sessionStorage.getItem(TOKEN_KEY);
+    return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
   } catch {
-    return null;
+    try {
+      return sessionStorage.getItem(TOKEN_KEY);
+    } catch {
+      return null;
+    }
   }
 }
 
-export function setAdminToken(token: string | null) {
+export function setAdminToken(token: string | null, rememberMe = true) {
   try {
     if (token) {
-      sessionStorage.setItem(TOKEN_KEY, token);
+      if (rememberMe) {
+        localStorage.setItem(TOKEN_KEY, token);
+        sessionStorage.removeItem(TOKEN_KEY);
+      } else {
+        sessionStorage.setItem(TOKEN_KEY, token);
+        localStorage.removeItem(TOKEN_KEY);
+      }
+      localStorage.removeItem(STAFF_TOKEN_KEY);
       sessionStorage.removeItem(STAFF_TOKEN_KEY);
     } else {
+      localStorage.removeItem(TOKEN_KEY);
       sessionStorage.removeItem(TOKEN_KEY);
     }
   } catch {
@@ -28,18 +40,30 @@ export function setAdminToken(token: string | null) {
 
 export function getStaffToken(): string | null {
   try {
-    return sessionStorage.getItem(STAFF_TOKEN_KEY);
+    return localStorage.getItem(STAFF_TOKEN_KEY) || sessionStorage.getItem(STAFF_TOKEN_KEY);
   } catch {
-    return null;
+    try {
+      return sessionStorage.getItem(STAFF_TOKEN_KEY);
+    } catch {
+      return null;
+    }
   }
 }
 
-export function setStaffToken(token: string | null) {
+export function setStaffToken(token: string | null, rememberMe = true) {
   try {
     if (token) {
-      sessionStorage.setItem(STAFF_TOKEN_KEY, token);
+      if (rememberMe) {
+        localStorage.setItem(STAFF_TOKEN_KEY, token);
+        sessionStorage.removeItem(STAFF_TOKEN_KEY);
+      } else {
+        sessionStorage.setItem(STAFF_TOKEN_KEY, token);
+        localStorage.removeItem(STAFF_TOKEN_KEY);
+      }
+      localStorage.removeItem(TOKEN_KEY);
       sessionStorage.removeItem(TOKEN_KEY);
     } else {
+      localStorage.removeItem(STAFF_TOKEN_KEY);
       sessionStorage.removeItem(STAFF_TOKEN_KEY);
     }
   } catch {
@@ -58,17 +82,28 @@ export function clearLabTokens() {
 
 export function getPatientToken(): string | null {
   try {
-    return sessionStorage.getItem(PATIENT_TOKEN_KEY);
+    return localStorage.getItem(PATIENT_TOKEN_KEY) || sessionStorage.getItem(PATIENT_TOKEN_KEY);
   } catch {
-    return null;
+    try {
+      return sessionStorage.getItem(PATIENT_TOKEN_KEY);
+    } catch {
+      return null;
+    }
   }
 }
 
-export function setPatientToken(token: string | null) {
+export function setPatientToken(token: string | null, rememberMe = true) {
   try {
     if (token) {
-      sessionStorage.setItem(PATIENT_TOKEN_KEY, token);
+      if (rememberMe) {
+        localStorage.setItem(PATIENT_TOKEN_KEY, token);
+        sessionStorage.removeItem(PATIENT_TOKEN_KEY);
+      } else {
+        sessionStorage.setItem(PATIENT_TOKEN_KEY, token);
+        localStorage.removeItem(PATIENT_TOKEN_KEY);
+      }
     } else {
+      localStorage.removeItem(PATIENT_TOKEN_KEY);
       sessionStorage.removeItem(PATIENT_TOKEN_KEY);
     }
   } catch {

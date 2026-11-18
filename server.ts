@@ -126,7 +126,7 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
   app.post(
     '/api/auth/admin-login',
     asyncHandler(async (req, res) => {
-      const { password } = req.body as { password?: string };
+      const { password, rememberMe } = req.body as { password?: string; rememberMe?: boolean };
       if (!password) {
         res.status(400).json({ error: 'Password is required.' });
         return;
@@ -137,7 +137,8 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         return;
       }
       const proprietor = (await store.getSetting('proprietor_name')) || 'Md. Mishkatur Rahman';
-      const token = createAdminToken(getSecret(), proprietor, 24);
+      const ttlHours = rememberMe === false ? 24 : 24 * 30;
+      const token = createAdminToken(getSecret(), proprietor, ttlHours);
       res.json({ token, role: 'admin', adminName: proprietor });
     })
   );
@@ -145,7 +146,11 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
   app.post(
     '/api/auth/staff-login',
     asyncHandler(async (req, res) => {
-      const { staffName, password } = req.body as { staffName?: string; password?: string };
+      const { staffName, password, rememberMe } = req.body as {
+        staffName?: string;
+        password?: string;
+        rememberMe?: boolean;
+      };
       if (!password) {
         res.status(400).json({ error: 'Staff access password is required.' });
         return;
@@ -156,7 +161,8 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         return;
       }
       const cleanName = staffName?.trim() || 'Reception & Lab Staff';
-      const token = createStaffToken(getSecret(), cleanName, 24);
+      const ttlHours = rememberMe === false ? 24 : 24 * 30;
+      const token = createStaffToken(getSecret(), cleanName, ttlHours);
       res.json({ token, role: 'staff', staffName: cleanName });
     })
   );
@@ -881,7 +887,11 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
   app.post(
     '/api/patient-auth/login',
     asyncHandler(async (req, res) => {
-      const { patientUid, password } = req.body as { patientUid?: string; password?: string };
+      const { patientUid, password, rememberMe } = req.body as {
+        patientUid?: string;
+        password?: string;
+        rememberMe?: boolean;
+      };
       if (!patientUid?.trim() || !password?.trim()) {
         res.status(400).json({ error: 'Patient ID and Password are required.' });
         return;
@@ -903,7 +913,8 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         return;
       }
 
-      const token = createPatientToken(getSecret(), patient.id, patient.patient_uid, patient.name, 12);
+      const ttlHours = rememberMe === false ? 12 : 24 * 30;
+      const token = createPatientToken(getSecret(), patient.id, patient.patient_uid, patient.name, ttlHours);
       res.json({
         token,
         patient: {

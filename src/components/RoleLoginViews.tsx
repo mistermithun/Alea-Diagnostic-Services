@@ -15,6 +15,7 @@ export const AdminLoginView: React.FC<AdminLoginViewProps> = ({
   onBackToHome,
 }) => {
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -25,9 +26,9 @@ export const AdminLoginView: React.FC<AdminLoginViewProps> = ({
     try {
       const res = await apiFetch<{ token: string; adminName: string }>('/api/auth/admin-login', {
         method: 'POST',
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password, rememberMe }),
       });
-      setAdminToken(res.token);
+      setAdminToken(res.token, rememberMe);
       setPassword('');
       onAuthenticated(res.adminName);
     } catch (err) {
@@ -65,7 +66,7 @@ export const AdminLoginView: React.FC<AdminLoginViewProps> = ({
           <div className="mt-5 pt-4 border-t border-slate-800">
             <h2 className="text-base font-semibold text-white">Administrator Control Login</h2>
             <p className="text-xs text-slate-300 mt-1">
-              Authorized for Proprietor {settings.proprietor_name}. Unlocks financial analytics, test pricing, doctor commissions, and backups.
+              Authorized for Proprietor {settings.proprietor_name}. Unlocks financial analytics, test pricing, and backups.
             </p>
           </div>
         </div>
@@ -89,6 +90,16 @@ export const AdminLoginView: React.FC<AdminLoginViewProps> = ({
               />
             </div>
           </div>
+
+          <label className="flex items-center gap-2.5 py-1 cursor-pointer select-none text-xs text-slate-700">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="w-4 h-4 accent-teal-600 rounded"
+            />
+            <span>Keep me logged in on this device (30 days)</span>
+          </label>
 
           {error && (
             <div className="p-3 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg">
@@ -126,6 +137,7 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
 }) => {
   const [staffName, setStaffName] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -136,9 +148,9 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
     try {
       const res = await apiFetch<{ token: string; staffName: string }>('/api/auth/staff-login', {
         method: 'POST',
-        body: JSON.stringify({ staffName: staffName.trim(), password }),
+        body: JSON.stringify({ staffName: staffName.trim(), password, rememberMe }),
       });
-      setStaffToken(res.token);
+      setStaffToken(res.token, rememberMe);
       setPassword('');
       onAuthenticated(res.staffName);
     } catch (err) {
@@ -217,6 +229,16 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
               />
             </div>
           </div>
+
+          <label className="flex items-center gap-2.5 py-1 cursor-pointer select-none text-xs text-slate-700">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="w-4 h-4 accent-teal-600 rounded"
+            />
+            <span>Keep me logged in on this device (30 days)</span>
+          </label>
 
           {error && (
             <div className="p-3 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg">

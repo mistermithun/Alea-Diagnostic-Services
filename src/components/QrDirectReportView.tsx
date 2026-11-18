@@ -62,7 +62,7 @@ export const QrDirectReportView: React.FC<QrDirectReportViewProps> = ({
         }>(`/api/patient-auth/qr-access?${params.toString()}`);
 
         if (!active) return;
-        setPatientToken(res.token);
+        setPatientToken(res.token, false);
         onQrAuthenticatedRef.current();
         setPatient(res.patient);
         setReport(res.report);

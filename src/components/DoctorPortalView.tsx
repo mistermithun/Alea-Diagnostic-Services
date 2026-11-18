@@ -42,6 +42,7 @@ import type {
   FullInvoice,
   LabSettings,
 } from '../types.ts';
+import { PWAInstallButton } from './PWAInstallControl.tsx';
 import { ReportPrintModal } from './ReportPrintModal.tsx';
 
 interface DoctorPortalViewProps {
@@ -527,6 +528,7 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            <PWAInstallButton />
             <button
               type="button"
               onClick={() => loadDashboard(true)}

@@ -1187,6 +1187,15 @@ async function startServer() {
   const PORT = resolveServerPort();
 
   app.use(express.json({ limit: '5mb' }));
+  app.use((req, res, next) => {
+    if (req.path === '/sw.js') {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Service-Worker-Allowed', '/');
+    } else if (req.path === '/manifest.json') {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    }
+    next();
+  });
   registerRoutes(app, store, PORT);
 
   if (process.env.NODE_ENV !== 'production') {

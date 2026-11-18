@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowRight, ClipboardList, ShieldCheck, Stethoscope, UserCheck } from 'lucide-react';
 import type { LabSettings } from '../types.ts';
+import { PWAInstallButton } from './PWAInstallControl.tsx';
 
 interface LandingPortalViewProps {
   settings: LabSettings;
@@ -49,7 +50,8 @@ export const LandingPortalView: React.FC<LandingPortalViewProps> = ({
             </span>
           </div>
 
-          <div className="shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
+            <PWAInstallButton />
             <button
               type="button"
               onClick={onSelectPatientLogin}

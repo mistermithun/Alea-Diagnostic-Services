@@ -28,6 +28,7 @@ import { LabResultsView } from './components/LabResultsView.tsx';
 import { LandingPortalView } from './components/LandingPortalView.tsx';
 import { PatientBillingView } from './components/PatientBillingView.tsx';
 import { PatientPortalView } from './components/PatientPortalView.tsx';
+import { PWAInstallButton } from './components/PWAInstallControl.tsx';
 import { QrDirectReportView } from './components/QrDirectReportView.tsx';
 import { ReceiptPrintModal } from './components/ReceiptPrintModal.tsx';
 import { ReportPrintModal } from './components/ReportPrintModal.tsx';
@@ -830,6 +831,8 @@ export default function App() {
             </div>
             <div className="font-mono text-slate-400 tabular-nums">{settings.lab_phone}</div>
           </div>
+
+          <PWAInstallButton variant="dark" />
 
           <button
             type="button"

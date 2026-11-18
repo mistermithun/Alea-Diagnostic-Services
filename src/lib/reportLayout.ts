@@ -469,6 +469,331 @@ function getSingleTestMetrics(test: InvoiceTestItem): {
   };
 }
 
+export type ReportTypographyTier =
+  | 'cbc'
+  | 'urine'
+  | 'ultra_short'
+  | 'short'
+  | 'medium'
+  | 'dense';
+
+export interface ReportTypographyProfile {
+  tier: ReportTypographyTier;
+  patientNameClass: string;
+  patientGridClass: string;
+  patientLabelClass: string;
+  patientLeftLabelWidth: string;
+  patientRightLabelWidth: string;
+  patientRowSpaceClass: string;
+  patientSectionPadClass: string;
+  deptHeadingClass: string;
+  testSubtitleClass: string;
+  theadClass: string;
+  thPadClass: string;
+  subHeaderClass: string;
+  tbodyClass: string;
+  unitClass: string;
+  normalClass: string;
+  rowPadClass: string;
+  cellPadXClass: string;
+  sectionClass: string;
+  sectionPadClass: string;
+  pdf: {
+    patientNamePt: number;
+    patientLabelPt: number;
+    patientValuePt: number;
+    patientLineH: number;
+    deptHeadingPt: number;
+    testSubtitlePt: number;
+    headPt: number;
+    headPadV: number;
+    subHeaderPt: number;
+    sectionPt: number;
+    bodyPt: number;
+    normalPt: number;
+    bodyPadV: number;
+    bodyPadH: number;
+    blockGapMm: number;
+  };
+}
+
+export function getPageTypographyProfile(
+  blocks: ReportPageDepartmentBlock[]
+): ReportTypographyProfile {
+  const pageTests = blocks.flatMap((b) =>
+    b.segment.kind === 'standard' ? b.segment.tests : [b.segment.test]
+  );
+  const hasSpecialDenseTest = pageTests.some((t) => isLargeIntactPanel(t));
+
+  if (hasSpecialDenseTest) {
+    const onlyCbc = pageTests.length === 1 && isCbcTest(pageTests[0]);
+    if (onlyCbc) {
+      return {
+        tier: 'cbc',
+        patientNameClass: 'text-[14.5px] leading-[1.2]',
+        patientGridClass: 'text-[12px] leading-[1.32]',
+        patientLabelClass: 'text-[10px]',
+        patientLeftLabelWidth: 'w-[70px]',
+        patientRightLabelWidth: 'w-[78px]',
+        patientRowSpaceClass: 'space-y-1',
+        patientSectionPadClass: 'pb-2',
+        deptHeadingClass: 'text-[14.5px]',
+        testSubtitleClass: 'text-[11.5px]',
+        theadClass: 'text-[11.5px]',
+        thPadClass: 'py-1.5 px-2.5',
+        subHeaderClass: 'text-[11.5px] py-1',
+        tbodyClass: 'text-[12.5px] leading-[1.26]',
+        unitClass: 'text-[11px]',
+        normalClass: 'text-[11px] leading-[1.22]',
+        rowPadClass: 'py-[2.5px]',
+        cellPadXClass: 'px-2.5',
+        sectionClass: 'text-[10.5px]',
+        sectionPadClass: 'pt-1.5 pb-0.5',
+        pdf: {
+          patientNamePt: 10.5,
+          patientLabelPt: 7.5,
+          patientValuePt: 8.8,
+          patientLineH: 4.1,
+          deptHeadingPt: 10.8,
+          testSubtitlePt: 9,
+          headPt: 8.4,
+          headPadV: 1.4,
+          subHeaderPt: 8.6,
+          sectionPt: 7.8,
+          bodyPt: 9.1,
+          normalPt: 8.4,
+          bodyPadV: 1.25,
+          bodyPadH: 2.2,
+          blockGapMm: 4.5,
+        },
+      };
+    }
+
+    return {
+      tier: 'urine',
+      patientNameClass: 'text-[14.5px] leading-[1.2]',
+      patientGridClass: 'text-[12px] leading-[1.32]',
+      patientLabelClass: 'text-[10px]',
+      patientLeftLabelWidth: 'w-[70px]',
+      patientRightLabelWidth: 'w-[78px]',
+      patientRowSpaceClass: 'space-y-1',
+      patientSectionPadClass: 'pb-2',
+      deptHeadingClass: 'text-[14.5px]',
+      testSubtitleClass: 'text-[11.5px]',
+      theadClass: 'text-[11.5px]',
+      thPadClass: 'py-1.5 px-2.5',
+      subHeaderClass: 'text-[11.5px] py-1',
+      tbodyClass: 'text-[12px] leading-[1.24]',
+      unitClass: 'text-[11px]',
+      normalClass: 'text-[11px] leading-[1.2]',
+      rowPadClass: 'py-[2px]',
+      cellPadXClass: 'px-2.5',
+      sectionClass: 'text-[10.5px]',
+      sectionPadClass: 'pt-1 pb-0.5',
+      pdf: {
+        patientNamePt: 10.5,
+        patientLabelPt: 7.5,
+        patientValuePt: 8.8,
+        patientLineH: 4.1,
+        deptHeadingPt: 10.8,
+        testSubtitlePt: 9,
+        headPt: 8.4,
+        headPadV: 1.35,
+        subHeaderPt: 8.6,
+        sectionPt: 7.8,
+        bodyPt: 8.8,
+        normalPt: 8.2,
+        bodyPadV: 1.05,
+        bodyPadH: 2.2,
+        blockGapMm: 4.5,
+      },
+    };
+  }
+
+  const totalParamRows = pageTests.reduce(
+    (acc, t) => acc + deduplicateTestResults(t.results || []).length,
+    0
+  );
+  const totalSubHeaders = pageTests.length > 1 ? pageTests.length : 0;
+  const extraRangeLines = pageTests.reduce(
+    (acc, t) =>
+      acc +
+      deduplicateTestResults(t.results || []).reduce(
+        (rAcc, row) => rAcc + getExtraRangeLines(row),
+        0
+      ),
+    0
+  );
+
+  const effectiveUnits = totalParamRows + totalSubHeaders * 0.75 + extraRangeLines * 0.55;
+
+  if (effectiveUnits <= 2.5) {
+    return {
+      tier: 'ultra_short',
+      patientNameClass: 'text-[16px] leading-[1.22]',
+      patientGridClass: 'text-[13px] leading-[1.38]',
+      patientLabelClass: 'text-[10.5px]',
+      patientLeftLabelWidth: 'w-[74px]',
+      patientRightLabelWidth: 'w-[82px]',
+      patientRowSpaceClass: 'space-y-1.5',
+      patientSectionPadClass: 'pb-2.5',
+      deptHeadingClass: 'text-[16px]',
+      testSubtitleClass: 'text-[13px]',
+      theadClass: 'text-[12.5px]',
+      thPadClass: 'py-2.5 px-3',
+      subHeaderClass: 'text-[13px] py-1.5',
+      tbodyClass: 'text-[15px] leading-[1.48]',
+      unitClass: 'text-[13.5px]',
+      normalClass: 'text-[13.5px] leading-[1.4]',
+      rowPadClass: 'py-3.5',
+      cellPadXClass: 'px-3',
+      sectionClass: 'text-[11.5px]',
+      sectionPadClass: 'pt-2 pb-1',
+      pdf: {
+        patientNamePt: 11.5,
+        patientLabelPt: 8.0,
+        patientValuePt: 9.5,
+        patientLineH: 4.4,
+        deptHeadingPt: 11.5,
+        testSubtitlePt: 9.8,
+        headPt: 9.2,
+        headPadV: 2.2,
+        subHeaderPt: 9.6,
+        sectionPt: 8.4,
+        bodyPt: 11.0,
+        normalPt: 10.0,
+        bodyPadV: 3.2,
+        bodyPadH: 2.8,
+        blockGapMm: 6.0,
+      },
+    };
+  }
+
+  if (effectiveUnits <= 5.5) {
+    return {
+      tier: 'short',
+      patientNameClass: 'text-[15.5px] leading-[1.22]',
+      patientGridClass: 'text-[12.5px] leading-[1.36]',
+      patientLabelClass: 'text-[10.5px]',
+      patientLeftLabelWidth: 'w-[74px]',
+      patientRightLabelWidth: 'w-[82px]',
+      patientRowSpaceClass: 'space-y-1.5',
+      patientSectionPadClass: 'pb-2.5',
+      deptHeadingClass: 'text-[15.5px]',
+      testSubtitleClass: 'text-[12.5px]',
+      theadClass: 'text-[12px]',
+      thPadClass: 'py-2 px-3',
+      subHeaderClass: 'text-[12.5px] py-1.5',
+      tbodyClass: 'text-[14px] leading-[1.44]',
+      unitClass: 'text-[12.5px]',
+      normalClass: 'text-[12.5px] leading-[1.38]',
+      rowPadClass: 'py-2.5',
+      cellPadXClass: 'px-3',
+      sectionClass: 'text-[11px]',
+      sectionPadClass: 'pt-2 pb-0.5',
+      pdf: {
+        patientNamePt: 11.2,
+        patientLabelPt: 7.8,
+        patientValuePt: 9.2,
+        patientLineH: 4.3,
+        deptHeadingPt: 11.0,
+        testSubtitlePt: 9.5,
+        headPt: 8.8,
+        headPadV: 1.9,
+        subHeaderPt: 9.2,
+        sectionPt: 8.2,
+        bodyPt: 10.2,
+        normalPt: 9.4,
+        bodyPadV: 2.5,
+        bodyPadH: 2.6,
+        blockGapMm: 5.5,
+      },
+    };
+  }
+
+  if (effectiveUnits <= 11) {
+    return {
+      tier: 'medium',
+      patientNameClass: 'text-[15px] leading-[1.2]',
+      patientGridClass: 'text-[12.5px] leading-[1.34]',
+      patientLabelClass: 'text-[10px]',
+      patientLeftLabelWidth: 'w-[72px]',
+      patientRightLabelWidth: 'w-[80px]',
+      patientRowSpaceClass: 'space-y-1',
+      patientSectionPadClass: 'pb-2',
+      deptHeadingClass: 'text-[15px]',
+      testSubtitleClass: 'text-[12px]',
+      theadClass: 'text-[11.5px]',
+      thPadClass: 'py-1.5 px-2.5',
+      subHeaderClass: 'text-[12px] py-1',
+      tbodyClass: 'text-[13px] leading-[1.38]',
+      unitClass: 'text-[12px]',
+      normalClass: 'text-[12px] leading-[1.32]',
+      rowPadClass: 'py-2',
+      cellPadXClass: 'px-2.5',
+      sectionClass: 'text-[10.5px]',
+      sectionPadClass: 'pt-1.5 pb-0.5',
+      pdf: {
+        patientNamePt: 10.8,
+        patientLabelPt: 7.6,
+        patientValuePt: 9.0,
+        patientLineH: 4.2,
+        deptHeadingPt: 10.8,
+        testSubtitlePt: 9.2,
+        headPt: 8.6,
+        headPadV: 1.6,
+        subHeaderPt: 8.8,
+        sectionPt: 8.0,
+        bodyPt: 9.6,
+        normalPt: 9.0,
+        bodyPadV: 2.0,
+        bodyPadH: 2.4,
+        blockGapMm: 5.0,
+      },
+    };
+  }
+
+  return {
+    tier: 'dense',
+    patientNameClass: 'text-[14.5px] leading-[1.2]',
+    patientGridClass: 'text-[12px] leading-[1.32]',
+    patientLabelClass: 'text-[10px]',
+    patientLeftLabelWidth: 'w-[70px]',
+    patientRightLabelWidth: 'w-[78px]',
+    patientRowSpaceClass: 'space-y-1',
+    patientSectionPadClass: 'pb-2',
+    deptHeadingClass: 'text-[14.5px]',
+    testSubtitleClass: 'text-[11.5px]',
+    theadClass: 'text-[11.5px]',
+    thPadClass: 'py-1.5 px-2.5',
+    subHeaderClass: 'text-[11.5px] py-1',
+    tbodyClass: 'text-[12px] leading-[1.28]',
+    unitClass: 'text-[11px]',
+    normalClass: 'text-[11px] leading-[1.24]',
+    rowPadClass: 'py-[3px]',
+    cellPadXClass: 'px-2.5',
+    sectionClass: 'text-[10.5px]',
+    sectionPadClass: 'pt-1.5 pb-0.5',
+    pdf: {
+      patientNamePt: 10.5,
+      patientLabelPt: 7.5,
+      patientValuePt: 8.8,
+      patientLineH: 4.1,
+      deptHeadingPt: 10.8,
+      testSubtitlePt: 9,
+      headPt: 8.4,
+      headPadV: 1.4,
+      subHeaderPt: 8.6,
+      sectionPt: 7.8,
+      bodyPt: 9.0,
+      normalPt: 8.4,
+      bodyPadV: 1.35,
+      bodyPadH: 2.3,
+      blockGapMm: 4.5,
+    },
+  };
+}
+
 /**
  * Estimates total rendered body height (in mm) for a candidate page's blocks,
  * synchronized with ReportPrintModal's dynamic typography tiers and jsPDF margins.
@@ -479,39 +804,31 @@ function estimatePageBodyHeightMm(
 ): number {
   if (blocks.length === 0) return 0;
 
-  const pageTests = blocks.flatMap((b) =>
-    b.segment.kind === 'standard' ? b.segment.tests : [b.segment.test]
-  );
-  const hasDensePanel = pageTests.some((t) => isLargeIntactPanel(t));
-  const totalParamRows = pageTests.reduce(
-    (acc, t) => acc + deduplicateTestResults(t.results || []).length,
-    0
-  );
-  const totalExtraLines = pageTests.reduce(
-    (acc, t) =>
-      acc + deduplicateTestResults(t.results || []).reduce((rAcc, r) => rAcc + getExtraRangeLines(r), 0),
-    0
-  );
-  const totalSubHeaders = pageTests.length > 1 ? pageTests.length : 0;
-  const effectiveUnits = totalParamRows + totalSubHeaders * 0.75 + totalExtraLines * 0.55;
+  const profile = getPageTypographyProfile(blocks);
 
-  // Match ReportPrintModal's 3 typography tiers + dense panel tier
-  let rowHeightMm = 7.4;
-  let extraLineMm = 3.2;
-  if (!hasDensePanel) {
-    if (effectiveUnits <= 5) {
-      rowHeightMm = 11.2;
-      extraLineMm = 4.0;
-    } else if (effectiveUnits <= 11) {
-      rowHeightMm = 9.0;
-      extraLineMm = 3.6;
-    }
-  } else if (pageTests.length === 1) {
-    rowHeightMm = isCbcTest(pageTests[0]) ? 6.1 : 5.7;
+  let rowHeightMm = 7.6;
+  let extraLineMm = 3.3;
+  let theadMm = 7.0;
+  if (profile.tier === 'ultra_short') {
+    rowHeightMm = 14.5;
+    extraLineMm = 4.6;
+    theadMm = 9.0;
+  } else if (profile.tier === 'short') {
+    rowHeightMm = 12.0;
+    extraLineMm = 4.2;
+    theadMm = 8.0;
+  } else if (profile.tier === 'medium') {
+    rowHeightMm = 9.6;
+    extraLineMm = 3.8;
+    theadMm = 7.5;
+  } else if (profile.tier === 'cbc') {
+    rowHeightMm = 6.3;
+    extraLineMm = 3.2;
+    theadMm = 7.0;
+  } else if (profile.tier === 'urine') {
+    rowHeightMm = 5.9;
     extraLineMm = 3.1;
-  } else {
-    rowHeightMm = 6.5;
-    extraLineMm = 3.1;
+    theadMm = 7.0;
   }
 
   let totalMm = 0;
@@ -524,11 +841,11 @@ function estimatePageBodyHeightMm(
     if (block.showDepartmentHeading) {
       totalMm += 11.5; // boxed department header + bottom margin
       if (block.isSingleStandardTest && block.segment.kind === 'standard') {
-        totalMm += 5.0; // centered single test subtitle
+        totalMm += 5.5; // centered single test subtitle
       }
     }
 
-    totalMm += 7.0; // table <thead> header row
+    totalMm += theadMm; // table <thead> header row
 
     const seg = block.segment;
     const catCount = categoryTotalCount.get(block.categoryName.toLowerCase()) || 1;
@@ -575,7 +892,7 @@ export function planReportPages(
   const bottomPadMm = options?.portalMode
     ? 8
     : Math.max(6, (options?.bottomMarginIn ?? 0.4) * 25.4);
-  const patientHeaderMm = 29;
+  const patientHeaderMm = 30;
   const footerMm = 26;
   const totalPageMm = 289;
   const availableBodyMm = Math.max(

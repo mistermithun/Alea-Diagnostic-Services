@@ -12,9 +12,8 @@ import {
   formatNumericResultDisplay,
   getCanonicalParameterKey,
   getOrderedCbcRows,
+  getPageTypographyProfile,
   getUrineSection,
-  isCbcTest,
-  isLargeIntactPanel,
   planReportPages,
   resolveReportSignatures,
   type ReportPagePlan,
@@ -194,82 +193,8 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     resolvedTechTitle,
   } = resolvedSignatures;
 
-  // Dynamic parameter table typography tuned per planned A4 page
-  const getPageTypography = (plan: ReportPagePlan) => {
-    const pageTests = plan.blocks.flatMap((b) =>
-      b.segment.kind === 'standard' ? b.segment.tests : [b.segment.test]
-    );
-    const hasSpecialDenseTest = pageTests.some((t) => isLargeIntactPanel(t));
-    if (hasSpecialDenseTest) {
-      const onlyCbc = pageTests.length === 1 && isCbcTest(pageTests[0]);
-      return onlyCbc
-        ? {
-            theadClass: 'text-[10.5px]',
-            tbodyClass: 'text-[11.5px] leading-[1.3]',
-            unitClass: 'text-[10.5px]',
-            normalClass: 'text-[10.5px] leading-[1.24]',
-            rowPadClass: 'py-[2.5px]',
-            sectionPadClass: 'pt-1.5 pb-0.5',
-          }
-        : {
-            theadClass: 'text-[10.5px]',
-            tbodyClass: 'text-[11.5px] leading-[1.26]',
-            unitClass: 'text-[10.5px]',
-            normalClass: 'text-[10.5px] leading-[1.22]',
-            rowPadClass: 'py-[2px]',
-            sectionPadClass: 'pt-1.5 pb-0.5',
-          };
-    }
-
-    const totalParamRows = pageTests.reduce(
-      (acc, t) => acc + deduplicateTestResults(t.results || []).length,
-      0
-    );
-    const totalSubHeaders = pageTests.length > 1 ? pageTests.length : 0;
-    const extraRangeLines = pageTests.reduce((acc, t) => {
-      return (
-        acc +
-        deduplicateTestResults(t.results || []).reduce((rAcc, row) => {
-          const refText = (row.reference_range_text || row.normal_text || '').trim();
-          if (!refText) return rAcc;
-          const explicitLines = refText.split('\n').length - 1;
-          const wrapEstimate = refText.length > 42 ? 1 : 0;
-          return rAcc + Math.max(explicitLines, wrapEstimate);
-        }, 0)
-      );
-    }, 0);
-
-    const effectiveUnits = totalParamRows + totalSubHeaders * 0.75 + extraRangeLines * 0.55;
-
-    if (effectiveUnits <= 5 && !hasSpecialDenseTest) {
-      return {
-        theadClass: 'text-[11px]',
-        tbodyClass: 'text-[13px] leading-[1.42]',
-        unitClass: 'text-[12px]',
-        normalClass: 'text-[12px] leading-[1.35]',
-        rowPadClass: effectiveUnits <= 2 ? 'py-2.5' : 'py-2',
-        sectionPadClass: 'pt-1.5 pb-0.5',
-      };
-    }
-    if (effectiveUnits <= 11 && !hasSpecialDenseTest) {
-      return {
-        theadClass: 'text-[11px]',
-        tbodyClass: 'text-[12.5px] leading-[1.36]',
-        unitClass: 'text-[11.5px]',
-        normalClass: 'text-[11.5px] leading-[1.3]',
-        rowPadClass: 'py-1.5',
-        sectionPadClass: 'pt-1.5 pb-0.5',
-      };
-    }
-    return {
-      theadClass: 'text-[10.5px]',
-      tbodyClass: 'text-[11.5px] leading-[1.3]',
-      unitClass: 'text-[10.5px]',
-      normalClass: 'text-[10.5px] leading-[1.24]',
-      rowPadClass: 'py-[3px]',
-      sectionPadClass: 'pt-1.5 pb-0.5',
-    };
-  };
+  // Unified page typography profile synchronized with jsPDF & print pagination
+  const getPageTypography = (plan: ReportPagePlan) => getPageTypographyProfile(plan.blocks);
 
   const handlePrintReport = () => {
     if (selectedTests.length === 0) return;
@@ -591,21 +516,31 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                       )}
 
                       {/* Modern Borderless Two-Column Patient Info Header + Far-Right Dynamic QR Code */}
-                      <section className="mt-0.5 pb-2 border-b border-slate-300 print:border-black/40 bg-white text-black flex flex-col sm:flex-row print:flex-row items-start sm:items-center print:items-center justify-between gap-3 sm:gap-4 print:gap-3.5">
-                        <div className="flex-1 min-w-0 w-full grid grid-cols-1 sm:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] print:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] gap-x-5 print:gap-x-4 gap-y-1.5 text-[11px] leading-[1.35]">
+                      <section
+                        className={`mt-0.5 ${tableTypography.patientSectionPadClass} border-b border-slate-300 print:border-black/40 bg-white text-black flex flex-col sm:flex-row print:flex-row items-start sm:items-center print:items-center justify-between gap-3 sm:gap-4 print:gap-3.5`}
+                      >
+                        <div
+                          className={`flex-1 min-w-0 w-full grid grid-cols-1 sm:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] print:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] gap-x-5 print:gap-x-4 gap-y-1.5 ${tableTypography.patientGridClass}`}
+                        >
                           {/* Left Column: Patient Name, Age/Sex, ID/Invoice No, Specimen */}
-                          <div className="space-y-1 min-w-0">
+                          <div className={`${tableTypography.patientRowSpaceClass} min-w-0`}>
                             <div className="flex items-baseline gap-1.5 min-w-0">
-                              <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                              <span
+                                className={`${tableTypography.patientLeftLabelWidth} shrink-0 ${tableTypography.patientLabelClass} font-semibold uppercase tracking-wider text-slate-500`}
+                              >
                                 Patient
                               </span>
-                              <span className="min-w-0 flex-1 text-[13.5px] font-bold tracking-tight text-black leading-[1.2] whitespace-normal break-words">
+                              <span
+                                className={`min-w-0 flex-1 ${tableTypography.patientNameClass} font-bold tracking-tight text-black whitespace-normal break-words`}
+                              >
                                 {invoice.patient_name}
                               </span>
                             </div>
 
                             <div className="flex items-baseline gap-1.5 min-w-0">
-                              <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                              <span
+                                className={`${tableTypography.patientLeftLabelWidth} shrink-0 ${tableTypography.patientLabelClass} font-semibold uppercase tracking-wider text-slate-500`}
+                              >
                                 Age / Sex
                               </span>
                               <span className="min-w-0 flex-1 font-semibold tabular-nums text-black whitespace-normal">
@@ -615,7 +550,9 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                             </div>
 
                             <div className="flex items-baseline gap-1.5 min-w-0">
-                              <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                              <span
+                                className={`${tableTypography.patientLeftLabelWidth} shrink-0 ${tableTypography.patientLabelClass} font-semibold uppercase tracking-wider text-slate-500`}
+                              >
                                 ID / Inv No
                               </span>
                               <span className="min-w-0 flex-1 font-mono font-bold tabular-nums text-black whitespace-normal break-all">
@@ -624,7 +561,9 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                             </div>
 
                             <div className="flex items-baseline gap-1.5 min-w-0">
-                              <span className="w-[66px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                              <span
+                                className={`${tableTypography.patientLeftLabelWidth} shrink-0 ${tableTypography.patientLabelClass} font-semibold uppercase tracking-wider text-slate-500`}
+                              >
                                 Specimen
                               </span>
                               <span className="min-w-0 flex-1 font-medium text-black whitespace-normal break-words">
@@ -634,9 +573,11 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                           </div>
 
                           {/* Right Column: Registration/Report Date, Referring Doctor, Contact */}
-                          <div className="space-y-1 min-w-0">
+                          <div className={`${tableTypography.patientRowSpaceClass} min-w-0`}>
                             <div className="flex items-baseline gap-1.5 min-w-0">
-                              <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                              <span
+                                className={`${tableTypography.patientRightLabelWidth} shrink-0 ${tableTypography.patientLabelClass} font-semibold uppercase tracking-wider text-slate-500`}
+                              >
                                 Reg. Date
                               </span>
                               <span className="min-w-0 flex-1 font-mono font-medium tabular-nums text-black whitespace-nowrap">
@@ -645,7 +586,9 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                             </div>
 
                             <div className="flex items-baseline gap-1.5 min-w-0">
-                              <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                              <span
+                                className={`${tableTypography.patientRightLabelWidth} shrink-0 ${tableTypography.patientLabelClass} font-semibold uppercase tracking-wider text-slate-500`}
+                              >
                                 Report Date
                               </span>
                               <span className="min-w-0 flex-1 font-mono font-medium tabular-nums text-black whitespace-nowrap">
@@ -654,7 +597,9 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                             </div>
 
                             <div className="flex items-baseline gap-1.5 min-w-0">
-                              <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                              <span
+                                className={`${tableTypography.patientRightLabelWidth} shrink-0 ${tableTypography.patientLabelClass} font-semibold uppercase tracking-wider text-slate-500`}
+                              >
                                 Referred By
                               </span>
                               <span className="min-w-0 flex-1 font-medium text-black whitespace-normal break-words leading-[1.3]">
@@ -665,7 +610,9 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                             </div>
 
                             <div className="flex items-baseline gap-1.5 min-w-0">
-                              <span className="w-[72px] shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+                              <span
+                                className={`${tableTypography.patientRightLabelWidth} shrink-0 ${tableTypography.patientLabelClass} font-semibold uppercase tracking-wider text-slate-500`}
+                              >
                                 Contact
                               </span>
                               <span className="min-w-0 flex-1 font-mono font-medium tabular-nums text-black whitespace-normal break-words">
@@ -698,7 +645,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                 {/* Page Test Blocks Body — cleanly separated per planned A4 sheet */}
                 <tbody className="print-report-body">
                   <tr>
-                    <td className="p-0 pb-2 align-top">
+                    <td className="p-0 pb-3 align-top">
                       {plan.blocks.map((block, blockIdx) => {
                         const seg = block.segment;
                         const useAtomicBlock = seg.keepIntact;
@@ -718,14 +665,25 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                           >
                             {/* Centered Boxed Department Heading */}
                             {block.showDepartmentHeading && (
-                              <div className="print-keep-with-next mb-2 flex flex-col items-center">
+                              <div
+                                className={`print-keep-with-next ${
+                                  tableTypography.tier === 'ultra_short' ||
+                                  tableTypography.tier === 'short'
+                                    ? 'mt-1 mb-3'
+                                    : 'mb-2'
+                                } flex flex-col items-center`}
+                              >
                                 <div className="border border-black px-7 py-0.5 bg-white shadow-[2px_2px_0_#000000]">
-                                  <h2 className="text-sm font-bold tracking-wide text-black">
+                                  <h2
+                                    className={`${tableTypography.deptHeadingClass} font-bold tracking-wide text-black`}
+                                  >
                                     {block.departmentHeading}
                                   </h2>
                                 </div>
                                 {block.isSingleStandardTest && seg.kind === 'standard' && (
-                                  <div className="mt-1 text-[11px] font-bold text-black">
+                                  <div
+                                    className={`mt-1.5 ${tableTypography.testSubtitleClass} font-bold text-black`}
+                                  >
                                     {seg.tests[0].test_name}
                                   </div>
                                 )}
@@ -752,13 +710,19 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                       <tr
                                         className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
                                       >
-                                        <th className="py-1.5 px-2.5 border-y border-l border-[#e0e0e0]">
+                                        <th
+                                          className={`${tableTypography.thPadClass} border-y border-l border-[#e0e0e0]`}
+                                        >
                                           Parameter Name
                                         </th>
-                                        <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">
+                                        <th
+                                          className={`${tableTypography.thPadClass} border-y border-[#e0e0e0]`}
+                                        >
                                           Result
                                         </th>
-                                        <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0]">
+                                        <th
+                                          className={`${tableTypography.thPadClass} border-y border-r border-[#e0e0e0]`}
+                                        >
                                           Normal Value
                                         </th>
                                       </tr>
@@ -768,7 +732,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                         <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/80 print:bg-[#f8fafc]">
                                           <td
                                             colSpan={3}
-                                            className="py-1 px-2.5 text-[11px] font-bold text-black"
+                                            className={`${tableTypography.cellPadXClass} ${tableTypography.subHeaderClass} font-bold text-black`}
                                           >
                                             {seg.test.test_name}
                                           </td>
@@ -789,7 +753,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                               <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
                                                 <td
                                                   colSpan={3}
-                                                  className={`${tableTypography.sectionPadClass} px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-600`}
+                                                  className={`${tableTypography.sectionPadClass} ${tableTypography.cellPadXClass} ${tableTypography.sectionClass} font-bold uppercase tracking-wider text-slate-600`}
                                                 >
                                                   {section}
                                                 </td>
@@ -797,14 +761,14 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                             )}
                                             <tr className="print-row-avoid border-b border-[#e8ecf0]">
                                               <td
-                                                className={`${tableTypography.rowPadClass} px-2.5 align-top text-black ${
+                                                className={`${tableTypography.rowPadClass} ${tableTypography.cellPadXClass} align-top text-black ${
                                                   isHb ? 'font-bold pt-1.5' : 'font-medium'
                                                 }`}
                                               >
                                                 {r.parameter_name}
                                               </td>
                                               <td
-                                                className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
+                                                className={`${tableTypography.rowPadClass} ${tableTypography.cellPadXClass} align-top text-black whitespace-nowrap`}
                                               >
                                                 <span
                                                   className={`tabular-nums ${
@@ -822,7 +786,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                                 )}
                                               </td>
                                               <td
-                                                className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
+                                                className={`${tableTypography.rowPadClass} ${tableTypography.cellPadXClass} align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
                                               >
                                                 {r.normal_text || r.reference_range_text || '—'}
                                               </td>
@@ -853,13 +817,19 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                       <tr
                                         className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
                                       >
-                                        <th className="py-1.5 px-2.5 border-y border-l border-[#e0e0e0]">
+                                        <th
+                                          className={`${tableTypography.thPadClass} border-y border-l border-[#e0e0e0]`}
+                                        >
                                           Parameter Name
                                         </th>
-                                        <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">
+                                        <th
+                                          className={`${tableTypography.thPadClass} border-y border-[#e0e0e0]`}
+                                        >
                                           Result
                                         </th>
-                                        <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0]">
+                                        <th
+                                          className={`${tableTypography.thPadClass} border-y border-r border-[#e0e0e0]`}
+                                        >
                                           Normal Value
                                         </th>
                                       </tr>
@@ -869,7 +839,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                         <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/80 print:bg-[#f8fafc]">
                                           <td
                                             colSpan={3}
-                                            className="py-1 px-2.5 text-[11px] font-bold text-black"
+                                            className={`${tableTypography.cellPadXClass} ${tableTypography.subHeaderClass} font-bold text-black`}
                                           >
                                             {seg.test.test_name}
                                           </td>
@@ -889,7 +859,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                               <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/50 print:bg-[#fafbfc]">
                                                 <td
                                                   colSpan={3}
-                                                  className={`${tableTypography.sectionPadClass} px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-600`}
+                                                  className={`${tableTypography.sectionPadClass} ${tableTypography.cellPadXClass} ${tableTypography.sectionClass} font-bold uppercase tracking-wider text-slate-600`}
                                                 >
                                                   {sec}
                                                 </td>
@@ -897,12 +867,12 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                             )}
                                             <tr className="print-row-avoid border-b border-[#e8ecf0]">
                                               <td
-                                                className={`${tableTypography.rowPadClass} px-2.5 align-top font-medium text-black`}
+                                                className={`${tableTypography.rowPadClass} ${tableTypography.cellPadXClass} align-top font-medium text-black`}
                                               >
                                                 {r.parameter_name}
                                               </td>
                                               <td
-                                                className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
+                                                className={`${tableTypography.rowPadClass} ${tableTypography.cellPadXClass} align-top text-black whitespace-nowrap`}
                                               >
                                                 <span
                                                   className={`tabular-nums ${
@@ -920,7 +890,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                                 )}
                                               </td>
                                               <td
-                                                className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
+                                                className={`${tableTypography.rowPadClass} ${tableTypography.cellPadXClass} align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
                                               >
                                                 {r.normal_text || r.reference_range_text || '—'}
                                               </td>
@@ -949,16 +919,24 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                   <tr
                                     className={`border border-[#e0e0e0] bg-slate-50 print:bg-[#f8fafc] text-left ${tableTypography.theadClass} font-semibold uppercase tracking-wider text-slate-600`}
                                   >
-                                    <th className="py-1.5 px-2.5 border-y border-l border-[#e0e0e0]">
+                                    <th
+                                      className={`${tableTypography.thPadClass} border-y border-l border-[#e0e0e0]`}
+                                    >
                                       Parameter Name
                                     </th>
-                                    <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">
+                                    <th
+                                      className={`${tableTypography.thPadClass} border-y border-[#e0e0e0]`}
+                                    >
                                       Result
                                     </th>
-                                    <th className="py-1.5 px-2.5 border-y border-[#e0e0e0]">
+                                    <th
+                                      className={`${tableTypography.thPadClass} border-y border-[#e0e0e0]`}
+                                    >
                                       Normal Value
                                     </th>
-                                    <th className="py-1.5 px-2.5 border-y border-r border-[#e0e0e0] text-center">
+                                    <th
+                                      className={`${tableTypography.thPadClass} border-y border-r border-[#e0e0e0] text-center`}
+                                    >
                                       Remark
                                     </th>
                                   </tr>
@@ -978,7 +956,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                         <tr className="print-keep-with-next border-b border-[#d8dee6] bg-slate-50/70 print:bg-[#f8fafc]">
                                           <td
                                             colSpan={4}
-                                            className="py-1 px-2.5 text-[11px] font-bold tracking-tight text-black"
+                                            className={`${tableTypography.cellPadXClass} ${tableTypography.subHeaderClass} font-bold tracking-tight text-black`}
                                           >
                                             {test.test_name}
                                           </td>
@@ -994,12 +972,12 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                             className="print-row-avoid border-b border-[#e8ecf0]"
                                           >
                                             <td
-                                              className={`${tableTypography.rowPadClass} px-2.5 align-top font-medium text-black`}
+                                              className={`${tableTypography.rowPadClass} ${tableTypography.cellPadXClass} align-top font-medium text-black`}
                                             >
                                               {r.parameter_name}
                                             </td>
                                             <td
-                                              className={`${tableTypography.rowPadClass} px-2.5 align-top text-black whitespace-nowrap`}
+                                              className={`${tableTypography.rowPadClass} ${tableTypography.cellPadXClass} align-top text-black whitespace-nowrap`}
                                             >
                                               <span
                                                 className={`tabular-nums ${
@@ -1019,12 +997,12 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                               )}
                                             </td>
                                             <td
-                                              className={`${tableTypography.rowPadClass} px-2.5 align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
+                                              className={`${tableTypography.rowPadClass} ${tableTypography.cellPadXClass} align-top tabular-nums font-normal ${tableTypography.normalClass} text-slate-700 whitespace-pre-line`}
                                             >
                                               {r.reference_range_text || r.normal_text || '—'}
                                             </td>
                                             <td
-                                              className={`${tableTypography.rowPadClass} px-2.5 align-top text-center ${
+                                              className={`${tableTypography.rowPadClass} ${tableTypography.cellPadXClass} align-top text-center ${
                                                 isAbnormal
                                                   ? 'font-bold text-black'
                                                   : 'font-medium text-slate-700'
@@ -1060,18 +1038,18 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                         <footer className="grid grid-cols-3 gap-6 items-end text-black">
                           {/* 1. LEFT: Doctor / Consultant Pathologist Designation & Signature Area */}
                           <div className="text-left">
-                            <div className="h-6" />
+                            <div className="h-7" />
                             <div className="border-t border-black pt-1 text-left">
-                              <div className="text-[9.5px] font-semibold uppercase tracking-wide text-black">
+                              <div className="text-[10px] font-semibold uppercase tracking-wide text-black">
                                 Consultant / Pathologist
                               </div>
                               {resolvedConsultantName ? (
                                 <>
-                                  <p className="text-[11px] font-bold text-black leading-tight mt-0.5">
+                                  <p className="text-[11.5px] font-bold text-black leading-tight mt-0.5">
                                     {resolvedConsultantName}
                                   </p>
                                   {resolvedConsultantTitle && (
-                                    <p className="text-[10px] text-black leading-tight">
+                                    <p className="text-[10.5px] text-black leading-tight">
                                       {resolvedConsultantTitle}
                                     </p>
                                   )}
@@ -1087,26 +1065,26 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
 
                           {/* 2. CENTER: Checked By */}
                           <div className="text-center">
-                            <div className="h-6" />
+                            <div className="h-7" />
                             <div className="border-t border-black pt-1">
-                              <div className="text-[10.5px] font-bold text-black">Checked by</div>
+                              <div className="text-[11px] font-bold text-black">Checked by</div>
                             </div>
                           </div>
 
                           {/* 3. RIGHT: Technologist Designation & Signature Area */}
                           <div className="text-right">
-                            <div className="h-6" />
+                            <div className="h-7" />
                             <div className="border-t border-black pt-1 text-right">
-                              <div className="text-[9.5px] font-semibold uppercase tracking-wide text-black">
+                              <div className="text-[10px] font-semibold uppercase tracking-wide text-black">
                                 Prepared / Tested By
                               </div>
                               {resolvedTechName && (
-                                <p className="text-[11px] font-bold text-black leading-tight mt-0.5">
+                                <p className="text-[11.5px] font-bold text-black leading-tight mt-0.5">
                                   {resolvedTechName}
                                 </p>
                               )}
                               {resolvedTechTitle && (
-                                <p className="text-[10px] text-black leading-tight">
+                                <p className="text-[10.5px] text-black leading-tight">
                                   {resolvedTechTitle}
                                 </p>
                               )}

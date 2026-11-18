@@ -1,3 +1,4 @@
+process.env.TZ = 'Asia/Dhaka';
 import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { EventEmitter } from 'node:events';
@@ -25,7 +26,7 @@ import {
   verifyPatientToken,
   verifyStaffToken,
 } from './server/auth.ts';
-import { getTodayDateStr } from './server/clinical-rules.ts';
+import { BANGLADESH_TIMEZONE, getLocalTimestampStr, getTodayDateStr } from './server/clinical-rules.ts';
 import { createLimsStore, type LimsStore, StoreError } from './server/store.ts';
 import type { CreateInvoicePayload, ParamPayload, UpdateInvoicePayload } from './server/store-types.ts';
 
@@ -97,7 +98,8 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         storageMode: store.mode,
         storageLabel: store.label,
         storageWarning: store.warning || '',
-        time: new Date().toISOString(),
+        time: getLocalTimestampStr(),
+        timezone: BANGLADESH_TIMEZONE,
       });
     })
   );

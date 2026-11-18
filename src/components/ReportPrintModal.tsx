@@ -5,6 +5,7 @@ import {
   buildPatientReportQrUrl,
   formatAge,
   formatDateTime,
+  getBangladeshNowIso,
   resolvePublicBaseUrl,
 } from '../lib/api.ts';
 import {
@@ -177,7 +178,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
       .map((t) => t.ready_at || t.verified_at || '')
       .filter(Boolean)
       .sort()
-      .slice(-1)[0] || new Date().toISOString();
+      .slice(-1)[0] || getBangladeshNowIso();
 
   // Resolved Consultant & Technologist signatures (consistent across Print, Finalized Report & PDF Export)
   const resolvedSignatures = resolveReportSignatures({

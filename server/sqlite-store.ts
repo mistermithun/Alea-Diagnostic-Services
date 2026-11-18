@@ -788,8 +788,8 @@ export class SqliteLimsStore implements LimsStore {
 
     const info = db
       .prepare(
-        `INSERT INTO doctors (name, degree, hospital, mobile, commission_pct, portal_username, portal_password_hash, portal_password_enc, portal_enabled)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO doctors (name, degree, hospital, mobile, commission_pct, portal_username, portal_password_hash, portal_password_enc, portal_enabled, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         payload.name.trim(),
@@ -800,7 +800,8 @@ export class SqliteLimsStore implements LimsStore {
         normalizedUsername,
         pwHash,
         pwEnc,
-        portalEnabled
+        portalEnabled,
+        getLocalTimestampStr()
       );
     return { id: Number(info.lastInsertRowid) };
   }
@@ -2834,13 +2835,14 @@ export class SqliteLimsStore implements LimsStore {
     note?: string;
   }): Promise<{ id: number }> {
     const info = db
-      .prepare('INSERT INTO expenses (title, category, amount, expense_date, note) VALUES (?, ?, ?, ?, ?)')
+      .prepare('INSERT INTO expenses (title, category, amount, expense_date, note, created_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(
         payload.title.trim(),
         payload.category?.trim() || 'General',
         Number(payload.amount),
         payload.expense_date || getTodayDateStr(),
-        payload.note?.trim() || ''
+        payload.note?.trim() || '',
+        getLocalTimestampStr()
       );
     return { id: Number(info.lastInsertRowid) };
   }

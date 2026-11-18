@@ -19,11 +19,13 @@ import {
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import {
+  BANGLADESH_TIMEZONE,
   buildPatientReportQrUrl,
   doctorApiFetch,
   formatAge,
   formatBDT,
   formatDateTime,
+  getBangladeshNowIso,
   getDoctorToken,
   resolveApiUrl,
   resolvePublicBaseUrl,
@@ -93,6 +95,7 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
 
   const formatSyncTime = () => {
     return new Date().toLocaleTimeString('en-US', {
+      timeZone: BANGLADESH_TIMEZONE,
       hour: '2-digit',
       minute: '2-digit',
       hour12: true,
@@ -295,7 +298,7 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
           .map((t) => t.ready_at || t.verified_at || '')
           .filter(Boolean)
           .sort()
-          .slice(-1)[0] || new Date().toISOString();
+          .slice(-1)[0] || getBangladeshNowIso();
 
       const portalWebsiteUrl = resolvePublicBaseUrl(publicBaseUrl);
       let qrDataUrl: string | undefined;

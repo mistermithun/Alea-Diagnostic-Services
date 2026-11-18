@@ -9,7 +9,13 @@ import {
   generatePortalPassword,
   hashPassword,
 } from './auth.ts';
-import { getCanonicalParameterKey, SEED_CATALOG } from './clinical-rules.ts';
+import {
+  addDaysToIsoDate,
+  getCanonicalParameterKey,
+  getLocalTimestampStr,
+  getTodayDateStr,
+  SEED_CATALOG,
+} from './clinical-rules.ts';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 if (!fs.existsSync(DATA_DIR)) {
@@ -616,15 +622,16 @@ function seedInitialOperationalDataIfEmpty() {
   const docCount = (db.prepare('SELECT COUNT(*) as c FROM doctors').get() as { c: number }).c;
   if (docCount > 0) return;
 
+  const nowTs = getLocalTimestampStr();
   const insDoc = db.prepare(
-    'INSERT INTO doctors (name, degree, hospital, mobile, commission_pct) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO doctors (name, degree, hospital, mobile, commission_pct, created_at) VALUES (?, ?, ?, ?, ?, ?)'
   );
-  const d1 = Number(insDoc.run('Dr. Kamrul Hasan', 'MBBS, BCS (Health), FCPS (Medicine)', 'Kushtia General Hospital', '01711-234561', 20).lastInsertRowid);
-  const d2 = Number(insDoc.run('Dr. Nusrat Jahan', 'MBBS, DGO (Gynae & Obs)', 'Mirpur Upazila Health Complex', '01712-987654', 25).lastInsertRowid);
-  const d3 = Number(insDoc.run('Dr. Mahfuzur Rahman', 'MBBS, MD (Cardiology)', 'Halasa Specialized Clinic', '01819-445566', 20).lastInsertRowid);
-  insDoc.run('Self / Walk-in Patient', 'Direct Visit', 'Alea Diagnostic Services', '', 0);
+  const d1 = Number(insDoc.run('Dr. Kamrul Hasan', 'MBBS, BCS (Health), FCPS (Medicine)', 'Kushtia General Hospital', '01711-234561', 20, nowTs).lastInsertRowid);
+  const d2 = Number(insDoc.run('Dr. Nusrat Jahan', 'MBBS, DGO (Gynae & Obs)', 'Mirpur Upazila Health Complex', '01712-987654', 25, nowTs).lastInsertRowid);
+  const d3 = Number(insDoc.run('Dr. Mahfuzur Rahman', 'MBBS, MD (Cardiology)', 'Halasa Specialized Clinic', '01819-445566', 20, nowTs).lastInsertRowid);
+  insDoc.run('Self / Walk-in Patient', 'Direct Visit', 'Alea Diagnostic Services', '', 0, nowTs);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getTodayDateStr();
   const insPatient = db.prepare(
     'INSERT INTO patients (patient_uid, name, age_years, age_months, age_days, gender, mobile, address, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   );
@@ -662,15 +669,15 @@ function seedInitialOperationalDataIfEmpty() {
   const tx = db.transaction(() => {
     // Patient 1 - Ready report with abnormal CBC & FBS values
     const p1 = Number(
-      insPatient.run('ALEA-2601', 'Md. Rafiqul Islam', 46, 0, 0, 'Male', '01715-882211', 'Halasa Bazar, Mirpur', `${todayStr} 09:15:00`).lastInsertRowid
+      insPatient.run('ALEA-2601', 'Md. Rafiqul Islam', 46, 0, 0, 'Male', '01715-882211', 'Halasa Bazar, Mirpur', `${todayStr} 09:15:00+06:00`).lastInsertRowid
     );
     const inv1 = Number(
-      insInvoice.run('INV-26001', p1, d1, 650, 'flat', 50, 50, 600, 600, 0, 'Paid', 20, 120, 'Staff', `${todayStr} 09:16:00`).lastInsertRowid
+      insInvoice.run('INV-26001', p1, d1, 650, 'flat', 50, 50, 600, 600, 0, 'Paid', 20, 120, 'Staff', `${todayStr} 09:16:00+06:00`).lastInsertRowid
     );
 
     const cbc = getTestByCode('HEM-01');
     const it1 = Number(
-      insInvTest.run(inv1, cbc.id, cbc.name, cbc.category_name, cbc.sample_type, cbc.price, 'Ready', `${todayStr} 09:20:00`, `${todayStr} 10:45:00`, `${todayStr} 11:00:00`, 'Md. Tariqul Islam, B.Sc (MLT)').lastInsertRowid
+      insInvTest.run(inv1, cbc.id, cbc.name, cbc.category_name, cbc.sample_type, cbc.price, 'Ready', `${todayStr} 09:20:00+06:00`, `${todayStr} 10:45:00+06:00`, `${todayStr} 11:00:00+06:00`, 'Md. Tariqul Islam, B.Sc (MLT)').lastInsertRowid
     );
     const cbcSampleValues: Record<string, { val: string; flag: string }> = {
       'Hemoglobin (Hb)': { val: '11.4', flag: 'Low' },
@@ -696,20 +703,20 @@ function seedInitialOperationalDataIfEmpty() {
 
     const fbs = getTestByCode('BIO-01');
     const it2 = Number(
-      insInvTest.run(inv1, fbs.id, fbs.name, fbs.category_name, fbs.sample_type, fbs.price, 'Ready', `${todayStr} 09:20:00`, `${todayStr} 10:45:00`, `${todayStr} 11:00:00`, 'Md. Tariqul Islam').lastInsertRowid
+      insInvTest.run(inv1, fbs.id, fbs.name, fbs.category_name, fbs.sample_type, fbs.price, 'Ready', `${todayStr} 09:20:00+06:00`, `${todayStr} 10:45:00+06:00`, `${todayStr} 11:00:00+06:00`, 'Md. Tariqul Islam').lastInsertRowid
     );
     for (const param of getParams(fbs.id)) {
       insResult.run(it2, param.id, param.name, param.unit, '158', '70 - 100', 'High', param.sort_order);
     }
 
     // Historical visit for Patient 1 (12 days ago) for Date-Wise Medical History archive
-    const pastDate = new Date(Date.now() - 12 * 86400000).toISOString().slice(0, 10);
+    const pastDate = addDaysToIsoDate(todayStr, -12);
     const inv1Past = Number(
-      insInvoice.run('INV-25984', p1, d3, 1000, 'flat', 0, 0, 1000, 1000, 0, 'Paid', 20, 200, 'Staff', `${pastDate} 10:30:00`).lastInsertRowid
+      insInvoice.run('INV-25984', p1, d3, 1000, 'flat', 0, 0, 1000, 1000, 0, 'Paid', 20, 200, 'Staff', `${pastDate} 10:30:00+06:00`).lastInsertRowid
     );
     const lipidPast = getTestByCode('BIO-04');
     const it1Past = Number(
-      insInvTest.run(inv1Past, lipidPast.id, lipidPast.name, lipidPast.category_name, lipidPast.sample_type, lipidPast.price, 'Ready', `${pastDate} 10:35:00`, `${pastDate} 13:10:00`, `${pastDate} 13:30:00`, 'Md. Tariqul Islam').lastInsertRowid
+      insInvTest.run(inv1Past, lipidPast.id, lipidPast.name, lipidPast.category_name, lipidPast.sample_type, lipidPast.price, 'Ready', `${pastDate} 10:35:00+06:00`, `${pastDate} 13:10:00+06:00`, `${pastDate} 13:30:00+06:00`, 'Md. Tariqul Islam').lastInsertRowid
     );
     const lipidSample: Record<string, { val: string; flag: string }> = {
       'Total Cholesterol': { val: '234', flag: 'High' },
@@ -724,21 +731,21 @@ function seedInitialOperationalDataIfEmpty() {
 
     // Patient 2 - Partial payment (Due) + Processing status
     const p2 = Number(
-      insPatient.run('ALEA-2602', 'Mst. Amena Khatun', 32, 0, 0, 'Female', '01914-334455', 'Bank Mor, Mirpur', `${todayStr} 10:10:00`).lastInsertRowid
+      insPatient.run('ALEA-2602', 'Mst. Amena Khatun', 32, 0, 0, 'Female', '01914-334455', 'Bank Mor, Mirpur', `${todayStr} 10:10:00+06:00`).lastInsertRowid
     );
     const inv2 = Number(
-      insInvoice.run('INV-26002', p2, d2, 1300, 'percent', 10, 130, 1170, 700, 470, 'Partial', 25, 292.5, 'Staff', `${todayStr} 10:12:00`).lastInsertRowid
+      insInvoice.run('INV-26002', p2, d2, 1300, 'percent', 10, 130, 1170, 700, 470, 'Partial', 25, 292.5, 'Staff', `${todayStr} 10:12:00+06:00`).lastInsertRowid
     );
     const lft = getTestByCode('BIO-05');
     const it3 = Number(
-      insInvTest.run(inv2, lft.id, lft.name, lft.category_name, lft.sample_type, lft.price, 'Processing', `${todayStr} 10:20:00`, null, null, '').lastInsertRowid
+      insInvTest.run(inv2, lft.id, lft.name, lft.category_name, lft.sample_type, lft.price, 'Processing', `${todayStr} 10:20:00+06:00`, null, null, '').lastInsertRowid
     );
     for (const param of getParams(lft.id)) {
       insResult.run(it3, param.id, param.name, param.unit, '', param.normal_text, 'Normal', param.sort_order);
     }
     const hbsag = getTestByCode('SER-01');
     const it4 = Number(
-      insInvTest.run(inv2, hbsag.id, hbsag.name, hbsag.category_name, hbsag.sample_type, hbsag.price, 'Sample Collected', `${todayStr} 10:20:00`, null, null, '').lastInsertRowid
+      insInvTest.run(inv2, hbsag.id, hbsag.name, hbsag.category_name, hbsag.sample_type, hbsag.price, 'Sample Collected', `${todayStr} 10:20:00+06:00`, null, null, '').lastInsertRowid
     );
     for (const param of getParams(hbsag.id)) {
       insResult.run(it4, param.id, param.name, param.unit, '', param.normal_text, 'Normal', param.sort_order);
@@ -746,21 +753,21 @@ function seedInitialOperationalDataIfEmpty() {
 
     // Patient 3 - Sample Collected + Paid
     const p3 = Number(
-      insPatient.run('ALEA-2603', 'Md. Sohag Ali', 28, 0, 0, 'Male', '01788-556677', 'Poradaha, Mirpur', `${todayStr} 11:05:00`).lastInsertRowid
+      insPatient.run('ALEA-2603', 'Md. Sohag Ali', 28, 0, 0, 'Male', '01788-556677', 'Poradaha, Mirpur', `${todayStr} 11:05:00+06:00`).lastInsertRowid
     );
     const inv3 = Number(
-      insInvoice.run('INV-26003', p3, d3, 1800, 'flat', 0, 0, 1800, 1800, 0, 'Paid', 20, 360, 'Staff', `${todayStr} 11:06:00`).lastInsertRowid
+      insInvoice.run('INV-26003', p3, d3, 1800, 'flat', 0, 0, 1800, 1800, 0, 'Paid', 20, 360, 'Staff', `${todayStr} 11:06:00+06:00`).lastInsertRowid
     );
     const lipid = getTestByCode('BIO-04');
     const it5 = Number(
-      insInvTest.run(inv3, lipid.id, lipid.name, lipid.category_name, lipid.sample_type, lipid.price, 'Sample Collected', `${todayStr} 11:12:00`, null, null, '').lastInsertRowid
+      insInvTest.run(inv3, lipid.id, lipid.name, lipid.category_name, lipid.sample_type, lipid.price, 'Sample Collected', `${todayStr} 11:12:00+06:00`, null, null, '').lastInsertRowid
     );
     for (const param of getParams(lipid.id)) {
       insResult.run(it5, param.id, param.name, param.unit, '', param.normal_text, 'Normal', param.sort_order);
     }
     const kft = getTestByCode('BIO-06');
     const it6 = Number(
-      insInvTest.run(inv3, kft.id, kft.name, kft.category_name, kft.sample_type, kft.price, 'Verified', `${todayStr} 11:12:00`, `${todayStr} 12:15:00`, null, 'Md. Tariqul Islam').lastInsertRowid
+      insInvTest.run(inv3, kft.id, kft.name, kft.category_name, kft.sample_type, kft.price, 'Verified', `${todayStr} 11:12:00+06:00`, `${todayStr} 12:15:00+06:00`, null, 'Md. Tariqul Islam').lastInsertRowid
     );
     for (const param of getParams(kft.id)) {
       const val = param.name === 'Serum Creatinine' ? '1.1' : param.name === 'Blood Urea' ? '32' : '5.8';
@@ -768,9 +775,9 @@ function seedInitialOperationalDataIfEmpty() {
     }
 
     // Initial expenses
-    const insExp = db.prepare('INSERT INTO expenses (title, category, amount, expense_date, note) VALUES (?, ?, ?, ?, ?)');
-    insExp.run('CBC & Biochemistry Reagents Restock', 'Reagents & Kits', 1450, todayStr, 'Mindray diluent & glucose reagent');
-    insExp.run('Sample Collection Tubes & Needles', 'Consumables', 420, todayStr, 'EDTA & Clot activator tubes');
+    const insExp = db.prepare('INSERT INTO expenses (title, category, amount, expense_date, note, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+    insExp.run('CBC & Biochemistry Reagents Restock', 'Reagents & Kits', 1450, todayStr, 'Mindray diluent & glucose reagent', nowTs);
+    insExp.run('Sample Collection Tubes & Needles', 'Consumables', 420, todayStr, 'EDTA & Clot activator tubes', nowTs);
   });
   tx();
 }

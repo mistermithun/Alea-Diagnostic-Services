@@ -633,7 +633,7 @@ export class MongoLimsStore implements LimsStore {
     ]);
 
     const todayStr = getTodayDateStr();
-    const pastDate = new Date(Date.now() - 12 * 86400000).toISOString().slice(0, 10);
+    const pastDate = addDaysToIsoDate(todayStr, -12);
 
     const getTestByCode = async (code: string) => {
       const t = await this.testsCol.findOne({ code }, { projection: { _id: 0 } });
@@ -680,9 +680,9 @@ export class MongoLimsStore implements LimsStore {
       return id;
     };
 
-    const p1 = await mkPatient('ALEA-2601', 'Md. Rafiqul Islam', 46, 'Male', '01715-882211', 'Halasa Bazar, Mirpur', `${todayStr} 09:15:00`, 'ALEA61');
-    const p2 = await mkPatient('ALEA-2602', 'Mst. Amena Khatun', 32, 'Female', '01914-334455', 'Bank Mor, Mirpur', `${todayStr} 10:10:00`);
-    const p3 = await mkPatient('ALEA-2603', 'Md. Sohag Ali', 28, 'Male', '01788-556677', 'Poradaha, Mirpur', `${todayStr} 11:05:00`);
+    const p1 = await mkPatient('ALEA-2601', 'Md. Rafiqul Islam', 46, 'Male', '01715-882211', 'Halasa Bazar, Mirpur', `${todayStr} 09:15:00+06:00`, 'ALEA61');
+    const p2 = await mkPatient('ALEA-2602', 'Mst. Amena Khatun', 32, 'Female', '01914-334455', 'Bank Mor, Mirpur', `${todayStr} 10:10:00+06:00`);
+    const p3 = await mkPatient('ALEA-2603', 'Md. Sohag Ali', 28, 'Male', '01788-556677', 'Poradaha, Mirpur', `${todayStr} 11:05:00+06:00`);
 
     const createInv = async (doc: Omit<InvoiceDoc, 'id'>) => {
       const id = await this.nextSeq('invoices');
@@ -717,7 +717,7 @@ export class MongoLimsStore implements LimsStore {
       commission_amount: 120,
       notes: '',
       created_by: 'Staff',
-      created_at: `${todayStr} 09:16:00`,
+      created_at: `${todayStr} 09:16:00+06:00`,
     });
 
     const cbc = await getTestByCode('HEM-01');
@@ -730,9 +730,9 @@ export class MongoLimsStore implements LimsStore {
         sample_type: cbc.sample_type,
         price: cbc.price,
         status: 'Ready',
-        collected_at: `${todayStr} 09:20:00`,
-        verified_at: `${todayStr} 10:45:00`,
-        ready_at: `${todayStr} 11:00:00`,
+        collected_at: `${todayStr} 09:20:00+06:00`,
+        verified_at: `${todayStr} 10:45:00+06:00`,
+        ready_at: `${todayStr} 11:00:00+06:00`,
         verified_by: 'Md. Tariqul Islam, B.Sc (MLT)',
         consultant_name: '',
         consultant_title: '',
@@ -779,9 +779,9 @@ export class MongoLimsStore implements LimsStore {
         sample_type: fbs.sample_type,
         price: fbs.price,
         status: 'Ready',
-        collected_at: `${todayStr} 09:20:00`,
-        verified_at: `${todayStr} 10:45:00`,
-        ready_at: `${todayStr} 11:00:00`,
+        collected_at: `${todayStr} 09:20:00+06:00`,
+        verified_at: `${todayStr} 10:45:00+06:00`,
+        ready_at: `${todayStr} 11:00:00+06:00`,
         verified_by: 'Md. Tariqul Islam',
         consultant_name: '',
         consultant_title: '',
@@ -816,7 +816,7 @@ export class MongoLimsStore implements LimsStore {
       commission_amount: 200,
       notes: '',
       created_by: 'Staff',
-      created_at: `${pastDate} 10:30:00`,
+      created_at: `${pastDate} 10:30:00+06:00`,
     });
 
     const lipid = await getTestByCode('BIO-04');
@@ -829,9 +829,9 @@ export class MongoLimsStore implements LimsStore {
         sample_type: lipid.sample_type,
         price: lipid.price,
         status: 'Ready',
-        collected_at: `${pastDate} 10:35:00`,
-        verified_at: `${pastDate} 13:10:00`,
-        ready_at: `${pastDate} 13:30:00`,
+        collected_at: `${pastDate} 10:35:00+06:00`,
+        verified_at: `${pastDate} 13:10:00+06:00`,
+        ready_at: `${pastDate} 13:30:00+06:00`,
         verified_by: 'Md. Tariqul Islam',
         consultant_name: '',
         consultant_title: '',
@@ -873,7 +873,7 @@ export class MongoLimsStore implements LimsStore {
       commission_amount: 292.5,
       notes: '',
       created_by: 'Staff',
-      created_at: `${todayStr} 10:12:00`,
+      created_at: `${todayStr} 10:12:00+06:00`,
     });
 
     const lft = await getTestByCode('BIO-05');
@@ -886,7 +886,7 @@ export class MongoLimsStore implements LimsStore {
         sample_type: lft.sample_type,
         price: lft.price,
         status: 'Processing',
-        collected_at: `${todayStr} 10:20:00`,
+        collected_at: `${todayStr} 10:20:00+06:00`,
         verified_at: null,
         ready_at: null,
         verified_by: '',
@@ -917,7 +917,7 @@ export class MongoLimsStore implements LimsStore {
         sample_type: hbsag.sample_type,
         price: hbsag.price,
         status: 'Sample Collected',
-        collected_at: `${todayStr} 10:20:00`,
+        collected_at: `${todayStr} 10:20:00+06:00`,
         verified_at: null,
         ready_at: null,
         verified_by: '',
@@ -954,7 +954,7 @@ export class MongoLimsStore implements LimsStore {
       commission_amount: 360,
       notes: '',
       created_by: 'Staff',
-      created_at: `${todayStr} 11:06:00`,
+      created_at: `${todayStr} 11:06:00+06:00`,
     });
 
     if (lipid) {
@@ -966,7 +966,7 @@ export class MongoLimsStore implements LimsStore {
         sample_type: lipid.sample_type,
         price: lipid.price,
         status: 'Sample Collected',
-        collected_at: `${todayStr} 11:12:00`,
+        collected_at: `${todayStr} 11:12:00+06:00`,
         verified_at: null,
         ready_at: null,
         verified_by: '',
@@ -997,8 +997,8 @@ export class MongoLimsStore implements LimsStore {
         sample_type: kft.sample_type,
         price: kft.price,
         status: 'Verified',
-        collected_at: `${todayStr} 11:12:00`,
-        verified_at: `${todayStr} 12:15:00`,
+        collected_at: `${todayStr} 11:12:00+06:00`,
+        verified_at: `${todayStr} 12:15:00+06:00`,
         ready_at: null,
         verified_by: 'Md. Tariqul Islam',
         consultant_name: '',
@@ -4523,7 +4523,7 @@ export class MongoLimsStore implements LimsStore {
       type: 'json' as const,
       filename: `alea_diagnostic_cloud_backup_${getTodayDateStr()}.json`,
       data: {
-        exported_at: new Date().toISOString(),
+        exported_at: getLocalTimestampStr(),
         storage: 'mongodb',
         settings,
         test_categories,

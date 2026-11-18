@@ -25,23 +25,45 @@ export interface TestSeed {
   parameters: ParamSeed[];
 }
 
-export function getTodayDateStr(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+export const BANGLADESH_TIMEZONE = 'Asia/Dhaka';
+export const BANGLADESH_UTC_OFFSET = '+06:00';
+
+function getDhakaParts(date: Date = new Date()) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: BANGLADESH_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  const map: Record<string, string> = {};
+  for (const part of formatter.formatToParts(date)) {
+    if (part.type !== 'literal') {
+      map[part.type] = part.value;
+    }
+  }
+  const hour = map.hour === '24' ? '00' : map.hour || '00';
+  return {
+    year: map.year || '1970',
+    month: map.month || '01',
+    day: map.day || '01',
+    hour,
+    minute: map.minute || '00',
+    second: map.second || '00',
+  };
 }
 
-export function getLocalTimestampStr(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mm = String(now.getMinutes()).padStart(2, '0');
-  const ss = String(now.getSeconds()).padStart(2, '0');
-  return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+export function getTodayDateStr(date: Date = new Date()): string {
+  const p = getDhakaParts(date);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+export function getLocalTimestampStr(date: Date = new Date()): string {
+  const p = getDhakaParts(date);
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}${BANGLADESH_UTC_OFFSET}`;
 }
 
 export function addDaysToIsoDate(isoDate: string, days: number): string {

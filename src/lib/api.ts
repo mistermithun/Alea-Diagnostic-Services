@@ -186,12 +186,69 @@ export function formatAge(years: number, months = 0, days = 0): string {
   return parts.length > 0 ? parts.join(' ') : '0Y';
 }
 
+export const BANGLADESH_TIMEZONE = 'Asia/Dhaka';
+export const BANGLADESH_UTC_OFFSET = '+06:00';
+
+function getDhakaDateParts(date: Date = new Date()) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: BANGLADESH_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  const map: Record<string, string> = {};
+  for (const part of formatter.formatToParts(date)) {
+    if (part.type !== 'literal') {
+      map[part.type] = part.value;
+    }
+  }
+  const hour = map.hour === '24' ? '00' : map.hour || '00';
+  return {
+    year: map.year || '1970',
+    month: map.month || '01',
+    day: map.day || '01',
+    hour,
+    minute: map.minute || '00',
+    second: map.second || '00',
+  };
+}
+
+export function getBangladeshNowIso(date: Date = new Date()): string {
+  const p = getDhakaDateParts(date);
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}${BANGLADESH_UTC_OFFSET}`;
+}
+
 export function formatDateTime(ts: string | null | undefined): string {
   if (!ts) return '—';
-  const normalized = ts.includes('T') ? ts : ts.replace(' ', 'T');
+  const trimmed = ts.trim();
+  if (!trimmed) return '—';
+
+  // Pure YYYY-MM-DD date string -> format cleanly in Asia/Dhaka without midnight drift
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const dOnly = new Date(`${trimmed}T12:00:00${BANGLADESH_UTC_OFFSET}`);
+    if (Number.isNaN(dOnly.getTime())) return trimmed;
+    return dOnly.toLocaleDateString('en-GB', {
+      timeZone: BANGLADESH_TIMEZONE,
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  }
+
+  let normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
+  // Bare DB timestamps without explicit Z or ±HH:MM offset represent Bangladesh Standard Time (+06:00)
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(normalized)) {
+    normalized = `${normalized}${BANGLADESH_UTC_OFFSET}`;
+  }
+
   const d = new Date(normalized);
   if (Number.isNaN(d.getTime())) return ts;
   return d.toLocaleString('en-GB', {
+    timeZone: BANGLADESH_TIMEZONE,
     day: '2-digit',
     month: 'short',
     year: 'numeric',
@@ -202,18 +259,13 @@ export function formatDateTime(ts: string | null | undefined): string {
 }
 
 export function getTodayISO(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  const p = getDhakaDateParts(new Date());
+  return `${p.year}-${p.month}-${p.day}`;
 }
 
 export function getMonthStartISO(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  return `${y}-${m}-01`;
+  const p = getDhakaDateParts(new Date());
+  return `${p.year}-${p.month}-01`;
 }
 
 export function evaluateClientFlag(

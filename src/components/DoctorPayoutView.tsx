@@ -39,7 +39,7 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(initialDoctorId ?? null);
 
-  const [fromDate, setFromDate] = useState<string>('');
+  const [fromDate, setFromDate] = useState<string>(getMonthStartISO());
   const [toDate, setToDate] = useState<string>(getTodayISO());
   const [statusFilter, setStatusFilter] = useState<'unpaid' | 'all' | 'paid'>('unpaid');
 
@@ -67,50 +67,11 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
   >({});
   const [savingOverride, setSavingOverride] = useState(false);
 
-  const loadDoctors = useCallback(async () => {
-    setLoadingDocs(true);
-    try {
-      const res = await apiFetch<{ doctors: Doctor[] }>('/api/doctors');
-      setDoctors(res.doctors);
-      setSelectedDoctorId((prev) => {
-        if (initialDoctorId && res.doctors.some((d) => d.id === initialDoctorId)) {
-          return initialDoctorId;
-        }
-        if (prev && res.doctors.some((d) => d.id === prev)) {
-          return prev;
-        }
-        const preferred =
-          res.doctors.find((d) => (d.unpaid_commission_total || 0) > 0) ||
-          res.doctors.find((d) => !d.name.toLowerCase().includes('self')) ||
-          res.doctors[0];
-        return preferred ? preferred.id : null;
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load doctors list.');
-    } finally {
-      setLoadingDocs(false);
-    }
-  }, [initialDoctorId]);
-
-  useEffect(() => {
-    loadDoctors();
-  }, [loadDoctors]);
-
-  useEffect(() => {
-    if (initialDoctorId) {
-      setSelectedDoctorId(initialDoctorId);
-      setFromDate('');
-      setToDate(getTodayISO());
-      setStatusFilter('unpaid');
-      setConfirmingSettle(false);
-    }
-  }, [initialDoctorId]);
-
   const fetchStatement = useCallback(
     async (
       docId: number,
       opts?: { from?: string; to?: string; status?: 'unpaid' | 'all' | 'paid' }
-    ) => {
+    ): Promise<DoctorStatementResponse | null> => {
       setLoadingStmt(true);
       setError('');
       try {
@@ -122,11 +83,11 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
           `/api/admin/doctors/${docId}/statement?${params.toString()}`
         );
         setStatement(res);
-        setFromDate(res.from);
-        setToDate(res.to);
-        setPaidUpToDate(res.to || getTodayISO());
+        setPaidUpToDate(res.to || opts?.to || getTodayISO());
+        return res;
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load doctor commission statement.');
+        return null;
       } finally {
         setLoadingStmt(false);
       }
@@ -134,33 +95,125 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
     [statusFilter]
   );
 
-  // Load statement automatically whenever selectedDoctorId changes (using auto from based on Last Paid Date)
+  const loadDoctorsAndStatement = useCallback(
+    async (
+      rangeFrom: string,
+      rangeTo: string,
+      opts?: {
+        preferredDoctorId?: number | null;
+        status?: 'unpaid' | 'all' | 'paid';
+      }
+    ) => {
+      const validFrom = /^\d{4}-\d{2}-\d{2}$/.test(rangeFrom) ? rangeFrom : '';
+      const validTo = /^\d{4}-\d{2}-\d{2}$/.test(rangeTo) ? rangeTo : '';
+      if (!validFrom || !validTo) return;
+
+      setLoadingDocs(true);
+      setError('');
+      try {
+        const params = new URLSearchParams({ from: validFrom, to: validTo });
+        const res = await apiFetch<{ doctors: Doctor[] }>(`/api/doctors?${params.toString()}`);
+        const filteredList = res.doctors;
+        setDoctors(filteredList);
+
+        let nextDocId: number | null = null;
+        const targetId = opts?.preferredDoctorId !== undefined ? opts.preferredDoctorId : selectedDoctorId;
+        if (targetId && filteredList.some((d) => d.id === targetId)) {
+          nextDocId = targetId;
+        } else {
+          const preferred =
+            filteredList.find((d) => (d.unpaid_commission_total || 0) > 0) ||
+            filteredList.find((d) => !d.name.toLowerCase().includes('self')) ||
+            filteredList[0];
+          nextDocId = preferred ? preferred.id : null;
+        }
+
+        setSelectedDoctorId(nextDocId);
+        if (nextDocId) {
+          await fetchStatement(nextDocId, {
+            from: validFrom,
+            to: validTo,
+            status: opts?.status || statusFilter,
+          });
+        } else {
+          setStatement(null);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load referring doctors.');
+      } finally {
+        setLoadingDocs(false);
+      }
+    },
+    [fetchStatement, selectedDoctorId, statusFilter]
+  );
+
+  // Initial load & when navigated with initialDoctorId from Doctors or Dashboard
   useEffect(() => {
-    if (selectedDoctorId) {
-      fetchStatement(selectedDoctorId, {
-        from: undefined,
-        to: getTodayISO(),
+    let active = true;
+    const init = async () => {
+      const today = getTodayISO();
+      if (initialDoctorId) {
+        setConfirmingSettle(false);
+        setStatusFilter('unpaid');
+        const stmt = await fetchStatement(initialDoctorId, {
+          from: undefined,
+          to: today,
+          status: 'unpaid',
+        });
+        if (!active) return;
+        const resolvedFrom = stmt?.from || getMonthStartISO();
+        const resolvedTo = stmt?.to || today;
+        setFromDate(resolvedFrom);
+        setToDate(resolvedTo);
+        await loadDoctorsAndStatement(resolvedFrom, resolvedTo, {
+          preferredDoctorId: initialDoctorId,
+          status: 'unpaid',
+        });
+      } else {
+        await loadDoctorsAndStatement(fromDate, toDate);
+      }
+    };
+    init();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDoctorId]);
+
+  const handleDateRangeChange = (nextFrom: string, nextTo: string) => {
+    setFromDate(nextFrom);
+    setToDate(nextTo);
+    setSuccessMsg('');
+    setConfirmingSettle(false);
+    if (
+      /^\d{4}-\d{2}-\d{2}$/.test(nextFrom) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(nextTo) &&
+      nextFrom <= nextTo
+    ) {
+      loadDoctorsAndStatement(nextFrom, nextTo);
+    }
+  };
+
+  const handleDoctorChange = (docId: number) => {
+    setSuccessMsg('');
+    setConfirmingSettle(false);
+    setSelectedDoctorId(docId);
+    if (docId) {
+      fetchStatement(docId, {
+        from: fromDate || undefined,
+        to: toDate || undefined,
         status: statusFilter,
       });
     } else {
       setStatement(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDoctorId]);
-
-  const handleDoctorChange = (docId: number) => {
-    setSuccessMsg('');
-    setConfirmingSettle(false);
-    setFromDate('');
-    setToDate(getTodayISO());
-    setSelectedDoctorId(docId);
   };
 
   const applyQuickRange = (preset: 'since_last' | '10d' | '15d' | 'month') => {
-    if (!selectedDoctorId || !statement) return;
     const today = getTodayISO();
     let nextFrom = getMonthStartISO();
     if (preset === 'since_last') {
+      if (!statement) return;
       nextFrom = statement.doctor.last_commission_paid_up_to
         ? addDaysISO(statement.doctor.last_commission_paid_up_to, 1)
         : getMonthStartISO();
@@ -173,7 +226,9 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
     }
     setFromDate(nextFrom);
     setToDate(today);
-    fetchStatement(selectedDoctorId, { from: nextFrom, to: today, status: statusFilter });
+    setSuccessMsg('');
+    setConfirmingSettle(false);
+    loadDoctorsAndStatement(nextFrom, today);
   };
 
   const handleStatusChange = (nextStatus: 'unpaid' | 'all' | 'paid') => {
@@ -225,10 +280,8 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
           res.totalCommissionPaid
         )} · Marked as Paid up to ${res.paidUpToDate}.`
       );
-      await loadDoctors();
-      await fetchStatement(selectedDoctorId, {
-        from: addDaysISO(res.paidUpToDate, 1),
-        to: getTodayISO(),
+      await loadDoctorsAndStatement(fromDate, toDate, {
+        preferredDoctorId: selectedDoctorId,
         status: statusFilter,
       });
     } catch (err) {
@@ -293,10 +346,8 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
       });
       setEditingReferral(null);
       setSuccessMsg(`Updated commission rate for ${editingReferral.invoice_no} (${editingReferral.patient_name}).`);
-      await loadDoctors();
-      await fetchStatement(selectedDoctorId, {
-        from: fromDate || undefined,
-        to: toDate || undefined,
+      await loadDoctorsAndStatement(fromDate, toDate, {
+        preferredDoctorId: selectedDoctorId,
         status: statusFilter,
       });
     } catch (err) {
@@ -334,7 +385,9 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
             </p>
           </div>
           <div className="bg-white border border-slate-200 rounded-lg px-4 py-2 text-right shrink-0">
-            <div className="text-[11px] font-medium text-slate-500">All Doctors Unpaid Accrued</div>
+            <div className="text-[11px] font-medium text-slate-500">
+              Filtered Doctors Unpaid ({doctors.length} {doctors.length === 1 ? 'Doctor' : 'Doctors'})
+            </div>
             <div className="text-lg font-bold font-mono tabular-nums text-teal-700">
               {formatBDT(totalPendingAllDoctors)}
             </div>
@@ -356,23 +409,37 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
             <div className="lg:col-span-5">
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Select Referring Doctor
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Select Referring Doctor
+                </label>
+                <span className="text-[11px] font-mono tabular-nums text-slate-500">
+                  {loadingDocs
+                    ? 'Filtering...'
+                    : `${doctors.length} ${doctors.length === 1 ? 'doctor' : 'doctors'} in period`}
+                </span>
+              </div>
               <select
                 value={selectedDoctorId ?? ''}
                 onChange={(e) => handleDoctorChange(Number(e.target.value))}
-                disabled={loadingDocs}
-                className="w-full px-3 py-2 text-sm font-medium border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-600"
+                disabled={loadingDocs || doctors.length === 0}
+                className="w-full px-3 py-2 text-sm font-medium border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50 disabled:text-slate-500"
               >
-                {doctors.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name} ({d.commission_pct ?? 0}%) — Unpaid: {formatBDT(d.unpaid_commission_total || 0)}
-                    {d.last_commission_paid_up_to
-                      ? ` · Last Paid: ${d.last_commission_paid_up_to}`
-                      : ' · Never Settled'}
+                {doctors.length === 0 ? (
+                  <option value="">
+                    No referring doctors found ({fromDate} to {toDate})
                   </option>
-                ))}
+                ) : (
+                  doctors.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} ({d.commission_pct ?? 0}%) — {d.period_referrals_count ?? 0} pt(s) · Unpaid:{' '}
+                      {formatBDT(d.unpaid_commission_total || 0)}
+                      {d.last_commission_paid_up_to
+                        ? ` · Last Paid: ${d.last_commission_paid_up_to}`
+                        : ' · Never Settled'}
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 
@@ -381,7 +448,7 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
               <input
                 type="date"
                 value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
+                onChange={(e) => handleDateRangeChange(e.target.value, toDate)}
                 className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
               />
             </div>
@@ -391,7 +458,7 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
               <input
                 type="date"
                 value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
+                onChange={(e) => handleDateRangeChange(fromDate, e.target.value)}
                 className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
               />
             </div>
@@ -399,24 +466,17 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
             <div className="lg:col-span-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                disabled={!selectedDoctorId || loadingStmt}
-                onClick={() =>
-                  selectedDoctorId &&
-                  fetchStatement(selectedDoctorId, {
-                    from: fromDate || undefined,
-                    to: toDate || undefined,
-                    status: statusFilter,
-                  })
-                }
-                className="px-4 py-2 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap"
+                disabled={loadingDocs || loadingStmt || !fromDate || !toDate}
+                onClick={() => loadDoctorsAndStatement(fromDate, toDate)}
+                className="px-4 py-2 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap cursor-pointer"
               >
-                {loadingStmt ? 'Loading...' : 'Apply Filter'}
+                {loadingDocs || loadingStmt ? 'Loading...' : 'Apply Filter'}
               </button>
               <button
                 type="button"
                 disabled={!statement}
                 onClick={() => window.print()}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 whitespace-nowrap cursor-pointer"
               >
                 <Printer className="w-4 h-4" />
                 Print Statement
@@ -430,8 +490,9 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
               <span className="text-slate-500 font-medium mr-1">Quick Period:</span>
               <button
                 type="button"
+                disabled={!statement}
                 onClick={() => applyQuickRange('since_last')}
-                className="px-2.5 py-1 font-medium text-teal-800 bg-teal-50 border border-teal-200 rounded-md hover:bg-teal-100"
+                className="px-2.5 py-1 font-medium text-teal-800 bg-teal-50 border border-teal-200 rounded-md hover:bg-teal-100 disabled:opacity-40"
               >
                 Since Last Paid Date
               </button>
@@ -606,6 +667,20 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
                 </div>
               )}
             </div>
+          </div>
+        )}
+        {/* Empty state when no doctors referred patients in selected date range */}
+        {!loadingDocs && doctors.length === 0 && (
+          <div className="bg-white border border-slate-200 rounded-xl p-8 text-center">
+            <div className="text-sm font-semibold text-slate-900">
+              No referring doctors have patient records in this date range
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Selected period:{' '}
+              <span className="font-mono tabular-nums font-medium text-slate-700">{fromDate}</span> to{' '}
+              <span className="font-mono tabular-nums font-medium text-slate-700">{toDate}</span>. Adjust
+              the From Date / To Date or pick a quick period above to view doctors with referrals.
+            </p>
           </div>
         )}
       </div>

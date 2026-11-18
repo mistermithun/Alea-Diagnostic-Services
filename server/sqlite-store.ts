@@ -635,7 +635,10 @@ export class SqliteLimsStore implements LimsStore {
     return { success: true };
   }
 
-  async listDoctors(includeCommission: boolean): Promise<unknown[]> {
+  async listDoctors(
+    includeCommission: boolean,
+    dateRange?: { from?: string; to?: string }
+  ): Promise<unknown[]> {
     const docs = db
       .prepare(
         `SELECT id, name, degree, hospital, mobile,
@@ -658,35 +661,80 @@ export class SqliteLimsStore implements LimsStore {
       [key: string]: unknown;
     }>;
 
-    if (!includeCommission) return docs;
+    const cleanFrom = dateRange?.from?.trim() || '';
+    const cleanTo = dateRange?.to?.trim() || '';
+    const hasDateFilter = Boolean(cleanFrom || cleanTo);
 
-    const allInvs = db
-      .prepare(`SELECT doctor_id, created_at, commission_amount, commission_paid FROM invoices WHERE doctor_id IS NOT NULL`)
-      .all() as Array<{
+    if (!includeCommission && !hasDateFilter) return docs;
+
+    const conditions = ['doctor_id IS NOT NULL'];
+    const params: unknown[] = [];
+    if (cleanFrom && cleanTo) {
+      conditions.push(`substr(created_at, 1, 10) BETWEEN ? AND ?`);
+      params.push(cleanFrom, cleanTo);
+    } else if (cleanFrom) {
+      conditions.push(`substr(created_at, 1, 10) >= ?`);
+      params.push(cleanFrom);
+    } else if (cleanTo) {
+      conditions.push(`substr(created_at, 1, 10) <= ?`);
+      params.push(cleanTo);
+    }
+
+    const matchingInvs = db
+      .prepare(
+        `SELECT doctor_id, created_at, commission_amount, commission_paid
+         FROM invoices
+         WHERE ${conditions.join(' AND ')}`
+      )
+      .all(...params) as Array<{
       doctor_id: number;
       created_at: string;
       commission_amount: number;
       commission_paid: number;
     }>;
 
-    const secret = this.getAuthSecret();
     const docMap = new Map(docs.map((d) => [d.id, d]));
-    const unpaidStats = new Map<number, { count: number; amount: number }>();
-    for (const inv of allInvs) {
+    const referralStats = new Map<
+      number,
+      { totalCount: number; totalCommission: number; unpaidCount: number; unpaidAmount: number }
+    >();
+
+    for (const inv of matchingInvs) {
       const doc = docMap.get(inv.doctor_id);
-      const lastPaidUpTo = String(doc?.last_commission_paid_up_to || '').trim();
+      if (!doc) continue;
+      const cur = referralStats.get(inv.doctor_id) || {
+        totalCount: 0,
+        totalCommission: 0,
+        unpaidCount: 0,
+        unpaidAmount: 0,
+      };
+      cur.totalCount += 1;
+      cur.totalCommission = roundCurrency(cur.totalCommission + Number(inv.commission_amount || 0));
+
+      const lastPaidUpTo = String(doc.last_commission_paid_up_to || '').trim();
       const invDate = String(inv.created_at || '').slice(0, 10);
       const isPaid = inv.commission_paid === 1 || (Boolean(lastPaidUpTo) && invDate <= lastPaidUpTo);
       if (!isPaid) {
-        const cur = unpaidStats.get(inv.doctor_id) || { count: 0, amount: 0 };
-        cur.count += 1;
-        cur.amount = roundCurrency(cur.amount + Number(inv.commission_amount || 0));
-        unpaidStats.set(inv.doctor_id, cur);
+        cur.unpaidCount += 1;
+        cur.unpaidAmount = roundCurrency(cur.unpaidAmount + Number(inv.commission_amount || 0));
       }
+      referralStats.set(inv.doctor_id, cur);
     }
 
-    return docs.map((d) => {
-      const stats = unpaidStats.get(d.id) || { count: 0, amount: 0 };
+    const filteredDocs = hasDateFilter
+      ? docs.filter((d) => (referralStats.get(d.id)?.totalCount || 0) > 0)
+      : docs;
+
+    if (!includeCommission) return filteredDocs;
+
+    const secret = this.getAuthSecret();
+    return filteredDocs.map((d) => {
+      const stats = referralStats.get(d.id) || {
+        totalCount: 0,
+        totalCommission: 0,
+        unpaidCount: 0,
+        unpaidAmount: 0,
+      };
       const { portal_password_enc, ...rest } = d;
       const decryptedPw = portal_password_enc ? decryptPortalPassword(portal_password_enc, secret) : '';
       return {
@@ -697,8 +745,10 @@ export class SqliteLimsStore implements LimsStore {
         last_commission_paid_up_to: d.last_commission_paid_up_to || '',
         last_commission_settled_at: d.last_commission_settled_at || '',
         last_commission_paid_amount: Number(d.last_commission_paid_amount || 0),
-        unpaid_referrals_count: stats.count,
-        unpaid_commission_total: stats.amount,
+        period_referrals_count: stats.totalCount,
+        period_commission_total: stats.totalCommission,
+        unpaid_referrals_count: stats.unpaidCount,
+        unpaid_commission_total: stats.unpaidAmount,
       };
     });
   }

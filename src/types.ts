@@ -88,6 +88,8 @@ export interface Doctor {
   last_commission_paid_amount?: number;
   unpaid_referrals_count?: number;
   unpaid_commission_total?: number;
+  period_referrals_count?: number;
+  period_commission_total?: number;
   portal_username?: string;
   portal_password?: string;
   portal_enabled?: number;

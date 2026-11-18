@@ -1768,7 +1768,10 @@ export class MongoLimsStore implements LimsStore {
     return { success: true };
   }
 
-  async listDoctors(includeCommission: boolean): Promise<unknown[]> {
+  async listDoctors(
+    includeCommission: boolean,
+    dateRange?: { from?: string; to?: string }
+  ): Promise<unknown[]> {
     const projection: Record<string, number> = {
       _id: 0,
       id: 1,
@@ -1789,37 +1792,73 @@ export class MongoLimsStore implements LimsStore {
       projection.portal_enabled = 1;
     }
     const docs = await this.doctorsCol.find({ is_active: 1 }, { projection }).sort({ name: 1 }).toArray();
-    if (!includeCommission) return docs;
+    const cleanFrom = dateRange?.from?.trim() || '';
+    const cleanTo = dateRange?.to?.trim() || '';
+    const hasDateFilter = Boolean(cleanFrom || cleanTo);
+
+    if (!includeCommission && !hasDateFilter) return docs;
 
     const docIds = docs.map((d) => d.id);
-    const allRefInvoices = docIds.length
+    const invQuery: Record<string, unknown> = { doctor_id: { $in: docIds } };
+    if (cleanFrom && cleanTo) {
+      invQuery.created_at = { $gte: cleanFrom, $lte: `${cleanTo}\uffff` };
+    } else if (cleanFrom) {
+      invQuery.created_at = { $gte: cleanFrom };
+    } else if (cleanTo) {
+      invQuery.created_at = { $lte: `${cleanTo}\uffff` };
+    }
+
+    const matchingInvs = docIds.length
       ? await this.invoicesCol
-          .find(
-            { doctor_id: { $in: docIds } },
-            { projection: { _id: 0, doctor_id: 1, created_at: 1, commission_amount: 1, commission_paid: 1 } }
-          )
+          .find(invQuery, {
+            projection: { _id: 0, doctor_id: 1, created_at: 1, commission_amount: 1, commission_paid: 1 },
+          })
           .toArray()
       : [];
 
-    const secret = this.getAuthSecret();
     const docMap = new Map(docs.map((d) => [d.id, d]));
-    const unpaidStats = new Map<number, { count: number; amount: number }>();
-    for (const inv of allRefInvoices) {
+    const referralStats = new Map<
+      number,
+      { totalCount: number; totalCommission: number; unpaidCount: number; unpaidAmount: number }
+    >();
+
+    for (const inv of matchingInvs) {
       if (!inv.doctor_id) continue;
       const doc = docMap.get(inv.doctor_id);
-      const lastPaidUpTo = doc?.last_commission_paid_up_to || '';
+      if (!doc) continue;
+      const cur = referralStats.get(inv.doctor_id) || {
+        totalCount: 0,
+        totalCommission: 0,
+        unpaidCount: 0,
+        unpaidAmount: 0,
+      };
+      cur.totalCount += 1;
+      cur.totalCommission = roundCurrency(cur.totalCommission + Number(inv.commission_amount || 0));
+
+      const lastPaidUpTo = doc.last_commission_paid_up_to || '';
       const isPaid =
         inv.commission_paid === 1 || (Boolean(lastPaidUpTo) && datePart(inv.created_at) <= lastPaidUpTo);
       if (!isPaid) {
-        const cur = unpaidStats.get(inv.doctor_id) || { count: 0, amount: 0 };
-        cur.count += 1;
-        cur.amount = roundCurrency(cur.amount + Number(inv.commission_amount || 0));
-        unpaidStats.set(inv.doctor_id, cur);
+        cur.unpaidCount += 1;
+        cur.unpaidAmount = roundCurrency(cur.unpaidAmount + Number(inv.commission_amount || 0));
       }
+      referralStats.set(inv.doctor_id, cur);
     }
 
-    return docs.map((d) => {
-      const stats = unpaidStats.get(d.id) || { count: 0, amount: 0 };
+    const filteredDocs = hasDateFilter
+      ? docs.filter((d) => (referralStats.get(d.id)?.totalCount || 0) > 0)
+      : docs;
+
+    if (!includeCommission) return filteredDocs;
+
+    const secret = this.getAuthSecret();
+    return filteredDocs.map((d) => {
+      const stats = referralStats.get(d.id) || {
+        totalCount: 0,
+        totalCommission: 0,
+        unpaidCount: 0,
+        unpaidAmount: 0,
+      };
       const { portal_password_enc, ...rest } = d;
       const decryptedPw = portal_password_enc ? decryptPortalPassword(portal_password_enc, secret) : '';
       return {
@@ -1830,8 +1869,10 @@ export class MongoLimsStore implements LimsStore {
         last_commission_paid_up_to: d.last_commission_paid_up_to || '',
         last_commission_settled_at: d.last_commission_settled_at || '',
         last_commission_paid_amount: Number(d.last_commission_paid_amount || 0),
-        unpaid_referrals_count: stats.count,
-        unpaid_commission_total: stats.amount,
+        period_referrals_count: stats.totalCount,
+        period_commission_total: stats.totalCommission,
+        unpaid_referrals_count: stats.unpaidCount,
+        unpaid_commission_total: stats.unpaidAmount,
       };
     });
   }

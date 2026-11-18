@@ -348,7 +348,18 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
     '/api/doctors',
     requireStaffOrAdmin,
     asyncHandler(async (req, res) => {
-      const doctors = await store.listDoctors(isAdminRequest(req));
+      const from =
+        typeof req.query.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.from.trim())
+          ? req.query.from.trim()
+          : undefined;
+      const to =
+        typeof req.query.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to.trim())
+          ? req.query.to.trim()
+          : undefined;
+      const doctors = await store.listDoctors(
+        isAdminRequest(req),
+        from || to ? { from, to } : undefined
+      );
       res.json({ doctors });
     })
   );

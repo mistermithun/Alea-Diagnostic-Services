@@ -151,7 +151,7 @@ export interface LimsStore {
   deleteTest(id: number): Promise<{ success: boolean; softDeleted?: boolean }>;
 
   // Doctors & Commission Settlements
-  listDoctors(includeCommission: boolean): Promise<unknown[]>;
+  listDoctors(includeCommission: boolean, dateRange?: { from?: string; to?: string }): Promise<unknown[]>;
   createDoctor(payload: {
     name: string;
     degree?: string;

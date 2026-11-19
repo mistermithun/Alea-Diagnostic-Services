@@ -13,6 +13,7 @@ import {
   addDaysToIsoDate,
   computeInvoiceCommission,
   deduplicateResultRows,
+  getCanonicalParameterKey,
   getLocalTimestampStr,
   getTodayDateStr,
   roundCurrency,
@@ -601,9 +602,14 @@ export class SqliteLimsStore implements LimsStore {
         min_male, max_male, min_female, max_female, min_child, max_child, min_newborn, max_newborn, sort_order
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const updPendingResultSort = db.prepare(`
+    const updPendingResultMeta = db.prepare(`
       UPDATE test_results
-      SET sort_order = ?
+      SET parameter_name = ?, unit = ?, sort_order = ?
+      WHERE parameter_id = ?
+        AND invoice_test_id IN (SELECT id FROM invoice_tests WHERE test_id = ? AND status != 'Ready')
+    `);
+    const delPendingResultsByParam = db.prepare(`
+      DELETE FROM test_results
       WHERE parameter_id = ?
         AND invoice_test_id IN (SELECT id FROM invoice_tests WHERE test_id = ? AND status != 'Ready')
     `);
@@ -643,7 +649,7 @@ export class SqliteLimsStore implements LimsStore {
               paramId,
               id
             );
-            updPendingResultSort.run(sortOrder, paramId, id);
+            updPendingResultMeta.run(p.name.trim(), p.unit?.trim() || '', sortOrder, paramId, id);
           } else {
             insParam.run(
               id,
@@ -669,6 +675,7 @@ export class SqliteLimsStore implements LimsStore {
 
         for (const oldId of existingIdSet) {
           if (!keptIds.has(oldId)) {
+            delPendingResultsByParam.run(oldId, id);
             delParamById.run(oldId, id);
           }
         }
@@ -2645,9 +2652,43 @@ export class SqliteLimsStore implements LimsStore {
          LEFT JOIN doctors d ON d.id = i.doctor_id
          WHERE it.id = ?`
       )
-      .get(invoiceTestId);
+      .get(invoiceTestId) as
+      | {
+          id: number;
+          test_id: number;
+          status: string;
+          gender: string;
+          age_years: number;
+          age_months: number;
+          age_days: number;
+          [key: string]: unknown;
+        }
+      | undefined;
 
     if (!item) return null;
+
+    const configuredParams = db
+      .prepare(`SELECT * FROM test_parameters WHERE test_id = ? ORDER BY sort_order ASC, id ASC`)
+      .all(item.test_id) as Array<{
+      id: number;
+      test_id: number;
+      name: string;
+      unit: string;
+      input_type: string;
+      normal_text: string;
+      default_value: string;
+      select_options: string;
+      abnormal_values: string;
+      min_male: number | null;
+      max_male: number | null;
+      min_female: number | null;
+      max_female: number | null;
+      min_child: number | null;
+      max_child: number | null;
+      min_newborn: number | null;
+      max_newborn: number | null;
+      sort_order: number;
+    }>;
 
     const rawResults = db
       .prepare(
@@ -2660,17 +2701,164 @@ export class SqliteLimsStore implements LimsStore {
          ORDER BY tr.sort_order ASC, tr.id ASC`
       )
       .all(invoiceTestId) as Array<{
-      id?: number;
-      parameter_id?: number;
-      parameter_name?: string;
-      result_value?: string;
-      reference_range_text?: string | null;
+      id: number;
+      invoice_test_id: number;
+      parameter_id: number;
+      parameter_name: string;
+      unit: string;
+      result_value: string;
+      reference_range_text: string | null;
+      flag: string;
       normal_text?: string | null;
-      unit?: string | null;
-      sort_order?: number;
+      sort_order: number;
     }>;
 
-    return { item, results: deduplicateResultRows(rawResults) };
+    if (configuredParams.length === 0) {
+      return { item, results: deduplicateResultRows(rawResults) };
+    }
+
+    const dedupedRaw = deduplicateResultRows(rawResults);
+    const matchedIds = new Set<number>();
+    const byParamId = new Map<number, typeof rawResults[number]>();
+    const byCanonKey = new Map<string, typeof rawResults[number]>();
+
+    for (const r of dedupedRaw) {
+      if (typeof r.parameter_id === 'number' && !byParamId.has(r.parameter_id)) {
+        byParamId.set(r.parameter_id, r);
+      }
+      const canon = getCanonicalParameterKey(r.parameter_name || '');
+      if (canon && !byCanonKey.has(canon)) {
+        byCanonKey.set(canon, r);
+      }
+    }
+
+    const matchedByParam = new Map<number, typeof rawResults[number]>();
+    for (const tp of configuredParams) {
+      const canon = getCanonicalParameterKey(tp.name);
+      const candById = byParamId.get(tp.id);
+      const candByKey = canon ? byCanonKey.get(canon) : undefined;
+      const chosen =
+        candById && !matchedIds.has(candById.id)
+          ? candById
+          : candByKey && !matchedIds.has(candByKey.id)
+            ? candByKey
+            : undefined;
+      if (chosen) {
+        matchedIds.add(chosen.id);
+        matchedByParam.set(tp.id, chosen);
+      }
+    }
+
+    if (item.status !== 'Ready') {
+      const delRow = db.prepare(`DELETE FROM test_results WHERE id = ?`);
+      const updRow = db.prepare(
+        `UPDATE test_results SET parameter_id = ?, parameter_name = ?, unit = ?, reference_range_text = ?, flag = ?, sort_order = ? WHERE id = ?`
+      );
+      const insRow = db.prepare(
+        `INSERT INTO test_results (invoice_test_id, parameter_id, parameter_name, unit, result_value, reference_range_text, flag, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+
+      let dbModified = false;
+      db.transaction(() => {
+        for (const r of rawResults) {
+          if (!matchedIds.has(r.id)) {
+            delRow.run(r.id);
+            dbModified = true;
+          }
+        }
+        for (const tp of configuredParams) {
+          const existing = matchedByParam.get(tp.id);
+          if (existing) {
+            const evalRes = evaluateResultFlag(
+              existing.result_value || '',
+              tp,
+              item.gender,
+              item.age_years,
+              item.age_months,
+              item.age_days
+            );
+            if (
+              existing.parameter_id !== tp.id ||
+              existing.parameter_name !== tp.name ||
+              (existing.unit || '') !== (tp.unit || '') ||
+              existing.sort_order !== tp.sort_order ||
+              (existing.reference_range_text || '') !== evalRes.rangeLabel
+            ) {
+              updRow.run(tp.id, tp.name, tp.unit || '', evalRes.rangeLabel, evalRes.flag, tp.sort_order, existing.id);
+              dbModified = true;
+            }
+          } else {
+            const initialVal = tp.default_value || '';
+            const evalRes = evaluateResultFlag(
+              initialVal,
+              tp,
+              item.gender,
+              item.age_years,
+              item.age_months,
+              item.age_days
+            );
+            insRow.run(
+              invoiceTestId,
+              tp.id,
+              tp.name,
+              tp.unit || '',
+              initialVal,
+              evalRes.rangeLabel,
+              evalRes.flag,
+              tp.sort_order
+            );
+            dbModified = true;
+          }
+        }
+      })();
+
+      if (dbModified) {
+        const syncedResults = db
+          .prepare(
+            `SELECT tr.*, tp.input_type, tp.select_options, tp.abnormal_values, tp.normal_text,
+                    tp.min_male, tp.max_male, tp.min_female, tp.max_female, tp.min_child, tp.max_child,
+                    tp.min_newborn, tp.max_newborn
+             FROM test_results tr
+             JOIN test_parameters tp ON tp.id = tr.parameter_id
+             WHERE tr.invoice_test_id = ? AND tp.test_id = ?
+             ORDER BY tp.sort_order ASC, tp.id ASC`
+          )
+          .all(invoiceTestId, item.test_id);
+        return { item, results: syncedResults };
+      }
+    }
+
+    const strictResults = configuredParams.map((tp) => {
+      const matched = matchedByParam.get(tp.id);
+      const val = matched?.result_value || '';
+      const evalRes = evaluateResultFlag(val, tp, item.gender, item.age_years, item.age_months, item.age_days);
+      return {
+        id: matched?.id ?? -tp.id,
+        invoice_test_id: invoiceTestId,
+        parameter_id: tp.id,
+        parameter_name: tp.name,
+        unit: tp.unit || '',
+        result_value: val,
+        reference_range_text: matched?.reference_range_text || evalRes.rangeLabel,
+        flag: matched?.flag || evalRes.flag,
+        sort_order: tp.sort_order,
+        input_type: tp.input_type,
+        select_options: tp.select_options,
+        abnormal_values: tp.abnormal_values,
+        normal_text: tp.normal_text,
+        min_male: tp.min_male,
+        max_male: tp.max_male,
+        min_female: tp.min_female,
+        max_female: tp.max_female,
+        min_child: tp.min_child,
+        max_child: tp.max_child,
+        min_newborn: tp.min_newborn,
+        max_newborn: tp.max_newborn,
+      };
+    });
+
+    return { item, results: strictResults };
   }
 
   async updateLabTestResults(payload: UpdateLabResultsPayload): Promise<{ item: unknown; results: unknown[] }> {
@@ -2803,11 +2991,18 @@ export class SqliteLimsStore implements LimsStore {
     const updResult = db.prepare(
       `UPDATE test_results SET result_value = ?, reference_range_text = ?, flag = ? WHERE invoice_test_id = ? AND parameter_id = ?`
     );
+    const insMissingResult = db.prepare(
+      `INSERT INTO test_results (invoice_test_id, parameter_id, parameter_name, unit, result_value, reference_range_text, flag, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    );
 
     db.transaction(() => {
       for (const [parameterId, value] of submittedMap.entries()) {
         const param = getParam.get(parameterId) as
           | {
+              name: string;
+              unit: string;
+              sort_order: number;
               input_type: string;
               abnormal_values: string;
               normal_text: string;
@@ -2836,7 +3031,19 @@ export class SqliteLimsStore implements LimsStore {
           flag = evalRes.flag;
           rangeLabel = evalRes.rangeLabel;
         }
-        updResult.run(String(value ?? '').trim(), rangeLabel, flag, payload.invoiceTestId, parameterId);
+        const updInfo = updResult.run(String(value ?? '').trim(), rangeLabel, flag, payload.invoiceTestId, parameterId);
+        if (updInfo.changes === 0 && param) {
+          insMissingResult.run(
+            payload.invoiceTestId,
+            parameterId,
+            param.name,
+            param.unit || '',
+            String(value ?? '').trim(),
+            rangeLabel,
+            flag,
+            param.sort_order ?? 1
+          );
+        }
       }
 
       const verifiedAt = nextStatus === 'Verified' || nextStatus === 'Ready' ? item.verified_at || nowTs : null;
@@ -2860,6 +3067,8 @@ export class SqliteLimsStore implements LimsStore {
       );
     })();
 
+    const detail = await this.getLabTestDetail(payload.invoiceTestId);
+    if (detail) return detail;
     const updatedResults = db
       .prepare(`SELECT * FROM test_results WHERE invoice_test_id = ? ORDER BY sort_order ASC, id ASC`)
       .all(payload.invoiceTestId);

@@ -1013,7 +1013,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
         </div>
 
         {/* Right: Single Patient Tab Workspace with Test Sub-Tabs */}
-        <div className="xl:col-span-7 bg-white border border-slate-200 rounded-xl p-5">
+        <div className="xl:col-span-7 bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4">
           {!patientHeader ? (
             <div className="py-16 text-center space-y-2">
               <FlaskConical className="w-8 h-8 text-slate-400 mx-auto" />
@@ -1023,7 +1023,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {/* Unified Patient Header */}
               <div className="pb-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -1113,13 +1113,13 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
               </div>
 
               {loadingSubTest || !selectedItem ? (
-                <div className="py-12 text-center text-sm text-slate-500">
+                <div className="py-10 text-center text-sm text-slate-500">
                   Loading test parameters...
                 </div>
               ) : (
-                <div className="space-y-5">
+                <div className="space-y-3">
                   {/* Active Sub-Test Banner */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-teal-50/60 border border-teal-200/80 rounded-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-teal-50/60 border border-teal-200/80 rounded-lg">
                     <div>
                       <span className="text-xs font-semibold text-teal-900">
                         Active Test: {selectedItem.test_name}
@@ -1133,16 +1133,16 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                     </span>
                   </div>
 
-                  {/* Parameter Data Entry Table */}
+                  {/* Compact Parameter Data Entry Table */}
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm border-collapse">
+                    <table className="w-full text-xs sm:text-[13px] border-collapse">
                       <thead>
-                        <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                          <th className="py-2 pr-3 font-medium">Parameter</th>
-                          <th className="py-2 pr-3 font-medium w-44">Result Value</th>
-                          <th className="py-2 pr-3 font-medium">Unit</th>
-                          <th className="py-2 pr-3 font-medium">Reference Range</th>
-                          <th className="py-2 font-medium text-right w-24">Flag</th>
+                        <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wider text-slate-500">
+                          <th className="py-1.5 pr-2 font-semibold min-w-[140px]">Parameter</th>
+                          <th className="py-1.5 pr-2 font-semibold w-32 sm:w-36">Result Value</th>
+                          <th className="py-1.5 pr-2 font-semibold w-20 sm:w-24">Unit</th>
+                          <th className="py-1.5 pr-2 font-semibold min-w-[160px]">Reference Range</th>
+                          <th className="py-1.5 font-semibold text-right w-16 sm:w-20">Flag</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200">
@@ -1161,39 +1161,28 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                           const isAutoMcv = isMcvParam(r.parameter_name);
                           const isAutoMch = isMchParam(r.parameter_name);
                           const isAutoMchc = isMchcParam(r.parameter_name);
-                          const autoFormulaLabel = isAutoCircEos
-                            ? 'Auto-calculated: (Total WBC × Eosinophils) ÷ 100'
-                            : isAutoMcv
-                            ? 'Auto-calculated: (PCV × 10) ÷ Total RBC'
-                            : isAutoMch
-                            ? 'Auto-calculated: (Hb × 10) ÷ Total RBC'
-                            : isAutoMchc
-                            ? 'Auto-calculated: (Hb ÷ PCV) × 100'
-                            : '';
+                          const isAutoCalculated =
+                            isAutoCircEos || isAutoMcv || isAutoMch || isAutoMchc;
+                          const fullRangeText = (r.reference_range_text || r.normal_text || '').trim();
                           const options = (r.select_options || '')
                             .split(',')
                             .map((o) => o.trim())
                             .filter(Boolean);
 
                           return (
-                            <tr key={r.id}>
-                              <td className="py-2.5 pr-3 font-medium text-slate-900">
-                                <div>{r.parameter_name}</div>
-                                {autoFormulaLabel && (
-                                  <div className="text-[11px] font-normal text-teal-700">
-                                    {autoFormulaLabel}
-                                  </div>
-                                )}
+                            <tr key={r.id} className="hover:bg-slate-50/70">
+                              <td className="py-1 pr-2 font-medium text-slate-900 align-middle leading-tight">
+                                {r.parameter_name}
                               </td>
-                              <td className="py-2.5 pr-3">
+                              <td className="py-1 pr-2 align-middle">
                                 {isAutoCircEos ? (
                                   <input
                                     type="text"
                                     readOnly
                                     value={val}
                                     placeholder="Auto-calculated"
-                                    title="Automatically calculated as (Total WBC Count × Eosinophils %) / 100"
-                                    className={`w-full px-2.5 py-1.5 text-sm font-mono tabular-nums border rounded-lg bg-slate-50 cursor-not-allowed focus:outline-none ${
+                                    title="Auto-calculated"
+                                    className={`w-full h-7 px-2 py-0.5 text-xs sm:text-[13px] font-mono tabular-nums border rounded-md bg-slate-50 cursor-not-allowed focus:outline-none ${
                                       isAbnormal
                                         ? 'border-red-400 text-red-600 font-bold'
                                         : 'border-slate-200 text-slate-900 font-semibold'
@@ -1203,7 +1192,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                                   <select
                                     value={val}
                                     onChange={(e) => handleValueChange(r.parameter_id, e.target.value)}
-                                    className={`w-full px-2.5 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600 bg-white ${
+                                    className={`w-full h-7 px-2 py-0.5 text-xs sm:text-[13px] border rounded-md focus:outline-none focus:ring-2 focus:ring-teal-600 bg-white ${
                                       isAbnormal ? 'border-red-400 text-red-600 font-bold' : 'border-slate-300 text-slate-900'
                                     }`}
                                   >
@@ -1221,28 +1210,35 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                                     value={val}
                                     onChange={(e) => handleValueChange(r.parameter_id, e.target.value)}
                                     placeholder={
-                                      autoFormulaLabel
+                                      isAutoCalculated
                                         ? 'Auto-calculated'
                                         : r.input_type === 'numeric'
                                         ? '0.0'
                                         : 'Enter value'
                                     }
-                                    title={autoFormulaLabel || undefined}
-                                    className={`w-full px-2.5 py-1.5 text-sm font-mono tabular-nums border rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600 ${
+                                    title={isAutoCalculated ? 'Auto-calculated' : undefined}
+                                    className={`w-full h-7 px-2 py-0.5 text-xs sm:text-[13px] font-mono tabular-nums border rounded-md focus:outline-none focus:ring-2 focus:ring-teal-600 ${
                                       isAbnormal
                                         ? 'border-red-400 bg-red-50/40 text-red-600 font-bold'
-                                        : autoFormulaLabel
+                                        : isAutoCalculated
                                         ? 'border-slate-300 bg-teal-50/30 text-slate-900 font-semibold'
                                         : 'border-slate-300 text-slate-900'
                                     }`}
                                   />
                                 )}
                               </td>
-                              <td className="py-2.5 pr-3 text-xs text-slate-600">{r.unit || '—'}</td>
-                              <td className="py-2.5 pr-3 text-xs font-mono tabular-nums text-slate-600">
-                                {r.reference_range_text || r.normal_text || '—'}
+                              <td className="py-1 pr-2 text-[11px] text-slate-600 whitespace-nowrap align-middle">
+                                {r.unit || '—'}
                               </td>
-                              <td className="py-2.5 text-right text-xs">
+                              <td className="py-1 pr-2 align-middle">
+                                <div
+                                  title={fullRangeText || undefined}
+                                  className="line-clamp-2 text-[11px] leading-snug font-mono tabular-nums text-slate-600 whitespace-pre-line break-words"
+                                >
+                                  {fullRangeText || '—'}
+                                </div>
+                              </td>
+                              <td className="py-1 text-right text-[11px] whitespace-nowrap align-middle">
                                 {val.trim() === '' ? (
                                   <span className="text-slate-400">—</span>
                                 ) : isAbnormal ? (
@@ -1261,7 +1257,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                   {/* Differential Count 100% Validation Banner */}
                   {differentialSummary.hasDifferential && (
                     <div
-                      className={`p-3 rounded-lg border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                      className={`p-2.5 rounded-lg border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
                         differentialSummary.isValid100
                           ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
                           : 'bg-red-50 border-red-200 text-red-800'
@@ -1288,7 +1284,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                   )}
 
                   {/* Workflow Status & Save Controls */}
-                  <div className="pt-4 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="pt-3 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1">Workflow Status</label>
                       <select

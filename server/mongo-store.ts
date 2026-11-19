@@ -1783,7 +1783,13 @@ export class MongoLimsStore implements LimsStore {
           if (pendingInvoiceTestIds.length > 0) {
             await this.testResultsCol.updateMany(
               { invoice_test_id: { $in: pendingInvoiceTestIds }, parameter_id: paramId },
-              { $set: { sort_order: sortOrder } }
+              {
+                $set: {
+                  parameter_name: p.name.trim(),
+                  unit: p.unit?.trim() || '',
+                  sort_order: sortOrder,
+                },
+              }
             );
           }
         } else {
@@ -1813,6 +1819,12 @@ export class MongoLimsStore implements LimsStore {
 
       const removedIds = Array.from(existingIdSet).filter((oldId) => !keptIds.has(oldId));
       if (removedIds.length > 0) {
+        if (pendingInvoiceTestIds.length > 0) {
+          await this.testResultsCol.deleteMany({
+            invoice_test_id: { $in: pendingInvoiceTestIds },
+            parameter_id: { $in: removedIds },
+          });
+        }
         await this.paramsCol.deleteMany({ test_id: id, id: { $in: removedIds } });
       }
     }
@@ -3703,51 +3715,180 @@ export class MongoLimsStore implements LimsStore {
     const pat = inv ? await this.patientsCol.findOne({ id: inv.patient_id }, { projection: { _id: 0 } }) : null;
     const doc = inv?.doctor_id ? await this.doctorsCol.findOne({ id: inv.doctor_id }, { projection: { _id: 0 } }) : null;
 
+    const configuredParams = await this.paramsCol
+      .find({ test_id: it.test_id }, { projection: { _id: 0 } })
+      .sort({ sort_order: 1, id: 1 })
+      .toArray();
+
     const resultsRaw = await this.testResultsCol
       .find({ invoice_test_id: invoiceTestId }, { projection: { _id: 0 } })
       .sort({ sort_order: 1, id: 1 })
       .toArray();
-    const paramIds = resultsRaw.map((r) => r.parameter_id);
-    const params = paramIds.length
-      ? await this.paramsCol.find({ id: { $in: paramIds } }, { projection: { _id: 0 } }).toArray()
-      : [];
-    const paramMap = new Map(params.map((p) => [p.id, p]));
 
-    const results = resultsRaw.map((r) => {
-      const tp = paramMap.get(r.parameter_id);
+    const itemOut = {
+      ...it,
+      invoice_no: inv?.invoice_no || '',
+      invoice_date: inv?.created_at || '',
+      patient_uid: pat?.patient_uid || '',
+      patient_name: pat?.name || '',
+      age_years: pat?.age_years || 0,
+      age_months: pat?.age_months || 0,
+      age_days: pat?.age_days || 0,
+      gender: pat?.gender || 'Male',
+      patient_mobile: pat?.mobile || '',
+      doctor_name: doc?.name,
+    };
+
+    if (configuredParams.length === 0) {
+      const paramIds = resultsRaw.map((r) => r.parameter_id);
+      const params = paramIds.length
+        ? await this.paramsCol.find({ id: { $in: paramIds } }, { projection: { _id: 0 } }).toArray()
+        : [];
+      const paramMap = new Map(params.map((p) => [p.id, p]));
+      const results = resultsRaw.map((r) => {
+        const tp = paramMap.get(r.parameter_id);
+        return {
+          ...r,
+          input_type: tp?.input_type,
+          select_options: tp?.select_options,
+          abnormal_values: tp?.abnormal_values,
+          normal_text: tp?.normal_text,
+          min_male: tp?.min_male,
+          max_male: tp?.max_male,
+          min_female: tp?.min_female,
+          max_female: tp?.max_female,
+          min_child: tp?.min_child,
+          max_child: tp?.max_child,
+          min_newborn: tp?.min_newborn,
+          max_newborn: tp?.max_newborn,
+        };
+      });
+      return { item: itemOut, results: deduplicateResultRows(results) };
+    }
+
+    const dedupedRaw = deduplicateResultRows(resultsRaw);
+    const matchedIds = new Set<number>();
+    const byParamId = new Map<number, TestResultDoc>();
+    const byCanonKey = new Map<string, TestResultDoc>();
+    for (const r of dedupedRaw) {
+      if (typeof r.parameter_id === 'number' && !byParamId.has(r.parameter_id)) {
+        byParamId.set(r.parameter_id, r);
+      }
+      const canon = getCanonicalParameterKey(r.parameter_name || '');
+      if (canon && !byCanonKey.has(canon)) {
+        byCanonKey.set(canon, r);
+      }
+    }
+
+    const matchedByParam = new Map<number, TestResultDoc>();
+    for (const tp of configuredParams) {
+      const canon = getCanonicalParameterKey(tp.name);
+      const candById = byParamId.get(tp.id);
+      const candByKey = canon ? byCanonKey.get(canon) : undefined;
+      const chosen =
+        candById && !matchedIds.has(candById.id)
+          ? candById
+          : candByKey && !matchedIds.has(candByKey.id)
+            ? candByKey
+            : undefined;
+      if (chosen) {
+        matchedIds.add(chosen.id);
+        matchedByParam.set(tp.id, chosen);
+      }
+    }
+
+    const gender = pat?.gender || 'Male';
+    const ageYears = pat?.age_years || 0;
+    const ageMonths = pat?.age_months || 0;
+    const ageDays = pat?.age_days || 0;
+
+    if (it.status !== 'Ready') {
+      const extraIds = resultsRaw.filter((r) => !matchedIds.has(r.id)).map((r) => r.id);
+      if (extraIds.length > 0) {
+        await this.testResultsCol.deleteMany({ id: { $in: extraIds } });
+      }
+      for (const tp of configuredParams) {
+        const existing = matchedByParam.get(tp.id);
+        if (existing) {
+          const evalRes = evaluateResultFlag(existing.result_value || '', tp, gender, ageYears, ageMonths, ageDays);
+          if (
+            existing.parameter_id !== tp.id ||
+            existing.parameter_name !== tp.name ||
+            (existing.unit || '') !== (tp.unit || '') ||
+            existing.sort_order !== tp.sort_order ||
+            (existing.reference_range_text || '') !== evalRes.rangeLabel
+          ) {
+            await this.testResultsCol.updateOne(
+              { id: existing.id },
+              {
+                $set: {
+                  parameter_id: tp.id,
+                  parameter_name: tp.name,
+                  unit: tp.unit || '',
+                  reference_range_text: evalRes.rangeLabel,
+                  flag: evalRes.flag,
+                  sort_order: tp.sort_order,
+                },
+              }
+            );
+            existing.parameter_id = tp.id;
+            existing.parameter_name = tp.name;
+            existing.unit = tp.unit || '';
+            existing.reference_range_text = evalRes.rangeLabel;
+            existing.flag = evalRes.flag;
+            existing.sort_order = tp.sort_order;
+          }
+        } else {
+          const initialVal = tp.default_value || '';
+          const evalRes = evaluateResultFlag(initialVal, tp, gender, ageYears, ageMonths, ageDays);
+          const newId = await this.nextSeq('test_results');
+          const newDoc: TestResultDoc = {
+            id: newId,
+            invoice_test_id: invoiceTestId,
+            parameter_id: tp.id,
+            parameter_name: tp.name,
+            unit: tp.unit || '',
+            result_value: initialVal,
+            reference_range_text: evalRes.rangeLabel,
+            flag: evalRes.flag,
+            sort_order: tp.sort_order,
+          };
+          await this.testResultsCol.insertOne(newDoc);
+          matchedByParam.set(tp.id, newDoc);
+        }
+      }
+    }
+
+    const strictResults = configuredParams.map((tp) => {
+      const matched = matchedByParam.get(tp.id);
+      const val = matched?.result_value || '';
+      const evalRes = evaluateResultFlag(val, tp, gender, ageYears, ageMonths, ageDays);
       return {
-        ...r,
-        input_type: tp?.input_type,
-        select_options: tp?.select_options,
-        abnormal_values: tp?.abnormal_values,
-        normal_text: tp?.normal_text,
-        min_male: tp?.min_male,
-        max_male: tp?.max_male,
-        min_female: tp?.min_female,
-        max_female: tp?.max_female,
-        min_child: tp?.min_child,
-        max_child: tp?.max_child,
-        min_newborn: tp?.min_newborn,
-        max_newborn: tp?.max_newborn,
+        id: matched?.id ?? -tp.id,
+        invoice_test_id: invoiceTestId,
+        parameter_id: tp.id,
+        parameter_name: tp.name,
+        unit: tp.unit || '',
+        result_value: val,
+        reference_range_text: matched?.reference_range_text || evalRes.rangeLabel,
+        flag: matched?.flag || evalRes.flag,
+        sort_order: tp.sort_order,
+        input_type: tp.input_type,
+        select_options: tp.select_options,
+        abnormal_values: tp.abnormal_values,
+        normal_text: tp.normal_text,
+        min_male: tp.min_male,
+        max_male: tp.max_male,
+        min_female: tp.min_female,
+        max_female: tp.max_female,
+        min_child: tp.min_child,
+        max_child: tp.max_child,
+        min_newborn: tp.min_newborn,
+        max_newborn: tp.max_newborn,
       };
     });
 
-    return {
-      item: {
-        ...it,
-        invoice_no: inv?.invoice_no || '',
-        invoice_date: inv?.created_at || '',
-        patient_uid: pat?.patient_uid || '',
-        patient_name: pat?.name || '',
-        age_years: pat?.age_years || 0,
-        age_months: pat?.age_months || 0,
-        age_days: pat?.age_days || 0,
-        gender: pat?.gender || 'Male',
-        patient_mobile: pat?.mobile || '',
-        doctor_name: doc?.name,
-      },
-      results: deduplicateResultRows(results),
-    };
+    return { item: itemOut, results: strictResults };
   }
 
   async updateLabTestResults(payload: UpdateLabResultsPayload): Promise<{ item: unknown; results: unknown[] }> {
@@ -3885,7 +4026,7 @@ export class MongoLimsStore implements LimsStore {
         flag = evalRes.flag;
         rangeLabel = evalRes.rangeLabel;
       }
-      await this.testResultsCol.updateOne(
+      const updRes = await this.testResultsCol.updateOne(
         { invoice_test_id: payload.invoiceTestId, parameter_id: parameterId },
         {
           $set: {
@@ -3895,6 +4036,20 @@ export class MongoLimsStore implements LimsStore {
           },
         }
       );
+      if (updRes.matchedCount === 0 && param) {
+        const newId = await this.nextSeq('test_results');
+        await this.testResultsCol.insertOne({
+          id: newId,
+          invoice_test_id: payload.invoiceTestId,
+          parameter_id: parameterId,
+          parameter_name: param.name,
+          unit: param.unit || '',
+          result_value: String(value ?? '').trim(),
+          reference_range_text: rangeLabel,
+          flag,
+          sort_order: param.sort_order ?? 1,
+        });
+      }
     }
 
     const verifiedAt = nextStatus === 'Verified' || nextStatus === 'Ready' ? it.verified_at || nowTs : null;
@@ -3920,6 +4075,8 @@ export class MongoLimsStore implements LimsStore {
       }
     );
 
+    const detail = await this.getLabTestDetail(payload.invoiceTestId);
+    if (detail) return detail;
     const [updatedItem, updatedResults] = await Promise.all([
       this.invoiceTestsCol.findOne({ id: payload.invoiceTestId }, { projection: { _id: 0 } }),
       this.testResultsCol

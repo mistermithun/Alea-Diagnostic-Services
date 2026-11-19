@@ -429,33 +429,27 @@ export const LivePatientDisplayView: React.FC<LivePatientDisplayViewProps> = ({ 
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col select-none">
-      {/* Ultra-Slim Live Monitor Header */}
-      <header className="sticky top-0 z-20 bg-brand-navy-dark border-b-2 border-b-brand-red text-white px-3 sm:px-4 py-1.5 shadow-sm">
-        <div className="w-full flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <BrandLogo surface="dark" className="h-7 w-auto shrink-0" />
-            <h1 className="text-sm sm:text-base font-bold tracking-tight text-white truncate">
-              {settings.lab_name}
-            </h1>
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-white/10 text-teal-200 border border-white/15 shrink-0">
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  liveStatus === 'live' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-300'
-                }`}
-              />
-              Pending Reports Live
-            </span>
-          </div>
+      {/* Ultra-Compact Single-Line Live Status Bar */}
+      <header className="sticky top-0 z-20 bg-brand-navy-dark border-b-2 border-b-brand-red text-white px-3 py-1">
+        <div className="w-full flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-white/10 text-teal-200 border border-white/15 shrink-0 leading-tight">
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                liveStatus === 'live' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-300'
+              }`}
+            />
+            Pending Reports Live
+          </span>
 
-          <div className="flex items-center gap-2 text-xs shrink-0">
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-white/10 border border-white/10">
-              <Users className="w-3.5 h-3.5 text-teal-300" />
+          <div className="flex items-center gap-2 text-[11.5px] shrink-0">
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 border border-white/10 leading-tight">
+              <Users className="w-3 h-3 text-teal-300" />
               <span className="font-bold tabular-nums">{invoices.length}</span>
               <span className="text-slate-300">Pending</span>
             </div>
 
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-white/10 border border-white/10">
-              <Clock className="w-3.5 h-3.5 text-teal-300 shrink-0" />
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/10 border border-white/10 leading-tight">
+              <Clock className="w-3 h-3 text-teal-300 shrink-0" />
               <div className="flex items-center gap-1.5 tabular-nums">
                 <span className="font-semibold text-white">{headerDateText}</span>
                 <span className="text-white/30" aria-hidden="true">|</span>
@@ -469,24 +463,24 @@ export const LivePatientDisplayView: React.FC<LivePatientDisplayViewProps> = ({ 
         </div>
       </header>
 
-      {/* Dense Full-Width Pending Patient List */}
-      <main className="flex-1 px-2 py-1.5 w-full">
+      {/* Flush Full-Width Pending Patient List */}
+      <main className="flex-1 p-0 m-0 w-full">
         {error && (
-          <div className="mb-1.5 px-3 py-1.5 bg-red-50 border border-red-200 text-red-700 text-xs font-medium rounded">
+          <div className="px-3 py-1 bg-red-50 border-b border-red-200 text-red-700 text-xs font-medium">
             {error}
           </div>
         )}
 
-        <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
+        <div className="bg-white w-full overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse table-auto">
               <thead>
-                <tr className="bg-brand-navy text-white text-[11px] font-bold uppercase tracking-wider">
-                  <th className="py-1.5 pl-3 pr-2 w-[1%] whitespace-nowrap">INV NO</th>
-                  <th className="py-1.5 px-2 w-[1%] whitespace-nowrap">PATIENT NAME</th>
-                  <th className="py-1.5 px-2 w-[1%] whitespace-nowrap">REFERRED BY</th>
-                  <th className="py-1.5 px-2">ORDERED TESTS</th>
-                  <th className="py-1.5 pl-2 pr-3 w-[1%] text-right whitespace-nowrap">COLLECTION TIME</th>
+                <tr className="bg-brand-navy text-white text-[10.5px] font-bold uppercase tracking-wider leading-tight">
+                  <th className="py-1 pl-3 pr-2 w-[1%] whitespace-nowrap">INV NO</th>
+                  <th className="py-1 px-2 w-[1%] whitespace-nowrap">PATIENT NAME</th>
+                  <th className="py-1 px-2 w-[1%] whitespace-nowrap">REFERRED BY</th>
+                  <th className="py-1 px-2">ORDERED TESTS</th>
+                  <th className="py-1 pl-2 pr-3 w-[1%] text-right whitespace-nowrap">COLLECTION TIME</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-[13px]">

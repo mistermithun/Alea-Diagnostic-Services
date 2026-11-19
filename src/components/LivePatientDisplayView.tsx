@@ -519,14 +519,14 @@ export const LivePatientDisplayView: React.FC<LivePatientDisplayViewProps> = ({ 
                               : 'bg-slate-50/75'
                         }`}
                       >
-                        <td className="py-1.5 pl-3 pr-2 w-[1%] align-middle whitespace-nowrap font-mono font-bold text-brand-navy text-[13px] tabular-nums">
+                        <td className="py-1.5 pl-3 pr-2 w-[1%] align-middle whitespace-nowrap font-mono font-bold text-brand-navy text-[15px] tabular-nums leading-tight">
                           {extractNumericInvoiceNo(inv.invoice_no)}
                         </td>
 
                         <td className="py-1.5 px-2 w-[1%] align-middle whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <span
-                              className="font-semibold text-slate-900 text-[13.5px] leading-tight max-w-[235px] truncate"
+                              className="font-bold text-slate-900 text-[15.5px] leading-tight max-w-[260px] truncate"
                               title={inv.patient_name}
                             >
                               {inv.patient_name}
@@ -537,7 +537,7 @@ export const LivePatientDisplayView: React.FC<LivePatientDisplayViewProps> = ({ 
                               return (
                                 <span
                                   key={t.id}
-                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-mono text-[11px] font-bold leading-none tabular-nums shrink-0 ${
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-mono text-[12px] font-bold leading-none tabular-nums shrink-0 ${
                                     isDone
                                       ? 'bg-red-50 border-brand-red text-brand-red animate-pulse'
                                       : 'bg-teal-50 border-teal-300 text-teal-800'
@@ -554,7 +554,7 @@ export const LivePatientDisplayView: React.FC<LivePatientDisplayViewProps> = ({ 
 
                         <td className="py-1.5 px-2 w-[1%] align-middle whitespace-nowrap">
                           <span
-                            className="block text-slate-700 text-[12.5px] leading-tight max-w-[185px] truncate"
+                            className="block text-slate-800 font-medium text-[14.5px] leading-tight max-w-[215px] truncate"
                             title={referredBy}
                           >
                             {referredBy}
@@ -569,7 +569,7 @@ export const LivePatientDisplayView: React.FC<LivePatientDisplayViewProps> = ({ 
                                 return (
                                   <span
                                     key={`${inv.id}-${item.id || testIdx}`}
-                                    className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[11.5px] font-medium leading-tight whitespace-nowrap ${
+                                    className={`inline-flex items-center px-2 py-0.5 rounded border text-[13.5px] font-semibold leading-tight whitespace-nowrap ${
                                       isSubReady
                                         ? 'bg-emerald-50/80 border-emerald-200 text-emerald-700 line-through decoration-emerald-400/70'
                                         : 'bg-slate-100 border-slate-200 text-slate-800'
@@ -585,7 +585,7 @@ export const LivePatientDisplayView: React.FC<LivePatientDisplayViewProps> = ({ 
                           )}
                         </td>
 
-                        <td className="py-1.5 pl-2 pr-3 w-[1%] align-middle text-right whitespace-nowrap font-mono font-semibold text-brand-navy text-[12px] tabular-nums">
+                        <td className="py-1.5 pl-2 pr-3 w-[1%] align-middle text-right whitespace-nowrap font-mono font-semibold text-brand-navy text-[12.5px] tabular-nums leading-tight">
                           {formatCollectionTime(inv.created_at, todayIso)}
                         </td>
                       </tr>

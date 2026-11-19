@@ -9,6 +9,7 @@ import {
   Search,
 } from 'lucide-react';
 import { apiFetch, evaluateClientFlag, formatAge, formatDateTime } from '../lib/api.ts';
+import { broadcastPatientsUpdated } from '../lib/liveSync.ts';
 import { deduplicateTestResults } from '../lib/reportLayout.ts';
 import type { FullInvoice, LabQueueItem, LabSettings, TestResultRow } from '../types.ts';
 import { SampleTimerControl } from './SampleTimerControl.tsx';
@@ -788,6 +789,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
       );
 
       setMessage(`Saved ${selectedItem.test_name} (${res.item.status}).`);
+      broadcastPatientsUpdated();
       await loadQueue();
 
       if (actionAfter === 'print') {
@@ -847,6 +849,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
         }
         return updated;
       });
+      broadcastPatientsUpdated();
       await loadQueue();
       onOpenReport(patientHeader.invoice_id);
     } catch (err) {

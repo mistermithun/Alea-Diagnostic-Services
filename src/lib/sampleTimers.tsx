@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Bell, BellRing, Clock, FlaskConical, Volume2, VolumeX, X } from 'lucide-react';
+import { broadcastTimersUpdated, LIVE_SYNC_CHANNEL, type LiveSyncMessage } from './liveSync.ts';
 
 export interface SampleTimerEntry {
   id: string;
@@ -34,7 +35,7 @@ export const TIMER_PRESETS: Array<{ minutes: number; label: string; hint?: strin
   { minutes: 120, label: '120m', hint: '2HABF' },
 ];
 
-const TIMERS_STORAGE_KEY = 'alea_sample_timers_v1';
+export const TIMERS_STORAGE_KEY = 'alea_sample_timers_v1';
 const SOUND_STORAGE_KEY = 'alea_timer_sound_enabled_v1';
 
 let sharedAudioCtx: AudioContext | null = null;
@@ -122,7 +123,7 @@ export function suggestDefaultTimerMinutes(tests?: Array<{ test_name: string }>)
   return { minutes: 15, testName: tests[0]?.test_name };
 }
 
-function loadInitialTimers(): SampleTimerEntry[] {
+export function readStoredSampleTimers(): SampleTimerEntry[] {
   if (typeof window === 'undefined') return [];
   try {
     const raw = window.localStorage.getItem(TIMERS_STORAGE_KEY);
@@ -170,10 +171,11 @@ export const SampleTimerProvider: React.FC<{
   children: React.ReactNode;
   onOpenLabForPatient: (invoiceId: number, testName?: string) => void;
 }> = ({ children, onOpenLabForPatient }) => {
-  const [timers, setTimers] = useState<SampleTimerEntry[]>(loadInitialTimers);
+  const [timers, setTimers] = useState<SampleTimerEntry[]>(readStoredSampleTimers);
   const [now, setNow] = useState<number>(() => Date.now());
   const [soundEnabled, setSoundEnabledState] = useState<boolean>(loadSoundPreference);
   const soundEnabledRef = useRef(soundEnabled);
+  const timersRef = useRef(timers);
   const onOpenLabRef = useRef(onOpenLabForPatient);
 
   useEffect(() => {
@@ -190,12 +192,62 @@ export const SampleTimerProvider: React.FC<{
   }, [onOpenLabForPatient]);
 
   useEffect(() => {
+    timersRef.current = timers;
     try {
       window.localStorage.setItem(TIMERS_STORAGE_KEY, JSON.stringify(timers));
     } catch {
       // ignore
     }
+    broadcastTimersUpdated(timers.filter((t) => !t.dismissed));
   }, [timers]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const replyWithTimers = (sourceWin?: Window | null, origin?: string) => {
+      const payload: LiveSyncMessage = {
+        type: 'TIMERS_UPDATED',
+        timers: timersRef.current.filter((t) => !t.dismissed),
+        at: Date.now(),
+      };
+      if (sourceWin && origin) {
+        try {
+          sourceWin.postMessage(payload, origin);
+        } catch {
+          // ignore postMessage errors
+        }
+      }
+      broadcastTimersUpdated(payload.timers);
+    };
+
+    const onWindowMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as Partial<LiveSyncMessage> | null;
+      if (data?.type === 'REQUEST_TIMERS_SYNC') {
+        replyWithTimers(event.source as Window | null | undefined, event.origin);
+      }
+    };
+    window.addEventListener('message', onWindowMessage);
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        channel = new BroadcastChannel(LIVE_SYNC_CHANNEL);
+        channel.onmessage = (event) => {
+          const data = event.data as Partial<LiveSyncMessage> | null;
+          if (data?.type === 'REQUEST_TIMERS_SYNC') {
+            replyWithTimers();
+          }
+        };
+      } catch {
+        channel = null;
+      }
+    }
+
+    return () => {
+      window.removeEventListener('message', onWindowMessage);
+      channel?.close();
+    };
+  }, []);
 
   // 1-second ticker when any timer exists
   useEffect(() => {

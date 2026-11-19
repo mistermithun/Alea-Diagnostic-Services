@@ -1,9 +1,12 @@
 import { getAdminToken, getStaffToken } from './api.ts';
+import type { SampleTimerEntry } from './sampleTimers.tsx';
 
 export const LIVE_SYNC_CHANNEL = 'alea_lims_live_sync';
 
 export type LiveSyncMessage =
   | { type: 'PATIENTS_UPDATED'; at: number }
+  | { type: 'TIMERS_UPDATED'; timers: SampleTimerEntry[]; at: number }
+  | { type: 'REQUEST_TIMERS_SYNC' }
   | { type: 'REQUEST_LAB_TOKEN' }
   | { type: 'LAB_TOKEN_RESPONSE'; token: string; role: 'admin' | 'staff' }
   | { type: 'LAB_SIGNED_OUT' };
@@ -21,6 +24,30 @@ function postToChannel(msg: LiveSyncMessage) {
 
 export function broadcastPatientsUpdated() {
   const msg: LiveSyncMessage = { type: 'PATIENTS_UPDATED', at: Date.now() };
+  postToChannel(msg);
+  if (typeof window !== 'undefined' && window.opener && window.opener !== window) {
+    try {
+      window.opener.postMessage(msg, window.location.origin);
+    } catch {
+      // ignore cross-window errors
+    }
+  }
+}
+
+export function broadcastTimersUpdated(timers: SampleTimerEntry[]) {
+  const msg: LiveSyncMessage = { type: 'TIMERS_UPDATED', timers, at: Date.now() };
+  postToChannel(msg);
+  if (typeof window !== 'undefined' && window.opener && window.opener !== window) {
+    try {
+      window.opener.postMessage(msg, window.location.origin);
+    } catch {
+      // ignore cross-window errors
+    }
+  }
+}
+
+export function requestTimersFromParent() {
+  const msg: LiveSyncMessage = { type: 'REQUEST_TIMERS_SYNC' };
   postToChannel(msg);
   if (typeof window !== 'undefined' && window.opener && window.opener !== window) {
     try {

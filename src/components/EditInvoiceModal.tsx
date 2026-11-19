@@ -367,7 +367,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     <div className="fixed inset-0 z-50 bg-slate-900/60 overflow-y-auto p-4 flex items-start justify-center">
       <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-xl shadow-xl my-6 overflow-hidden">
         {/* Modal Header */}
-        <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between gap-4">
+        <div className="px-6 py-4 bg-brand-navy text-white flex items-center justify-between gap-4">
           <div>
             <h2 className="text-base font-semibold">
               Edit Patient Entry &amp; Manage Tests
@@ -379,7 +379,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1"
+            className="text-slate-300 hover:text-white p-1"
             aria-label="Close modal"
           >
             <X className="w-5 h-5" />
@@ -686,7 +686,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                   onClick={() => setActiveCategory('All')}
                   className={`px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap shrink-0 ${
                     activeCategory === 'All'
-                      ? 'bg-slate-900 text-white'
+                      ? 'bg-brand-navy text-white'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
@@ -699,7 +699,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                     onClick={() => setActiveCategory(cat.name)}
                     className={`px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap shrink-0 ${
                       activeCategory === cat.name
-                        ? 'bg-slate-900 text-white'
+                        ? 'bg-brand-navy text-white'
                         : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                     }`}
                   >
@@ -942,7 +942,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                       onClick={() => setCommissionMode('doctor_default')}
                       className={`px-2.5 py-1 text-xs font-semibold rounded-md border ${
                         commissionMode === 'doctor_default'
-                          ? 'bg-slate-900 text-white border-slate-900'
+                          ? 'bg-brand-navy text-white border-brand-navy'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
@@ -953,7 +953,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                       onClick={() => setCommissionMode('custom_invoice')}
                       className={`px-2.5 py-1 text-xs font-semibold rounded-md border ${
                         commissionMode === 'custom_invoice'
-                          ? 'bg-slate-900 text-white border-slate-900'
+                          ? 'bg-brand-navy text-white border-brand-navy'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
@@ -964,7 +964,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                       onClick={() => setCommissionMode('custom_per_test')}
                       className={`px-2.5 py-1 text-xs font-semibold rounded-md border ${
                         commissionMode === 'custom_per_test'
-                          ? 'bg-slate-900 text-white border-slate-900'
+                          ? 'bg-brand-navy text-white border-brand-navy'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
@@ -1075,7 +1075,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                 type="button"
                 disabled={saving || totalActiveTestsCount === 0}
                 onClick={() => handleSave(true)}
-                className="px-5 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 whitespace-nowrap shrink-0"
+                className="px-5 py-2 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-light disabled:opacity-50 whitespace-nowrap shrink-0"
               >
                 {saving ? 'Saving...' : 'Save & Print Updated Receipt'}
               </button>

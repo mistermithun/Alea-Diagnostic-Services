@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ClipboardList, Lock, ShieldCheck, User } from 'lucide-react';
+import { ArrowLeft, Lock, User } from 'lucide-react';
 import { apiFetch, setAdminToken, setStaffToken } from '../lib/api.ts';
 import type { LabSettings } from '../types.ts';
+import { BrandLogo } from './BrandLogo.tsx';
 
 interface AdminLoginViewProps {
   settings: LabSettings;
@@ -44,28 +45,27 @@ export const AdminLoginView: React.FC<AdminLoginViewProps> = ({
         <button
           type="button"
           onClick={onBackToHome}
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 py-1.5 whitespace-nowrap"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-brand-navy py-1.5 whitespace-nowrap"
         >
           <ArrowLeft className="w-4 h-4" />
           Back to Portal Home
         </button>
-        <span className="text-xs font-medium text-slate-700">Admin Access</span>
+        <span className="text-xs font-semibold text-brand-red">Admin Access</span>
       </header>
 
       <main className="w-full max-w-md mx-auto my-8 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="bg-slate-900 text-white px-6 py-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-teal-600 text-white flex items-center justify-center shrink-0">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
+        <div className="h-1 bg-gradient-to-r from-brand-red via-brand-navy to-brand-cyan" />
+        <div className="bg-brand-navy text-white px-6 py-6">
+          <div className="flex items-center gap-3.5">
+            <BrandLogo surface="dark" className="h-12 w-auto" />
+            <div className="min-w-0">
               <h1 className="text-lg font-bold tracking-tight leading-snug">{settings.lab_name}</h1>
-              <p className="text-xs text-slate-300 mt-0.5">{settings.lab_address}</p>
+              <p className="text-xs text-slate-200 mt-0.5">{settings.lab_address}</p>
             </div>
           </div>
-          <div className="mt-5 pt-4 border-t border-slate-800">
+          <div className="mt-5 pt-4 border-t border-white/15">
             <h2 className="text-base font-semibold text-white">Administrator Control Login</h2>
-            <p className="text-xs text-slate-300 mt-1">
+            <p className="text-xs text-slate-200 mt-1">
               Authorized for Proprietor {settings.proprietor_name}. Unlocks financial analytics, test pricing, and backups.
             </p>
           </div>
@@ -85,7 +85,7 @@ export const AdminLoginView: React.FC<AdminLoginViewProps> = ({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter master password"
-                className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-navy"
                 required
               />
             </div>
@@ -96,13 +96,13 @@ export const AdminLoginView: React.FC<AdminLoginViewProps> = ({
               type="checkbox"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
-              className="w-4 h-4 accent-teal-600 rounded"
+              className="w-4 h-4 accent-brand-navy rounded"
             />
             <span>Keep me logged in on this device (30 days)</span>
           </label>
 
           {error && (
-            <div className="p-3 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg">
+            <div className="p-3 text-xs font-medium text-brand-red-dark bg-red-50 border border-red-200 rounded-lg">
               {error}
             </div>
           )}
@@ -110,7 +110,7 @@ export const AdminLoginView: React.FC<AdminLoginViewProps> = ({
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 px-4 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-60 transition-colors whitespace-nowrap"
+            className="w-full py-2.5 px-4 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark disabled:opacity-60 transition-colors whitespace-nowrap"
           >
             {loading ? 'Verifying...' : 'Sign In to Admin Panel'}
           </button>
@@ -166,28 +166,27 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
         <button
           type="button"
           onClick={onBackToHome}
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 py-1.5 whitespace-nowrap"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-brand-navy py-1.5 whitespace-nowrap"
         >
           <ArrowLeft className="w-4 h-4" />
           Back to Portal Home
         </button>
-        <span className="text-xs font-medium text-slate-700">Reception &amp; Lab Desk</span>
+        <span className="text-xs font-semibold text-brand-navy">Reception &amp; Lab Desk</span>
       </header>
 
       <main className="w-full max-w-md mx-auto my-8 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="bg-slate-800 text-white px-6 py-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-teal-600 text-white flex items-center justify-center shrink-0">
-              <ClipboardList className="w-5 h-5" />
-            </div>
-            <div>
+        <div className="h-1 bg-gradient-to-r from-brand-cyan via-brand-navy to-brand-red" />
+        <div className="bg-brand-navy-light text-white px-6 py-6">
+          <div className="flex items-center gap-3.5">
+            <BrandLogo surface="dark" className="h-12 w-auto" />
+            <div className="min-w-0">
               <h1 className="text-lg font-bold tracking-tight leading-snug">{settings.lab_name}</h1>
-              <p className="text-xs text-slate-300 mt-0.5">{settings.lab_address}</p>
+              <p className="text-xs text-slate-200 mt-0.5">{settings.lab_address}</p>
             </div>
           </div>
-          <div className="mt-5 pt-4 border-t border-slate-700">
+          <div className="mt-5 pt-4 border-t border-white/15">
             <h2 className="text-base font-semibold text-white">Staff &amp; Technologist Login</h2>
-            <p className="text-xs text-slate-300 mt-1">
+            <p className="text-xs text-slate-200 mt-1">
               Access patient registration, invoice billing, lab result entry, report printing, and due collection.
             </p>
           </div>
@@ -207,7 +206,7 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
                 value={staffName}
                 onChange={(e) => setStaffName(e.target.value)}
                 placeholder="e.g. Reception Desk 1"
-                className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-navy"
               />
             </div>
           </div>
@@ -224,7 +223,7 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter staff password"
-                className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-navy"
                 required
               />
             </div>
@@ -235,13 +234,13 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
               type="checkbox"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
-              className="w-4 h-4 accent-teal-600 rounded"
+              className="w-4 h-4 accent-brand-navy rounded"
             />
             <span>Keep me logged in on this device (30 days)</span>
           </label>
 
           {error && (
-            <div className="p-3 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg">
+            <div className="p-3 text-xs font-medium text-brand-red-dark bg-red-50 border border-red-200 rounded-lg">
               {error}
             </div>
           )}
@@ -249,7 +248,7 @@ export const StaffLoginView: React.FC<StaffLoginViewProps> = ({
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 px-4 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-60 transition-colors whitespace-nowrap"
+            className="w-full py-2.5 px-4 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark disabled:opacity-60 transition-colors whitespace-nowrap"
           >
             {loading ? 'Verifying...' : 'Sign In to Staff Desk'}
           </button>

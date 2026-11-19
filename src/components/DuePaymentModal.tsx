@@ -101,11 +101,11 @@ export const DuePaymentModal: React.FC<DuePaymentModalProps> = ({
       <div className="bg-white border border-slate-200 rounded-xl shadow-xl w-full max-w-xl overflow-hidden my-6">
         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3 bg-slate-50">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-brand-navy/10 text-brand-navy flex items-center justify-center shrink-0">
               <CreditCard className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-sm font-bold text-slate-900 truncate">
+              <h2 className="text-sm font-bold text-brand-navy truncate">
                 Due Collection & Payment Ledger
               </h2>
               {inv && (
@@ -252,7 +252,7 @@ export const DuePaymentModal: React.FC<DuePaymentModalProps> = ({
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="w-full py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                    className="w-full py-2 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-light disabled:opacity-50"
                   >
                     {submitting ? 'Saving Payment...' : 'Record Payment'}
                   </button>

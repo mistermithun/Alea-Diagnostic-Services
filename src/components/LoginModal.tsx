@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Lock, ShieldCheck, UserCheck, X } from 'lucide-react';
 import { apiFetch, setAdminToken } from '../lib/api.ts';
 import type { LabSettings } from '../types.ts';
+import { BrandLogo } from './BrandLogo.tsx';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -48,20 +49,24 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-[2px] no-print">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand-navy-dark/60 p-4 backdrop-blur-[2px] no-print">
       <div className="w-full max-w-md bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden">
-        <div className="bg-slate-900 text-white px-6 py-5 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-medium text-teal-400 tracking-wide">
-              {settings.lab_name}
-            </p>
-            <h2 className="text-lg font-semibold mt-1">Access Control & Mode Switch</h2>
-            <p className="text-xs text-slate-300 mt-0.5">{settings.lab_address}</p>
+        <div className="h-1 bg-gradient-to-r from-brand-red via-brand-navy to-brand-cyan" />
+        <div className="bg-brand-navy text-white px-6 py-5 flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0">
+            <BrandLogo surface="dark" className="h-10 w-auto" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-teal-300 tracking-wide truncate">
+                {settings.lab_name}
+              </p>
+              <h2 className="text-lg font-semibold mt-0.5">Access Control & Mode Switch</h2>
+              <p className="text-xs text-slate-200 mt-0.5 truncate">{settings.lab_address}</p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg transition-colors"
+            className="text-slate-300 hover:text-white p-1.5 rounded-lg transition-colors shrink-0"
             aria-label="Close access dialog"
           >
             <X className="w-5 h-5" />
@@ -78,9 +83,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           {isAdmin ? (
             <div className="space-y-4">
               <div className="p-4 bg-teal-50/70 border border-teal-200 rounded-lg flex items-start gap-3">
-                <ShieldCheck className="w-5 h-5 text-teal-700 shrink-0 mt-0.5" />
+                <ShieldCheck className="w-5 h-5 text-brand-navy shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">Admin Session Active</p>
+                  <p className="text-sm font-semibold text-brand-navy">Admin Session Active</p>
                   <p className="text-xs text-slate-600 mt-1">
                     Signed in as {settings.proprietor_name}. Full financial, catalog, doctor commission, and database controls are unlocked.
                   </p>
@@ -101,7 +106,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
+                  className="px-4 py-2 text-sm font-medium text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark transition-colors whitespace-nowrap shrink-0"
                 >
                   Continue as Admin
                 </button>
@@ -122,7 +127,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter master password"
-                    className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-teal-600"
+                    className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-navy focus:border-brand-navy"
                     required
                   />
                 </div>
@@ -133,13 +138,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   type="checkbox"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 accent-teal-600 rounded"
+                  className="w-4 h-4 accent-brand-navy rounded"
                 />
                 <span>Keep me logged in on this device (30 days)</span>
               </label>
 
               {error && (
-                <div className="p-3 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                <div className="p-3 text-xs font-medium text-brand-red-dark bg-red-50 border border-red-200 rounded-lg">
                   {error}
                 </div>
               )}
@@ -159,7 +164,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <button
                   type="submit"
                   disabled={loading}
-                  className="px-5 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-60 transition-colors whitespace-nowrap shrink-0"
+                  className="px-5 py-2 text-sm font-medium text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark disabled:opacity-60 transition-colors whitespace-nowrap shrink-0"
                 >
                   {loading ? 'Verifying...' : 'Unlock Admin Panel'}
                 </button>

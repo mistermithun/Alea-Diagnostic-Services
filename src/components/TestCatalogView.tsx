@@ -212,7 +212,7 @@ export const TestCatalogView: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Test Catalog & Reference Ranges</h1>
+          <h1 className="text-2xl font-bold text-brand-navy tracking-tight">Test Catalog & Reference Ranges</h1>
           <p className="text-sm text-slate-600 mt-0.5">
             Manage departments, test prices (BDT ৳), sub-parameters, units, and age/gender reference ranges.
           </p>
@@ -220,7 +220,7 @@ export const TestCatalogView: React.FC = () => {
         <button
           type="button"
           onClick={openCreateModal}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 whitespace-nowrap shrink-0 self-start"
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-navy rounded-lg hover:bg-brand-navy-light whitespace-nowrap shrink-0 self-start"
         >
           <Plus className="w-4 h-4" />
           Add New Test
@@ -237,7 +237,7 @@ export const TestCatalogView: React.FC = () => {
             type="button"
             onClick={() => setActiveCategory('All')}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap shrink-0 ${
-              activeCategory === 'All' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              activeCategory === 'All' ? 'bg-brand-navy text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
             All ({tests.length})
@@ -248,7 +248,7 @@ export const TestCatalogView: React.FC = () => {
               type="button"
               onClick={() => setActiveCategory(c.name)}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap shrink-0 ${
-                activeCategory === c.name ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                activeCategory === c.name ? 'bg-brand-navy text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
               {c.name}
@@ -343,11 +343,11 @@ export const TestCatalogView: React.FC = () => {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 overflow-y-auto p-4 flex items-start justify-center">
           <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-xl shadow-xl my-6 overflow-hidden">
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+            <div className="px-6 py-4 bg-brand-navy text-white flex items-center justify-between">
               <h2 className="text-base font-semibold">
                 {editingTest ? `Edit Test: ${editingTest.name}` : 'Create New Diagnostic Test'}
               </h2>
-              <button type="button" onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button type="button" onClick={() => setIsModalOpen(false)} className="text-slate-300 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -695,7 +695,7 @@ export const TestCatalogView: React.FC = () => {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-5 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                  className="px-5 py-2 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-light disabled:opacity-50"
                 >
                   {saving ? 'Saving...' : editingTest ? 'Update Test' : 'Save Test'}
                 </button>

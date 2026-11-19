@@ -9,6 +9,7 @@ import {
   resolvePublicBaseUrl,
 } from '../lib/api.ts';
 import type { FullInvoice, LabSettings } from '../types.ts';
+import { BrandLogo } from './BrandLogo.tsx';
 
 interface ReceiptPrintModalProps {
   data: FullInvoice | null;
@@ -59,7 +60,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
             type="button"
             onClick={() => setFormat('a4')}
             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
-              format === 'a4' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              format === 'a4' ? 'bg-brand-navy text-white shadow-sm' : 'text-slate-600 hover:text-brand-navy'
             }`}
           >
             A4 Cash Memo
@@ -68,7 +69,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
             type="button"
             onClick={() => setFormat('thermal')}
             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
-              format === 'thermal' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              format === 'thermal' ? 'bg-brand-navy text-white shadow-sm' : 'text-slate-600 hover:text-brand-navy'
             }`}
           >
             80mm Thermal POS
@@ -79,7 +80,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
           <button
             type="button"
             onClick={() => window.print()}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark transition-colors whitespace-nowrap shrink-0"
           >
             <Printer className="w-4 h-4" />
             Print Receipt
@@ -99,19 +100,22 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
       {format === 'a4' ? (
         <div className="w-full max-w-3xl bg-white border border-slate-200 rounded-xl p-8 shadow-lg print-sheet text-slate-900">
           {/* Official Lab Header */}
-          <div className="border-b-2 border-slate-900 pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{settings.lab_name}</h1>
-              <p className="text-sm text-slate-700 mt-0.5">{settings.lab_address}</p>
-              <p className="text-xs text-slate-600 mt-1">
-                Proprietor: <span className="font-medium text-slate-800">{settings.proprietor_name}</span>
-                <span className="mx-2" aria-hidden="true">·</span>
-                Contact: <span className="font-mono tabular-nums font-medium text-slate-800">{settings.lab_phone}</span>
-              </p>
+          <div className="border-b-2 border-brand-navy pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <BrandLogo surface="print" className="h-14 w-auto" />
+              <div>
+                <h1 className="text-2xl font-bold text-brand-navy tracking-tight leading-tight">{settings.lab_name}</h1>
+                <p className="text-sm text-slate-700 mt-0.5">{settings.lab_address}</p>
+                <p className="text-xs text-slate-600 mt-1">
+                  Proprietor: <span className="font-medium text-slate-800">{settings.proprietor_name}</span>
+                  <span className="mx-2" aria-hidden="true">·</span>
+                  Contact: <span className="font-mono tabular-nums font-medium text-slate-800">{settings.lab_phone}</span>
+                </p>
+              </div>
             </div>
-            <div className="sm:text-right">
-              <div className="text-xs font-semibold tracking-wider text-teal-700 uppercase">Official Money Receipt</div>
-              <div className="text-lg font-bold font-mono tabular-nums text-slate-900 mt-0.5">{invoice.invoice_no}</div>
+            <div className="sm:text-right shrink-0">
+              <div className="text-xs font-bold tracking-wider text-brand-red uppercase">Official Money Receipt</div>
+              <div className="text-lg font-bold font-mono tabular-nums text-brand-navy mt-0.5">{invoice.invoice_no}</div>
               <div className="text-xs text-slate-600 font-mono tabular-nums">{formatDateTime(invoice.created_at)}</div>
             </div>
           </div>
@@ -288,7 +292,8 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
         /* 80mm Thermal POS Format */
         <div className="w-[320px] bg-white border border-slate-200 rounded-lg p-5 shadow-lg print-sheet print-thermal text-slate-900 font-mono text-xs">
           <div className="text-center border-b border-dashed border-slate-400 pb-3">
-            <div className="text-sm font-bold">{settings.lab_name}</div>
+            <BrandLogo surface="print" className="h-10 w-auto mx-auto mb-1.5" />
+            <div className="text-sm font-bold text-brand-navy print:text-black">{settings.lab_name}</div>
             <div className="text-[11px] text-slate-700 mt-0.5">{settings.lab_address}</div>
             <div className="text-[11px] text-slate-700">Prop: {settings.proprietor_name}</div>
             <div className="text-[11px] text-slate-700">Tel: {settings.lab_phone}</div>

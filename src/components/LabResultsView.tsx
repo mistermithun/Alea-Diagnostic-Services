@@ -860,7 +860,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Lab Result Entry & Reporting</h1>
+          <h1 className="text-2xl font-bold text-brand-navy tracking-tight">Lab Result Entry & Reporting</h1>
           <p className="text-sm text-slate-600 mt-0.5">
             One unified workspace per patient with seamless test sub-tabs, auto calculations, and smart combined A4 printing.
           </p>
@@ -1443,7 +1443,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                       type="button"
                       disabled={saving || (differentialSummary.hasDifferential && !differentialSummary.isValid100)}
                       onClick={() => handleSave('Ready', 'none')}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-cyan rounded-lg hover:bg-brand-cyan-dark disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
                     >
                       <CheckCircle2 className="w-4 h-4" />
                       Mark Ready
@@ -1453,7 +1453,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                       type="button"
                       disabled={saving || (differentialSummary.hasDifferential && !differentialSummary.isValid100)}
                       onClick={() => handleSave('Ready', 'print')}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
                     >
                       <FileText className="w-4 h-4" />
                       Finalize &amp; Print Combined Report

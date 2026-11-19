@@ -380,7 +380,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Patient Registration & Billing</h1>
+          <h1 className="text-2xl font-bold text-brand-navy tracking-tight">Patient Registration & Billing</h1>
           <p className="text-sm text-slate-600 mt-0.5">
             Register patients, select tests, apply authorized discounts, and print receipts.
           </p>
@@ -629,7 +629,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                   onClick={() => setActiveCategory('All')}
                   className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                     activeCategory === 'All'
-                      ? 'bg-slate-900 text-white'
+                      ? 'bg-brand-navy text-white'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
@@ -642,7 +642,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                     onClick={() => setActiveCategory(cat.name)}
                     className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                       activeCategory === cat.name
-                        ? 'bg-slate-900 text-white'
+                        ? 'bg-brand-navy text-white'
                         : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                     }`}
                   >
@@ -1051,7 +1051,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
               <button
                 type="submit"
                 disabled={submitting || selectedTests.length === 0}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark disabled:opacity-50 transition-colors whitespace-nowrap"
               >
                 <Printer className="w-4 h-4" />
                 {submitting ? 'Generating Invoice...' : 'Save & Print Receipt'}
@@ -1109,7 +1109,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
             <button
               type="button"
               onClick={() => setSubTab('new')}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 whitespace-nowrap shrink-0 self-start"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark whitespace-nowrap shrink-0 self-start"
             >
               <UserPlus className="w-4 h-4" />
               New Patient

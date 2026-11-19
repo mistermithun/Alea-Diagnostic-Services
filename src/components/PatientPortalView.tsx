@@ -26,6 +26,7 @@ import type {
   PatientPortalArchiveVisit,
   PatientProfile,
 } from '../types.ts';
+import { BrandLogo } from './BrandLogo.tsx';
 import { ReportPrintModal } from './ReportPrintModal.tsx';
 
 interface PatientPortalViewProps {
@@ -200,37 +201,27 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
           <button
             type="button"
             onClick={onBackToHome}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 py-1.5 whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-brand-navy py-1.5 whitespace-nowrap"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to Portal Home
           </button>
-          <span className="text-xs font-semibold text-teal-800">Patient Self-Service Portal</span>
+          <span className="text-xs font-semibold text-brand-cyan-dark">Patient Self-Service Portal</span>
         </header>
 
         <main className="w-full max-w-lg mx-auto my-8 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-          <div className="bg-teal-700 text-white px-6 py-6">
-            <div className="flex items-center gap-3">
-              <svg
-                width="40"
-                height="40"
-                viewBox="0 0 46 46"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                className="shrink-0"
-                aria-hidden="true"
-              >
-                <rect width="46" height="46" rx="10" fill="#FFFFFF" />
-                <path d="M20 11H26V20H35V26H26V35H20V26H11V20H20V11Z" fill="#0F766E" />
-              </svg>
-              <div>
+          <div className="h-1 bg-gradient-to-r from-brand-red via-brand-navy to-brand-cyan" />
+          <div className="bg-brand-navy text-white px-6 py-6">
+            <div className="flex items-center gap-3.5">
+              <BrandLogo surface="dark" className="h-12 w-auto" />
+              <div className="min-w-0">
                 <h1 className="text-lg font-bold tracking-tight leading-snug">{settings.lab_name}</h1>
-                <p className="text-xs text-teal-100 mt-0.5">{settings.lab_address}</p>
+                <p className="text-xs text-slate-200 mt-0.5">{settings.lab_address}</p>
               </div>
             </div>
-            <div className="mt-5 pt-4 border-t border-teal-600">
+            <div className="mt-5 pt-4 border-t border-white/15">
               <h2 className="text-base font-semibold text-white">Online Test Report Access</h2>
-              <p className="text-xs text-teal-50 mt-1">
+              <p className="text-xs text-slate-200 mt-1">
                 Check your test results and download official verified PDF pathology reports from home.
               </p>
             </div>
@@ -239,7 +230,7 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
           <div className="p-6 space-y-5">
             {/* Step-by-step Cash Memo Instructions */}
             <div className="p-3.5 bg-teal-50/70 border border-teal-200 rounded-lg text-xs text-slate-700 space-y-1.5">
-              <div className="font-semibold text-teal-900">How to find your login details:</div>
+              <div className="font-semibold text-brand-navy">How to find your login details:</div>
               <ol className="list-decimal list-inside space-y-1 text-slate-700">
                 <li>Check the <span className="font-semibold">Online Report Portal Access</span> box on your lab cash memo or money receipt.</li>
                 <li>Enter your <span className="font-mono font-semibold text-slate-900">Patient ID</span> and 6-character <span className="font-semibold">Portal Password</span> below.</li>
@@ -260,7 +251,7 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
                     value={patientUid}
                     onChange={(e) => setPatientUid(e.target.value)}
                     placeholder="Enter your Patient ID"
-                    className="w-full pl-10 pr-4 py-2.5 text-sm font-mono uppercase border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                    className="w-full pl-10 pr-4 py-2.5 text-sm font-mono uppercase border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-navy"
                     required
                   />
                 </div>
@@ -278,7 +269,7 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter 6-character memo password"
-                    className="w-full pl-10 pr-4 py-2.5 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                    className="w-full pl-10 pr-4 py-2.5 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-navy"
                     required
                   />
                 </div>
@@ -289,13 +280,13 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
                   type="checkbox"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 accent-teal-600 rounded"
+                  className="w-4 h-4 accent-brand-navy rounded"
                 />
                 <span>Keep me logged in on this device (30 days)</span>
               </label>
 
               {loginError && (
-                <div className="p-3 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                <div className="p-3 text-xs font-medium text-brand-red-dark bg-red-50 border border-red-200 rounded-lg">
                   {loginError}
                 </div>
               )}
@@ -303,15 +294,15 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
               <button
                 type="submit"
                 disabled={loginLoading}
-                className="w-full py-2.5 px-4 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-60 transition-colors"
+                className="w-full py-2.5 px-4 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark disabled:opacity-60 transition-colors"
               >
                 {loginLoading ? 'Signing in...' : 'View My Reports'}
               </button>
             </form>
 
             <div className="pt-3 border-t border-slate-200 text-[11px] text-slate-500 space-y-1">
-              <div className="flex items-center gap-1.5 text-slate-700 font-medium">
-                <ShieldCheck className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+              <div className="flex items-center gap-1.5 text-brand-navy font-medium">
+                <ShieldCheck className="w-3.5 h-3.5 text-brand-cyan shrink-0" />
                 <span>Private &amp; Isolated Patient Access</span>
               </div>
               <p>
@@ -336,17 +327,20 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
       {/* Patient Portal Top Bar */}
       <header className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 no-print">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div className="text-sm sm:text-base font-bold text-slate-900 truncate">
-              {settings.lab_name}
-            </div>
-            <div className="text-[11px] text-slate-500 truncate">
-              Patient Health Archive · {settings.lab_address}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <BrandLogo surface="light" className="h-9 w-auto" />
+            <div className="min-w-0">
+              <div className="text-sm sm:text-base font-bold text-brand-navy truncate">
+                {settings.lab_name}
+              </div>
+              <div className="text-[11px] text-slate-500 truncate">
+                Patient Health Archive · {settings.lab_address}
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0">
-            <span className="hidden sm:inline text-xs font-mono font-semibold text-teal-800">
+            <span className="hidden sm:inline text-xs font-mono font-semibold text-brand-navy">
               {patient.patient_uid}
             </span>
             <button
@@ -366,10 +360,10 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
         <section className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
             <div>
-              <div className="text-xs font-medium text-teal-700">Verified Patient Profile</div>
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mt-0.5">{patient.name}</h1>
+              <div className="text-xs font-semibold text-brand-red uppercase tracking-wide">Verified Patient Profile</div>
+              <h1 className="text-xl sm:text-2xl font-bold text-brand-navy mt-0.5">{patient.name}</h1>
             </div>
-            <div className="font-mono tabular-nums text-sm font-bold text-slate-900 bg-slate-100 border border-slate-200 px-3.5 py-2 rounded-lg self-start sm:self-auto">
+            <div className="font-mono tabular-nums text-sm font-bold text-brand-navy bg-slate-100 border border-slate-200 px-3.5 py-2 rounded-lg self-start sm:self-auto">
               ID: {patient.patient_uid}
             </div>
           </div>
@@ -498,117 +492,117 @@ export const PatientPortalView: React.FC<PatientPortalViewProps> = ({
                             </>
                           )}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenDigitalPdf(visit.invoice_id)}
-                          disabled={loadingReportId === visit.invoice_id}
-                          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 whitespace-nowrap"
-                        >
-                          <Printer className="w-4 h-4" />
-                          Digital PDF Report
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Inline Parameter Results Table */}
-                    {isExpanded && detail && (
-                      <div className="border-t border-slate-200 bg-slate-50/70 p-4 sm:p-5 space-y-5">
-                        {detail.tests.map((t) => {
-                          const isCbc =
-                            t.test_name.toLowerCase().includes('cbc') ||
-                            t.test_name.toLowerCase().includes('complete blood count');
-                          return (
-                            <div key={t.id} className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                              <div className="px-4 py-2.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-                                <div>
-                                  <div className="text-sm font-semibold text-slate-900">{t.test_name}</div>
-                                  <div className="text-[11px] text-slate-500">
-                                    {t.category_name} · {t.sample_type}
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2.5">
-                                  <span
-                                    className={`text-xs font-semibold ${
-                                      t.status === 'Ready'
-                                        ? 'text-emerald-700'
-                                        : t.status === 'Verified'
-                                        ? 'text-teal-700'
-                                        : 'text-amber-700'
-                                    }`}
-                                  >
-                                    {t.status}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenDigitalPdf(visit.invoice_id, t.id)}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-white bg-slate-900 rounded-md hover:bg-slate-800 whitespace-nowrap"
-                                  >
-                                    <Printer className="w-3 h-3" />
-                                    Print / PDF
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className="overflow-x-auto">
-                                <table className="w-full text-xs border-collapse">
-                                  <thead>
-                                    <tr className="border-b border-slate-200 text-left text-slate-500 bg-slate-50">
-                                      <th className="py-2 px-3 font-medium">Parameter</th>
-                                      <th className="py-2 px-3 font-medium text-right">Result</th>
-                                      <th className="py-2 px-3 font-medium">Unit</th>
-                                      <th className="py-2 px-3 font-medium">Reference Range</th>
-                                      {!isCbc && <th className="py-2 px-3 font-medium text-center">Indicator</th>}
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-200">
-                                    {deduplicateTestResults(t.results || []).map((r) => {
-                                      const isAbn =
-                                        r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
-                                      return (
-                                        <tr key={`${r.id}-${getCanonicalParameterKey(r.parameter_name)}`}>
-                                          <td className="py-2 px-3 font-medium text-slate-900">
-                                            {r.parameter_name}
-                                          </td>
-                                          <td
-                                            className={`py-2 px-3 text-right font-mono tabular-nums ${
-                                              isAbn && !isCbc
-                                                ? 'font-bold text-slate-900'
-                                                : 'font-semibold text-slate-900'
-                                            }`}
-                                          >
-                                            {r.result_value || 'Pending'}
-                                          </td>
-                                          <td className="py-2 px-3 text-slate-600">{r.unit || '—'}</td>
-                                          <td className="py-2 px-3 font-mono tabular-nums text-slate-600 whitespace-pre-line">
-                                            {r.normal_text || r.reference_range_text || '—'}
-                                          </td>
-                                          {!isCbc && (
-                                            <td className="py-2 px-3 text-center font-semibold text-slate-800">
-                                              {r.result_value ? (isAbn ? r.flag.toUpperCase() : 'Normal') : '—'}
-                                            </td>
-                                          )}
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          );
-                        })}
-
-                        <div className="flex justify-end">
                           <button
                             type="button"
-                            onClick={() => handleOpenDigitalPdf(visit.invoice_id, null)}
-                            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800"
+                            onClick={() => handleOpenDigitalPdf(visit.invoice_id)}
+                            disabled={loadingReportId === visit.invoice_id}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark whitespace-nowrap"
                           >
-                            <FileText className="w-4 h-4" />
-                            Open Official Digital PDF
+                            <Printer className="w-4 h-4" />
+                            Digital PDF Report
                           </button>
                         </div>
                       </div>
-                    )}
+
+                      {/* Inline Parameter Results Table */}
+                      {isExpanded && detail && (
+                        <div className="border-t border-slate-200 bg-slate-50/70 p-4 sm:p-5 space-y-5">
+                          {detail.tests.map((t) => {
+                            const isCbc =
+                              t.test_name.toLowerCase().includes('cbc') ||
+                              t.test_name.toLowerCase().includes('complete blood count');
+                            return (
+                              <div key={t.id} className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                                <div className="px-4 py-2.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                                  <div>
+                                    <div className="text-sm font-semibold text-slate-900">{t.test_name}</div>
+                                    <div className="text-[11px] text-slate-500">
+                                      {t.category_name} · {t.sample_type}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2.5">
+                                    <span
+                                      className={`text-xs font-semibold ${
+                                        t.status === 'Ready'
+                                          ? 'text-emerald-700'
+                                          : t.status === 'Verified'
+                                          ? 'text-brand-cyan'
+                                          : 'text-amber-700'
+                                      }`}
+                                    >
+                                      {t.status}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenDigitalPdf(visit.invoice_id, t.id)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-white bg-brand-cyan rounded-md hover:bg-brand-cyan-dark whitespace-nowrap"
+                                    >
+                                      <Printer className="w-3 h-3" />
+                                      Print / PDF
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs border-collapse">
+                                    <thead>
+                                      <tr className="border-b border-slate-200 text-left text-slate-500 bg-slate-50">
+                                        <th className="py-2 px-3 font-medium">Parameter</th>
+                                        <th className="py-2 px-3 font-medium text-right">Result</th>
+                                        <th className="py-2 px-3 font-medium">Unit</th>
+                                        <th className="py-2 px-3 font-medium">Reference Range</th>
+                                        {!isCbc && <th className="py-2 px-3 font-medium text-center">Indicator</th>}
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-200">
+                                      {deduplicateTestResults(t.results || []).map((r) => {
+                                        const isAbn =
+                                          r.flag && r.flag !== 'Normal' && r.result_value.trim() !== '';
+                                        return (
+                                          <tr key={`${r.id}-${getCanonicalParameterKey(r.parameter_name)}`}>
+                                            <td className="py-2 px-3 font-medium text-slate-900">
+                                              {r.parameter_name}
+                                            </td>
+                                            <td
+                                              className={`py-2 px-3 text-right font-mono tabular-nums ${
+                                                isAbn && !isCbc
+                                                  ? 'font-bold text-slate-900'
+                                                  : 'font-semibold text-slate-900'
+                                              }`}
+                                            >
+                                              {r.result_value || 'Pending'}
+                                            </td>
+                                            <td className="py-2 px-3 text-slate-600">{r.unit || '—'}</td>
+                                            <td className="py-2 px-3 font-mono tabular-nums text-slate-600 whitespace-pre-line">
+                                              {r.normal_text || r.reference_range_text || '—'}
+                                            </td>
+                                            {!isCbc && (
+                                              <td className="py-2 px-3 text-center font-semibold text-slate-800">
+                                                {r.result_value ? (isAbn ? r.flag.toUpperCase() : 'Normal') : '—'}
+                                              </td>
+                                            )}
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDigitalPdf(visit.invoice_id, null)}
+                              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark"
+                            >
+                              <FileText className="w-4 h-4" />
+                              Open Official Digital PDF
+                            </button>
+                          </div>
+                        </div>
+                      )}
                   </div>
                 );
               })}

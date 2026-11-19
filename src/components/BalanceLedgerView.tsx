@@ -9,6 +9,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { apiFetch, formatBDT, getMonthStartISO, getTodayISO } from '../lib/api.ts';
+import { BrandLogo } from './BrandLogo.tsx';
 import type {
   BalanceLedgerResponse,
   BalanceLedgerRow,
@@ -270,10 +271,13 @@ export const BalanceLedgerView: React.FC<BalanceLedgerViewProps> = ({ settings, 
       {/* Print-Only Official Ledger Letterhead */}
       <div className="hidden print:block border-b-2 border-black pb-3 mb-4">
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold text-black">{settings.lab_name}</h1>
-            <p className="text-xs text-black">{settings.lab_address}</p>
-            <p className="text-xs text-black font-mono">{settings.lab_phone}</p>
+          <div className="flex items-center gap-3">
+            <BrandLogo surface="print" className="h-12 w-auto shrink-0" />
+            <div>
+              <h1 className="text-xl font-bold text-black">{settings.lab_name}</h1>
+              <p className="text-xs text-black">{settings.lab_address}</p>
+              <p className="text-xs text-black font-mono">{settings.lab_phone}</p>
+            </div>
           </div>
           <div className="text-right">
             <div className="text-sm font-bold text-black">Daily Cash Balance Ledger</div>
@@ -290,7 +294,7 @@ export const BalanceLedgerView: React.FC<BalanceLedgerViewProps> = ({ settings, 
       {/* Screen Header */}
       <div className="no-print flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+          <h1 className="text-2xl font-bold text-brand-navy tracking-tight">
             Balance &amp; Daily Cash Ledger
           </h1>
           <p className="text-sm text-slate-600 mt-0.5">
@@ -312,7 +316,7 @@ export const BalanceLedgerView: React.FC<BalanceLedgerViewProps> = ({ settings, 
             type="button"
             onClick={handlePrintLedger}
             disabled={!ledger}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-40 whitespace-nowrap shrink-0 cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-light disabled:opacity-40 whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Printer className="w-4 h-4" />
             <span>Print Ledger</span>
@@ -760,7 +764,7 @@ export const BalanceLedgerView: React.FC<BalanceLedgerViewProps> = ({ settings, 
               <button
                 type="submit"
                 disabled={savingRev}
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-brand-cyan rounded-lg hover:bg-brand-cyan-dark disabled:opacity-50 whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
                 <span>{savingRev ? 'Adding...' : 'Add Income'}</span>
@@ -933,7 +937,7 @@ export const BalanceLedgerView: React.FC<BalanceLedgerViewProps> = ({ settings, 
                 <button
                   type="submit"
                   disabled={savingExp}
-                  className="px-4 py-1.5 text-xs font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                  className="px-4 py-1.5 text-xs font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-light disabled:opacity-50 whitespace-nowrap cursor-pointer"
                 >
                   {savingExp ? 'Saving...' : 'Save Deduction'}
                 </button>

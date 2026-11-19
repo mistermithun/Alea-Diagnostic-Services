@@ -333,15 +333,15 @@ export const AdminAdjustBillModal: React.FC<AdminAdjustBillModalProps> = ({
                 </div>
               )}
 
-              <div className="p-3 bg-slate-900 text-white rounded-lg grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 bg-brand-navy text-white rounded-lg grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <div>
-                  <div className="text-slate-400">New Net Bill</div>
+                  <div className="text-slate-300">New Net Bill</div>
                   <div className="font-mono tabular-nums font-bold text-sm mt-0.5">
                     {formatBDT(computedTargetNet)}
                   </div>
                 </div>
                 <div>
-                  <div className="text-slate-400">Total Adjustment</div>
+                  <div className="text-slate-300">Total Adjustment</div>
                   <div className="font-mono tabular-nums font-bold text-sm text-amber-300 mt-0.5">
                     {projectedTotalAdjustment >= 0
                       ? `-${formatBDT(projectedTotalAdjustment)}`
@@ -349,14 +349,14 @@ export const AdminAdjustBillModal: React.FC<AdminAdjustBillModalProps> = ({
                   </div>
                 </div>
                 <div>
-                  <div className="text-slate-400">New Paid Total</div>
+                  <div className="text-slate-300">New Paid Total</div>
                   <div className="font-mono tabular-nums font-bold text-sm text-emerald-300 mt-0.5">
                     {formatBDT(projectedPaid)}
                     {projectedRefund > 0 ? ` (-${formatBDT(projectedRefund)})` : ''}
                   </div>
                 </div>
                 <div>
-                  <div className="text-slate-400">New Due Balance</div>
+                  <div className="text-slate-300">New Due Balance</div>
                   <div className="font-mono tabular-nums font-bold text-sm text-red-300 mt-0.5">
                     {formatBDT(projectedDue)}
                   </div>
@@ -413,7 +413,7 @@ export const AdminAdjustBillModal: React.FC<AdminAdjustBillModalProps> = ({
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700 disabled:opacity-50"
+                  className="px-4 py-2 text-xs font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-light disabled:opacity-50"
                 >
                   {submitting ? 'Applying Adjustment...' : 'Save Admin Bill Adjustment'}
                 </button>

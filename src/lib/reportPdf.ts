@@ -28,6 +28,39 @@ export interface ExportReportPdfOptions {
   signatures: ResolvedSignatures;
 }
 
+const BRAND_LOGO_PDF_URL = '/assets/aistudio/IMG_20261119_111655_480ab481.jpg';
+let cachedBrandLogoDataUrl: string | null | undefined;
+
+async function loadBrandLogoDataUrl(): Promise<string | null> {
+  if (cachedBrandLogoDataUrl !== undefined) {
+    return cachedBrandLogoDataUrl;
+  }
+  if (typeof window === 'undefined' || typeof fetch === 'undefined') {
+    cachedBrandLogoDataUrl = null;
+    return null;
+  }
+  try {
+    const res = await fetch(BRAND_LOGO_PDF_URL);
+    if (!res.ok) {
+      cachedBrandLogoDataUrl = null;
+      return null;
+    }
+    const blob = await res.blob();
+    const dataUrl = await new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () =>
+        resolve(typeof reader.result === 'string' ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+    cachedBrandLogoDataUrl = dataUrl;
+    return dataUrl;
+  } catch {
+    cachedBrandLogoDataUrl = null;
+    return null;
+  }
+}
+
 function getLastAutoTableFinalY(doc: jsPDF): number {
   const withTable = doc as unknown as { lastAutoTable?: { finalY: number } };
   return withTable.lastAutoTable?.finalY ?? 60;
@@ -40,7 +73,7 @@ function getLastAutoTableFinalY(doc: jsPDF): number {
  * - Repeats Patient Info Header + QR code on EVERY page
  * - Repeats 3-column signature block (Consultant left, Checked by center, Prepared / Tested By right) on EVERY page
  */
-export function exportDiagnosticReportPdf(opts: ExportReportPdfOptions): string {
+export async function exportDiagnosticReportPdf(opts: ExportReportPdfOptions): Promise<string> {
   const {
     invoice,
     selectedTests,
@@ -69,6 +102,8 @@ export function exportDiagnosticReportPdf(opts: ExportReportPdfOptions): string 
   if (plannedPages.length === 0) {
     throw new Error('Select at least one test before downloading the PDF report.');
   }
+
+  const brandLogoDataUrl = portalMode ? await loadBrandLogoDataUrl() : null;
 
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -546,35 +581,46 @@ export function exportDiagnosticReportPdf(opts: ExportReportPdfOptions): string 
 
     // 1. Digital Letterhead (Portal / QR digital download mode)
     if (portalMode) {
-      doc.setFillColor(0, 0, 0);
-      doc.roundedRect(marginX, y, 9.5, 9.5, 2, 2, 'F');
-      doc.setFillColor(255, 255, 255);
-      doc.rect(marginX + 3.9, y + 2, 1.7, 5.5, 'F');
-      doc.rect(marginX + 2, y + 3.9, 5.5, 1.7, 'F');
+      let textOffsetX = marginX + 12;
+      if (brandLogoDataUrl) {
+        // Logo natural aspect ratio 938:804 -> 13.5mm x 11.57mm fits cleanly above the 14mm rule
+        doc.addImage(brandLogoDataUrl, 'JPEG', marginX, y - 0.3, 13.5, 11.57);
+        textOffsetX = marginX + 15.5;
+      } else {
+        doc.setFillColor(23, 41, 74);
+        doc.roundedRect(marginX, y, 9.5, 9.5, 2, 2, 'F');
+        doc.setFillColor(255, 255, 255);
+        doc.rect(marginX + 3.9, y + 2, 1.7, 5.5, 'F');
+        doc.rect(marginX + 2, y + 3.9, 5.5, 1.7, 'F');
+      }
 
-      doc.setTextColor(0, 0, 0);
+      doc.setTextColor(23, 41, 74);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12.5);
-      doc.text(settings.lab_name, marginX + 12, y + 4);
+      doc.text(settings.lab_name, textOffsetX, y + 4);
 
+      doc.setTextColor(55, 65, 81);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
-      doc.text(settings.lab_address, marginX + 12, y + 7.5);
+      doc.text(settings.lab_address, textOffsetX, y + 7.5);
 
+      doc.setTextColor(27, 122, 145);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       doc.text(
         'Department of Pathology & Clinical Diagnostics · Digital Verified Report',
-        marginX + 12,
+        textOffsetX,
         y + 11
       );
 
+      doc.setTextColor(216, 35, 33);
       doc.setFontSize(7);
       doc.text('OFFICIAL TEST REPORT', pageWidth - marginX, y + 3.5, { align: 'right' });
+      doc.setTextColor(23, 41, 74);
       doc.setFontSize(8.5);
       doc.text(invoice.invoice_no, pageWidth - marginX, y + 7.5, { align: 'right' });
 
-      doc.setDrawColor(0, 0, 0);
+      doc.setDrawColor(23, 41, 74);
       doc.setLineWidth(0.5);
       doc.line(marginX, y + 14, pageWidth - marginX, y + 14);
       y += letterheadHeightMm;

@@ -100,14 +100,14 @@ export const DueLedgerView: React.FC<DueLedgerViewProps> = ({ isAdmin = false, o
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Due Collection & Payment Ledger</h1>
+          <h1 className="text-2xl font-bold text-brand-navy tracking-tight">Due Collection & Payment Ledger</h1>
           <p className="text-sm text-slate-600 mt-0.5">
             Track pending patient balances, collect anytime partial or full payments, and review full payment history.
           </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-lg px-4 py-2 text-right">
           <div className="text-xs text-slate-500">Total Receivable Shown</div>
-          <div className="text-lg font-bold font-mono tabular-nums text-red-700">{formatBDT(totalPending)}</div>
+          <div className="text-lg font-bold font-mono tabular-nums text-brand-red">{formatBDT(totalPending)}</div>
         </div>
       </div>
 

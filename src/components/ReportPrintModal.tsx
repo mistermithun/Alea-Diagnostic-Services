@@ -21,6 +21,7 @@ import {
 } from '../lib/reportLayout.ts';
 import { exportDiagnosticReportPdf } from '../lib/reportPdf.ts';
 import type { FullInvoice, InvoiceTestItem, LabSettings } from '../types.ts';
+import { BrandLogo } from './BrandLogo.tsx';
 
 interface ReportPrintModalProps {
   data: FullInvoice | null;
@@ -208,7 +209,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     }, 1000);
   };
 
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     if (selectedTests.length === 0) {
       setPdfNotice('Please select at least one test to download the PDF report.');
       return;
@@ -216,7 +217,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
     setExportingPdf(true);
     setPdfNotice('');
     try {
-      const savedName = exportDiagnosticReportPdf({
+      const savedName = await exportDiagnosticReportPdf({
         invoice,
         selectedTests,
         settings,
@@ -251,10 +252,10 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
       {/* Print Controls Toolbar (Hidden on Paper) */}
       <div className="w-full max-w-4xl bg-slate-50/80 border border-slate-200 rounded-xl px-4 py-3 mb-4 space-y-2.5 no-print">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs font-semibold text-slate-800">
+          <div className="text-xs font-semibold text-brand-navy">
             {portalMode ? (
-              <span className="inline-flex items-center gap-1.5 text-teal-800">
-                <ShieldCheck className="w-4 h-4 text-teal-600" />
+              <span className="inline-flex items-center gap-1.5 text-brand-navy">
+                <ShieldCheck className="w-4 h-4 text-brand-cyan" />
                 Verified Digital Pathology Report · Smart Multi-Test A4 PDF Ready
               </span>
             ) : (
@@ -271,7 +272,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                 onClick={() => setBlankConsultantOverride((v) => !v)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
                   blankConsultantOverride
-                    ? 'bg-slate-900 text-white border-slate-900'
+                    ? 'bg-brand-navy text-white border-brand-navy'
                     : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                 }`}
               >
@@ -282,9 +283,9 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
               <button
                 type="button"
                 onClick={onViewAllArchive}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-brand-navy bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors whitespace-nowrap shrink-0"
               >
-                <FolderOpen className="w-4 h-4 text-teal-700" />
+                <FolderOpen className="w-4 h-4 text-brand-cyan" />
                 All Reports Archive
               </button>
             )}
@@ -292,7 +293,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
               type="button"
               disabled={exportingPdf || selectedTests.length === 0}
               onClick={handleDownloadPdf}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-cyan rounded-lg hover:bg-brand-cyan-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Download className="w-4 h-4" />
               {exportingPdf ? 'Generating PDF...' : 'Download PDF'}
@@ -301,7 +302,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
               type="button"
               disabled={selectedTests.length === 0}
               onClick={handlePrintReport}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Printer className="w-4 h-4" />
               {tests.length > 1
@@ -342,8 +343,8 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
               onClick={() => setSelectedTestIds(tests.map((t) => t.id))}
               className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition-colors whitespace-nowrap cursor-pointer ${
                 selectedTests.length === tests.length
-                  ? 'bg-teal-700 text-white border-teal-700'
-                  : 'bg-white text-teal-800 border-teal-300 hover:bg-teal-50'
+                  ? 'bg-brand-navy text-white border-brand-navy'
+                  : 'bg-white text-brand-navy border-brand-navy/30 hover:bg-slate-50'
               }`}
             >
               All Combined ({tests.length})
@@ -386,7 +387,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                   onClick={() => toggleTestSelection(t.id)}
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors whitespace-nowrap cursor-pointer ${
                     checked
-                      ? 'bg-slate-900 text-white border-slate-900'
+                      ? 'bg-brand-navy text-white border-brand-navy'
                       : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'
                   }`}
                 >
@@ -418,7 +419,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
           <button
             type="button"
             onClick={() => setSelectedTestIds(tests.map((t) => t.id))}
-            className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors cursor-pointer"
+            className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark transition-colors cursor-pointer"
           >
             <Layers className="w-3.5 h-3.5" />
             Select All Combined ({tests.length} Tests)
@@ -476,27 +477,15 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
 
                       {/* Full Official Digital Letterhead (Patient Portal / Direct QR Digital PDF Mode only) */}
                       {portalMode && (
-                        <header className="border-b-2 border-black pb-2 mb-1.5 flex flex-col sm:flex-row print:flex-row sm:items-center print:items-center justify-between gap-2.5">
+                        <header className="border-b-2 border-brand-navy print:border-black pb-2 mb-1.5 flex flex-col sm:flex-row print:flex-row sm:items-center print:items-center justify-between gap-2.5">
                           <div className="flex items-center gap-2.5">
-                            <svg
-                              width="36"
-                              height="36"
-                              viewBox="0 0 46 46"
-                              fill="none"
-                              xmlns="http://www.w3.org/2000/svg"
-                              className="shrink-0"
-                              aria-hidden="true"
-                            >
-                              <rect width="46" height="46" rx="10" fill="#000000" />
-                              <path d="M20 11H26V20H35V26H26V35H20V26H11V20H20V11Z" fill="#FFFFFF" />
-                              <circle cx="23" cy="23" r="3.5" fill="#000000" />
-                            </svg>
+                            <BrandLogo surface="print" className="h-10 sm:h-11 print:h-10 w-auto" />
                             <div>
-                              <h1 className="text-lg font-bold text-black tracking-tight leading-tight">
+                              <h1 className="text-lg font-bold text-brand-navy print:text-black tracking-tight leading-tight">
                                 {settings.lab_name}
                               </h1>
-                              <p className="text-[11px] text-black">{settings.lab_address}</p>
-                              <p className="text-[10.5px] font-semibold text-black">
+                              <p className="text-[11px] text-slate-700 print:text-black">{settings.lab_address}</p>
+                              <p className="text-[10.5px] font-semibold text-brand-cyan-dark print:text-black">
                                 Department of Pathology &amp; Clinical Diagnostics · Digital Verified Report
                               </p>
                             </div>
@@ -504,10 +493,10 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
 
                           <div className="flex items-center gap-3 sm:justify-end print:justify-end">
                             <div className="text-right">
-                              <div className="text-[9.5px] font-bold uppercase tracking-wider text-black">
+                              <div className="text-[9.5px] font-bold uppercase tracking-wider text-brand-red print:text-black">
                                 Official Test Report
                               </div>
-                              <div className="text-[10.5px] font-mono font-bold tabular-nums text-black">
+                              <div className="text-[10.5px] font-mono font-bold tabular-nums text-brand-navy print:text-black">
                                 {invoice.invoice_no}
                               </div>
                               <VerificationBarcode code={`${invoice.invoice_no}`} />

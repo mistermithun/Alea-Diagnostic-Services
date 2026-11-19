@@ -177,7 +177,7 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout
     <div className="space-y-6">
       <div className={statement ? 'space-y-6 no-print' : 'space-y-6'}>
       <div className="pb-4 border-b border-slate-200">
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+        <h1 className="text-2xl font-bold text-brand-navy tracking-tight">
           Referral Doctors & Commission Statements
         </h1>
         <p className="text-sm text-slate-600 mt-0.5">
@@ -520,7 +520,7 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout
               <button
                 type="button"
                 onClick={() => loadStatement(statementDocId, fromDate, toDate)}
-                className="px-3 py-1.5 font-semibold text-white bg-slate-900 rounded-md hover:bg-slate-800 whitespace-nowrap"
+                className="px-3 py-1.5 font-semibold text-white bg-brand-cyan rounded-md hover:bg-brand-cyan-dark whitespace-nowrap"
               >
                 Recalculate
               </button>
@@ -529,7 +529,7 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout
               <button
                 type="button"
                 onClick={() => window.print()}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark whitespace-nowrap"
               >
                 <Printer className="w-4 h-4" />
                 Print Statement

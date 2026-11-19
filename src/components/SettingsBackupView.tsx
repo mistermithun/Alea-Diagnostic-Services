@@ -113,7 +113,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   return (
     <div className="space-y-6">
       <div className="pb-4 border-b border-slate-200">
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+        <h1 className="text-2xl font-bold text-brand-navy tracking-tight">
           System Settings, Security & Database Backup
         </h1>
         <p className="text-sm text-slate-600 mt-0.5">
@@ -273,7 +273,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
             <button
               type="submit"
               disabled={savingSettings}
-              className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-light disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
               {savingSettings ? 'Saving...' : 'Save Settings'}
@@ -321,7 +321,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
             <button
               type="button"
               onClick={handleDownloadBackup}
-              className="w-full inline-flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800"
+              className="w-full inline-flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-light"
             >
               <Download className="w-4 h-4" />
               {systemInfo.storageMode === 'mongodb'
@@ -401,7 +401,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
             <button
               type="submit"
               disabled={savingPw}
-              className="w-full py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+              className="w-full py-2 text-sm font-semibold text-white bg-brand-cyan rounded-lg hover:bg-brand-cyan-dark disabled:opacity-50"
             >
               {savingPw ? 'Updating...' : 'Update Master Password'}
             </button>
@@ -442,7 +442,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
             <button
               type="submit"
               disabled={savingStaffPw}
-              className="w-full py-2 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50"
+              className="w-full py-2 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-light disabled:opacity-50"
             >
               {savingStaffPw ? 'Updating...' : 'Update Staff Password'}
             </button>

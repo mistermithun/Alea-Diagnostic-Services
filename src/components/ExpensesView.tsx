@@ -83,14 +83,14 @@ export const ExpensesView: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Laboratory Expense Tracker</h1>
+          <h1 className="text-2xl font-bold text-brand-navy tracking-tight">Laboratory Expense Tracker</h1>
           <p className="text-sm text-slate-600 mt-0.5">
             Log daily reagents, consumables, salaries, utility bills, and owner cash withdrawals (synced to Balance ledger).
           </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-lg px-4 py-2 text-right">
           <div className="text-xs text-slate-500">Total Expenses in Range</div>
-          <div className="text-lg font-bold font-mono tabular-nums text-red-700">{formatBDT(total)}</div>
+          <div className="text-lg font-bold font-mono tabular-nums text-brand-red">{formatBDT(total)}</div>
         </div>
       </div>
 
@@ -161,7 +161,7 @@ export const ExpensesView: React.FC = () => {
           <button
             type="submit"
             disabled={saving}
-            className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+            className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-light disabled:opacity-50"
           >
             <Plus className="w-4 h-4" />
             {saving ? 'Saving...' : 'Add Expense'}

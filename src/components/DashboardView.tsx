@@ -276,7 +276,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Header & Quick Actions */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+          <h1 className="text-2xl font-bold text-brand-navy tracking-tight">
             {isAdmin ? 'Admin Financial & Lab Overview' : 'Reception & Lab Operations'}
           </h1>
           <p className="text-sm text-slate-600 mt-0.5">
@@ -288,7 +288,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button
             type="button"
             onClick={() => onNavigate('billing')}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark transition-colors whitespace-nowrap shrink-0"
           >
             <UserPlus className="w-4 h-4" />
             New Patient Entry
@@ -296,16 +296,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button
             type="button"
             onClick={() => onNavigate('dues')}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-800 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-brand-navy bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
           >
-            <CreditCard className="w-4 h-4 text-slate-600" />
+            <CreditCard className="w-4 h-4 text-brand-cyan" />
             Due Collection
           </button>
           {isAdmin ? (
             <button
               type="button"
               onClick={() => setShowDailyClosing((v) => !v)}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-cyan rounded-lg hover:bg-brand-cyan-dark transition-colors whitespace-nowrap shrink-0"
             >
               <FileText className="w-4 h-4" />
               Daily Closing
@@ -314,7 +314,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('lab')}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-cyan rounded-lg hover:bg-brand-cyan-dark transition-colors whitespace-nowrap shrink-0"
             >
               <FlaskConical className="w-4 h-4" />
               Lab Result Entry
@@ -393,7 +393,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button
               type="button"
               onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 no-print whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark no-print whitespace-nowrap shrink-0"
             >
               <Printer className="w-3.5 h-3.5" />
               Print Closing
@@ -515,7 +515,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <div className="bg-white border border-slate-200 rounded-xl p-5">
               <div className="text-xs font-medium text-slate-500">Pending Reports (All Active)</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-red-700 mt-1.5">
+              <div className="text-2xl font-bold font-mono tabular-nums text-brand-red mt-1.5">
                 {adminData.metrics.pendingReports}
               </div>
               <div className="mt-2">
@@ -1156,7 +1156,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         onClick={() => setEditCommMode('doctor_default')}
                         className={`py-2 px-2.5 rounded-lg border font-medium cursor-pointer ${
                           editCommMode === 'doctor_default'
-                            ? 'bg-slate-900 text-white border-slate-900'
+                            ? 'bg-brand-navy text-white border-brand-navy'
                             : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                         }`}
                       >
@@ -1167,7 +1167,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         onClick={() => setEditCommMode('custom_invoice')}
                         className={`py-2 px-2.5 rounded-lg border font-medium cursor-pointer ${
                           editCommMode === 'custom_invoice'
-                            ? 'bg-slate-900 text-white border-slate-900'
+                            ? 'bg-brand-navy text-white border-brand-navy'
                             : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                         }`}
                       >
@@ -1178,7 +1178,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         onClick={() => setEditCommMode('custom_per_test')}
                         className={`py-2 px-2.5 rounded-lg border font-medium cursor-pointer ${
                           editCommMode === 'custom_per_test'
-                            ? 'bg-slate-900 text-white border-slate-900'
+                            ? 'bg-brand-navy text-white border-brand-navy'
                             : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                         }`}
                       >
@@ -1291,7 +1291,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         type="button"
                         disabled={savingCommission}
                         onClick={handleSaveCommissionRate}
-                        className="px-4 py-2 text-xs font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+                        className="px-4 py-2 text-xs font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark disabled:opacity-50 cursor-pointer"
                       >
                         {savingCommission ? 'Saving...' : 'Save & Update Pool'}
                       </button>

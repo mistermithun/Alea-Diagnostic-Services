@@ -1,4 +1,4 @@
-const CACHE_NAME = 'alea-lims-network-first-v1';
+const CACHE_NAME = 'alea-lims-network-first-v2';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting());
@@ -34,12 +34,19 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/@vite') || url.pathname.startsWith('/__vite')) return;
 
   const isNavigation = request.mode === 'navigate' || request.destination === 'document';
+  const isManifestOrIcon =
+    url.pathname === '/manifest.json' ||
+    url.pathname.startsWith('/pwa-') ||
+    url.pathname.startsWith('/apple-touch-icon') ||
+    url.pathname.startsWith('/favicon') ||
+    url.pathname.startsWith('/assets/aistudio/');
 
   event.respondWith(
     (async () => {
       try {
-        // Strict Network-First: revalidate HTML navigations against server so future updates appear immediately
-        const networkRequest = isNavigation ? new Request(request, { cache: 'no-cache' }) : request;
+        // Strict Network-First: revalidate HTML navigations, manifest, and brand icons so updates appear immediately
+        const networkRequest =
+          isNavigation || isManifestOrIcon ? new Request(request, { cache: 'no-cache' }) : request;
         const networkResponse = await fetch(networkRequest);
 
         if (networkResponse && networkResponse.ok && networkResponse.type === 'basic') {

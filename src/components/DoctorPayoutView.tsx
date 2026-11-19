@@ -377,7 +377,7 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
       <div className="space-y-4 no-print">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            <h1 className="text-2xl font-bold text-brand-navy tracking-tight">
               Doctor Commission Payout &amp; Settlement
             </h1>
             <p className="text-sm text-slate-600 mt-0.5">
@@ -468,7 +468,7 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
                 type="button"
                 disabled={loadingDocs || loadingStmt || !fromDate || !toDate}
                 onClick={() => loadDoctorsAndStatement(fromDate, toDate)}
-                className="px-4 py-2 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                className="px-4 py-2 text-sm font-semibold text-white bg-brand-cyan rounded-lg hover:bg-brand-cyan-dark disabled:opacity-50 whitespace-nowrap cursor-pointer"
               >
                 {loadingDocs || loadingStmt ? 'Loading...' : 'Apply Filter'}
               </button>
@@ -476,7 +476,7 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
                 type="button"
                 disabled={!statement}
                 onClick={() => window.print()}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark disabled:opacity-50 whitespace-nowrap cursor-pointer"
               >
                 <Printer className="w-4 h-4" />
                 Print Statement
@@ -892,14 +892,14 @@ export const DoctorPayoutView: React.FC<DoctorPayoutViewProps> = ({
 
       {/* Customize Commission Rate Modal (Per-Patient / Per-Test) */}
       {editingReferral && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 p-4 flex items-center justify-center no-print">
+        <div className="fixed inset-0 z-50 bg-brand-navy-dark/60 p-4 flex items-center justify-center no-print">
           <div className="w-full max-w-lg bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden">
-            <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between">
+            <div className="px-5 py-3.5 bg-brand-navy text-white flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold">
                   Customize Commission · {editingReferral.invoice_no}
                 </h3>
-                <p className="text-[11px] text-slate-300">
+                <p className="text-[11px] text-slate-200">
                   {editingReferral.patient_name} ({editingReferral.patient_uid}) · Net Bill:{' '}
                   {formatBDT(editingReferral.net_total)}
                 </p>

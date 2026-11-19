@@ -14,7 +14,6 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
-  Stethoscope,
   User,
 } from 'lucide-react';
 import QRCode from 'qrcode';
@@ -44,6 +43,7 @@ import type {
   FullInvoice,
   LabSettings,
 } from '../types.ts';
+import { BrandLogo } from './BrandLogo.tsx';
 import { PWAInstallButton } from './PWAInstallControl.tsx';
 import { ReportPrintModal } from './ReportPrintModal.tsx';
 
@@ -329,7 +329,7 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
         blankConsultantOverride: false,
       });
 
-      const savedName = exportDiagnosticReportPdf({
+      const savedName = await exportDiagnosticReportPdf({
         invoice: full.invoice,
         selectedTests,
         settings,
@@ -388,30 +388,29 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
           <button
             type="button"
             onClick={onBackToHome}
-            className="inline-flex items-center gap-1.5 min-h-[44px] text-xs font-medium text-slate-600 hover:text-slate-900 whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 min-h-[44px] text-xs font-medium text-slate-600 hover:text-brand-navy whitespace-nowrap"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to Portal Home
           </button>
-          <span className="text-xs font-semibold text-teal-800 whitespace-nowrap">Doctor Portal</span>
+          <span className="text-xs font-semibold text-brand-navy whitespace-nowrap">Doctor Portal</span>
         </header>
 
         <main className="w-full max-w-md mx-auto my-6 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="bg-slate-900 text-white px-6 py-6">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-xl bg-teal-600 text-white flex items-center justify-center shrink-0">
-                <Stethoscope className="w-5 h-5" />
-              </div>
+          <div className="h-1 bg-gradient-to-r from-brand-red via-brand-navy to-brand-cyan" />
+          <div className="bg-brand-navy text-white px-6 py-6">
+            <div className="flex items-center gap-3.5">
+              <BrandLogo surface="dark" className="h-12 w-auto" />
               <div className="min-w-0">
                 <h1 className="text-lg font-bold tracking-tight leading-snug truncate">
                   {settings.lab_name}
                 </h1>
-                <p className="text-xs text-slate-300 mt-0.5 truncate">{settings.lab_address}</p>
+                <p className="text-xs text-slate-200 mt-0.5 truncate">{settings.lab_address}</p>
               </div>
             </div>
-            <div className="mt-5 pt-4 border-t border-slate-800">
+            <div className="mt-5 pt-4 border-t border-white/15">
               <h2 className="text-base font-semibold text-white">Referring Doctor Sign In</h2>
-              <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+              <p className="text-xs text-slate-200 mt-1 leading-relaxed">
                 Referring physician portal for live patient report, for transparent billing and instant PDF report download.
               </p>
             </div>
@@ -434,7 +433,7 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Enter admin-provided username"
-                  className="w-full min-h-[44px] pl-10 pr-4 py-2.5 text-sm font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-600"
+                  className="w-full min-h-[44px] pl-10 pr-4 py-2.5 text-sm font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-navy"
                   required
                 />
               </div>
@@ -453,7 +452,7 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
-                  className="w-full min-h-[44px] pl-10 pr-11 py-2.5 text-sm font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-600"
+                  className="w-full min-h-[44px] pl-10 pr-11 py-2.5 text-sm font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-navy"
                   required
                 />
                 <button
@@ -472,13 +471,13 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
-                className="w-4 h-4 accent-teal-600 rounded"
+                className="w-4 h-4 accent-brand-navy rounded"
               />
               <span>Keep me logged in on this device (30 days)</span>
             </label>
 
             {loginError && (
-              <div className="p-3 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-xl">
+              <div className="p-3 text-xs font-medium text-brand-red-dark bg-red-50 border border-red-200 rounded-xl">
                 {loginError}
               </div>
             )}
@@ -486,14 +485,14 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
             <button
               type="submit"
               disabled={loginLoading}
-              className="w-full min-h-[46px] py-2.5 px-4 text-sm font-semibold text-white bg-teal-600 rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors whitespace-nowrap"
+              className="w-full min-h-[46px] py-2.5 px-4 text-sm font-semibold text-white bg-brand-navy rounded-xl hover:bg-brand-navy-dark disabled:opacity-60 transition-colors whitespace-nowrap"
             >
               {loginLoading ? 'Signing in...' : 'Sign In to Doctor Portal'}
             </button>
 
             <div className="pt-3 border-t border-slate-200 text-[11px] text-slate-500 space-y-1">
-              <div className="flex items-center gap-1.5 text-slate-700 font-medium">
-                <ShieldCheck className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+              <div className="flex items-center gap-1.5 text-brand-navy font-medium">
+                <ShieldCheck className="w-3.5 h-3.5 text-brand-cyan shrink-0" />
                 <span>Private Referring Doctor Access</span>
               </div>
               <p className="leading-relaxed">
@@ -521,11 +520,9 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
       <header className="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 sm:px-6 h-14 flex items-center no-print">
         <div className="max-w-6xl w-full mx-auto flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-slate-900 text-teal-400 flex items-center justify-center shrink-0">
-              <Stethoscope className="w-4 h-4" />
-            </div>
+            <BrandLogo surface="light" className="h-9 w-auto" />
             <div className="min-w-0">
-              <div className="text-sm font-bold text-slate-900 truncate">{doctor.name}</div>
+              <div className="text-sm font-bold text-brand-navy truncate">{doctor.name}</div>
               <div className="text-[11px] text-slate-500 truncate">{settings.lab_name}</div>
             </div>
           </div>
@@ -562,8 +559,8 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
         {/* Doctor Profile & 1-Month Window Strip */}
         <section className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-1 min-w-0">
-            <div className="text-xs font-semibold text-teal-700">Referring Physician Portal</div>
-            <h1 className="text-lg sm:text-xl font-bold text-slate-900 truncate">{doctor.name}</h1>
+            <div className="text-xs font-semibold text-brand-red uppercase tracking-wide">Referring Physician Portal</div>
+            <h1 className="text-lg sm:text-xl font-bold text-brand-navy truncate">{doctor.name}</h1>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-600">
               {doctor.degree && <span>{doctor.degree}</span>}
               {doctor.degree && doctor.hospital && <span aria-hidden="true">·</span>}
@@ -653,8 +650,8 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                 onClick={() => setFilterTab('all')}
                 className={`min-h-[38px] px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                   filterTab === 'all'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-brand-navy text-white shadow-sm'
+                    : 'text-slate-600 hover:text-brand-navy'
                 }`}
               >
                 All ({patients.length})
@@ -664,8 +661,8 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                 onClick={() => setFilterTab('ready')}
                 className={`min-h-[38px] px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                   filterTab === 'ready'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-brand-navy text-white shadow-sm'
+                    : 'text-slate-600 hover:text-brand-navy'
                 }`}
               >
                 Reports Ready ({summary.readyReportsCount})
@@ -675,8 +672,8 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                 onClick={() => setFilterTab('pending')}
                 className={`min-h-[38px] px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                   filterTab === 'pending'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-brand-navy text-white shadow-sm'
+                    : 'text-slate-600 hover:text-brand-navy'
                 }`}
               >
                 Pending ({summary.pendingReportsCount})
@@ -690,7 +687,7 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search patient name, ID, invoice, or test..."
-                className="w-full min-h-[44px] pl-10 pr-4 py-2 text-xs sm:text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-600"
+                className="w-full min-h-[44px] pl-10 pr-4 py-2 text-xs sm:text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-navy"
               />
             </div>
           </div>
@@ -720,11 +717,11 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                         <div className="space-y-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
                             <span className="inline-flex items-center gap-1 font-mono tabular-nums font-medium text-slate-700">
-                              <Calendar className="w-3.5 h-3.5 text-teal-700" />
+                              <Calendar className="w-3.5 h-3.5 text-brand-cyan" />
                               {formatDateTime(visit.created_at)}
                             </span>
                             <span aria-hidden="true">·</span>
-                            <span className="font-mono tabular-nums font-semibold text-slate-800">
+                            <span className="font-mono tabular-nums font-semibold text-brand-navy">
                               {visit.invoice_no}
                             </span>
                             <span aria-hidden="true">·</span>
@@ -752,7 +749,7 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                             {visit.abnormal_count > 0 && (
                               <>
                                 <span aria-hidden="true">·</span>
-                                <span className="font-bold text-red-600">
+                                <span className="font-bold text-brand-red">
                                   {visit.abnormal_count} Abnormal Finding{visit.abnormal_count > 1 ? 's' : ''}
                                 </span>
                               </>
@@ -784,7 +781,7 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                             type="button"
                             onClick={() => handleOpenPrintPreview(visit.invoice_id)}
                             disabled={loadingReportId === visit.invoice_id}
-                            className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 py-2 text-xs font-semibold text-white bg-slate-900 rounded-xl hover:bg-slate-800 whitespace-nowrap"
+                            className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 py-2 text-xs font-semibold text-white bg-brand-navy rounded-xl hover:bg-brand-navy-dark whitespace-nowrap"
                           >
                             <Printer className="w-4 h-4" />
                             <span>Print</span>
@@ -793,7 +790,7 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                             type="button"
                             onClick={() => handleDirectDownloadPdf(visit)}
                             disabled={downloadingPdfId === visit.invoice_id}
-                            className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 py-2 text-xs font-semibold text-white bg-teal-600 rounded-xl hover:bg-teal-700 disabled:opacity-60 whitespace-nowrap"
+                            className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 py-2 text-xs font-semibold text-white bg-brand-cyan rounded-xl hover:bg-brand-cyan-dark disabled:opacity-60 whitespace-nowrap"
                           >
                             <Download className="w-4 h-4" />
                             <span>{downloadingPdfId === visit.invoice_id ? 'PDF...' : 'PDF'}</span>

@@ -587,40 +587,91 @@ export class SqliteLimsStore implements LimsStore {
     const updTest = db.prepare(
       'UPDATE tests SET category_id = ?, code = ?, name = ?, price = ?, sample_type = ?, is_active = ? WHERE id = ?'
     );
-    const delParams = db.prepare('DELETE FROM test_parameters WHERE test_id = ?');
+    const getExistingIds = db.prepare('SELECT id FROM test_parameters WHERE test_id = ?');
+    const updParam = db.prepare(`
+      UPDATE test_parameters
+      SET name = ?, unit = ?, input_type = ?, normal_text = ?, default_value = ?, select_options = ?, abnormal_values = ?,
+          min_male = ?, max_male = ?, min_female = ?, max_female = ?, min_child = ?, max_child = ?, min_newborn = ?, max_newborn = ?, sort_order = ?
+      WHERE id = ? AND test_id = ?
+    `);
+    const delParamById = db.prepare('DELETE FROM test_parameters WHERE id = ? AND test_id = ?');
     const insParam = db.prepare(`
       INSERT INTO test_parameters (
         test_id, name, unit, input_type, normal_text, default_value, select_options, abnormal_values,
         min_male, max_male, min_female, max_female, min_child, max_child, min_newborn, max_newborn, sort_order
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+    const updPendingResultSort = db.prepare(`
+      UPDATE test_results
+      SET sort_order = ?
+      WHERE parameter_id = ?
+        AND invoice_test_id IN (SELECT id FROM invoice_tests WHERE test_id = ? AND status != 'Ready')
+    `);
 
     db.transaction(() => {
       updTest.run(payload.category_id, payload.code?.trim() || '', payload.name.trim(), Number(payload.price), payload.sample_type.trim(), payload.is_active ?? 1, id);
       if (Array.isArray(payload.parameters)) {
-        delParams.run(id);
-        payload.parameters.forEach((p, idx) => {
-          if (!p.name?.trim()) return;
-          insParam.run(
-            id,
-            p.name.trim(),
-            p.unit?.trim() || '',
-            p.input_type || 'numeric',
-            p.normal_text?.trim() || '',
-            p.default_value?.trim() || '',
-            p.select_options?.trim() || '',
-            p.abnormal_values?.trim() || '',
-            p.min_male ?? null,
-            p.max_male ?? null,
-            p.min_female ?? null,
-            p.max_female ?? null,
-            p.min_child ?? null,
-            p.max_child ?? null,
-            p.min_newborn ?? null,
-            p.max_newborn ?? null,
-            idx + 1
-          );
-        });
+        const existingIdSet = new Set(
+          (getExistingIds.all(id) as Array<{ id: number }>).map((row) => row.id)
+        );
+        const keptIds = new Set<number>();
+        let sortOrder = 0;
+
+        for (const p of payload.parameters) {
+          if (!p.name?.trim()) continue;
+          sortOrder += 1;
+          const paramId = typeof p.id === 'number' && existingIdSet.has(p.id) ? p.id : null;
+          if (paramId !== null) {
+            keptIds.add(paramId);
+            updParam.run(
+              p.name.trim(),
+              p.unit?.trim() || '',
+              p.input_type || 'numeric',
+              p.normal_text?.trim() || '',
+              p.default_value?.trim() || '',
+              p.select_options?.trim() || '',
+              p.abnormal_values?.trim() || '',
+              p.min_male ?? null,
+              p.max_male ?? null,
+              p.min_female ?? null,
+              p.max_female ?? null,
+              p.min_child ?? null,
+              p.max_child ?? null,
+              p.min_newborn ?? null,
+              p.max_newborn ?? null,
+              sortOrder,
+              paramId,
+              id
+            );
+            updPendingResultSort.run(sortOrder, paramId, id);
+          } else {
+            insParam.run(
+              id,
+              p.name.trim(),
+              p.unit?.trim() || '',
+              p.input_type || 'numeric',
+              p.normal_text?.trim() || '',
+              p.default_value?.trim() || '',
+              p.select_options?.trim() || '',
+              p.abnormal_values?.trim() || '',
+              p.min_male ?? null,
+              p.max_male ?? null,
+              p.min_female ?? null,
+              p.max_female ?? null,
+              p.min_child ?? null,
+              p.max_child ?? null,
+              p.min_newborn ?? null,
+              p.max_newborn ?? null,
+              sortOrder
+            );
+          }
+        }
+
+        for (const oldId of existingIdSet) {
+          if (!keptIds.has(oldId)) {
+            delParamById.run(oldId, id);
+          }
+        }
       }
     })();
   }

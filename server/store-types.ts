@@ -9,6 +9,7 @@ export class StoreError extends Error {
 }
 
 export interface ParamPayload {
+  id?: number;
   name: string;
   unit?: string;
   input_type?: 'numeric' | 'text' | 'select';

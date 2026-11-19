@@ -444,7 +444,9 @@ export class MongoLimsStore implements LimsStore {
         r.key === 'auth_secret' ||
         r.key === 'initial_seed_done' ||
         r.key === 'catalog_v2_synced' ||
-        r.key === 'staff_discount_limit_100_migrated'
+        r.key === 'staff_discount_limit_100_migrated' ||
+        r.key === 'cbc_params_v2_migrated' ||
+        r.key === 'urine_params_v2_migrated'
       ) {
         continue;
       }
@@ -1079,8 +1081,13 @@ export class MongoLimsStore implements LimsStore {
   }
 
   private async migrateCbcParameters(): Promise<void> {
+    if ((await this.getSetting('cbc_params_v2_migrated')) === '1') return;
+
     const cbcTest = await this.testsCol.findOne({ code: 'HEM-01' }, { projection: { _id: 0 } });
-    if (!cbcTest) return;
+    if (!cbcTest) {
+      await this.setSetting('cbc_params_v2_migrated', '1');
+      return;
+    }
 
     const existingParams = await this.paramsCol.find({ test_id: cbcTest.id }).toArray();
     const findExistingParam = (targetName: string) => {
@@ -1226,11 +1233,17 @@ export class MongoLimsStore implements LimsStore {
         }
       }
     }
+    await this.setSetting('cbc_params_v2_migrated', '1');
   }
 
   private async migrateUrineReParameters(): Promise<void> {
+    if ((await this.getSetting('urine_params_v2_migrated')) === '1') return;
+
     const urineTest = await this.testsCol.findOne({ code: 'CLP-01' }, { projection: { _id: 0 } });
-    if (!urineTest) return;
+    if (!urineTest) {
+      await this.setSetting('urine_params_v2_migrated', '1');
+      return;
+    }
 
     const existingUrine = await this.paramsCol.find({ test_id: urineTest.id }).toArray();
     for (const dp of URINE_DESIRED_PARAMS) {
@@ -1259,6 +1272,7 @@ export class MongoLimsStore implements LimsStore {
         });
       }
     }
+    await this.setSetting('urine_params_v2_migrated', '1');
   }
 
   async getStaffOverview(): Promise<Record<string, unknown>> {
@@ -1728,31 +1742,78 @@ export class MongoLimsStore implements LimsStore {
     );
 
     if (Array.isArray(payload.parameters)) {
-      await this.paramsCol.deleteMany({ test_id: id });
-      for (let idx = 0; idx < payload.parameters.length; idx++) {
-        const p = payload.parameters[idx];
+      const existingParams = await this.paramsCol.find({ test_id: id }, { projection: { _id: 0, id: 1 } }).toArray();
+      const existingIdSet = new Set(existingParams.map((row) => row.id));
+      const keptIds = new Set<number>();
+      const pendingInvoiceTests = await this.invoiceTestsCol
+        .find({ test_id: id, status: { $ne: 'Ready' } }, { projection: { _id: 0, id: 1 } })
+        .toArray();
+      const pendingInvoiceTestIds = pendingInvoiceTests.map((it) => it.id);
+      let sortOrder = 0;
+
+      for (const p of payload.parameters) {
         if (!p.name?.trim()) continue;
-        const pid = await this.nextSeq('test_parameters');
-        await this.paramsCol.insertOne({
-          id: pid,
-          test_id: id,
-          name: p.name.trim(),
-          unit: p.unit?.trim() || '',
-          input_type: p.input_type || 'numeric',
-          normal_text: p.normal_text?.trim() || '',
-          default_value: p.default_value?.trim() || '',
-          select_options: p.select_options?.trim() || '',
-          abnormal_values: p.abnormal_values?.trim() || '',
-          min_male: p.min_male ?? null,
-          max_male: p.max_male ?? null,
-          min_female: p.min_female ?? null,
-          max_female: p.max_female ?? null,
-          min_child: p.min_child ?? null,
-          max_child: p.max_child ?? null,
-          min_newborn: p.min_newborn ?? null,
-          max_newborn: p.max_newborn ?? null,
-          sort_order: idx + 1,
-        });
+        sortOrder += 1;
+        const paramId = typeof p.id === 'number' && existingIdSet.has(p.id) ? p.id : null;
+        if (paramId !== null) {
+          keptIds.add(paramId);
+          await this.paramsCol.updateOne(
+            { id: paramId, test_id: id },
+            {
+              $set: {
+                name: p.name.trim(),
+                unit: p.unit?.trim() || '',
+                input_type: p.input_type || 'numeric',
+                normal_text: p.normal_text?.trim() || '',
+                default_value: p.default_value?.trim() || '',
+                select_options: p.select_options?.trim() || '',
+                abnormal_values: p.abnormal_values?.trim() || '',
+                min_male: p.min_male ?? null,
+                max_male: p.max_male ?? null,
+                min_female: p.min_female ?? null,
+                max_female: p.max_female ?? null,
+                min_child: p.min_child ?? null,
+                max_child: p.max_child ?? null,
+                min_newborn: p.min_newborn ?? null,
+                max_newborn: p.max_newborn ?? null,
+                sort_order: sortOrder,
+              },
+            }
+          );
+          if (pendingInvoiceTestIds.length > 0) {
+            await this.testResultsCol.updateMany(
+              { invoice_test_id: { $in: pendingInvoiceTestIds }, parameter_id: paramId },
+              { $set: { sort_order: sortOrder } }
+            );
+          }
+        } else {
+          const pid = await this.nextSeq('test_parameters');
+          await this.paramsCol.insertOne({
+            id: pid,
+            test_id: id,
+            name: p.name.trim(),
+            unit: p.unit?.trim() || '',
+            input_type: p.input_type || 'numeric',
+            normal_text: p.normal_text?.trim() || '',
+            default_value: p.default_value?.trim() || '',
+            select_options: p.select_options?.trim() || '',
+            abnormal_values: p.abnormal_values?.trim() || '',
+            min_male: p.min_male ?? null,
+            max_male: p.max_male ?? null,
+            min_female: p.min_female ?? null,
+            max_female: p.max_female ?? null,
+            min_child: p.min_child ?? null,
+            max_child: p.max_child ?? null,
+            min_newborn: p.min_newborn ?? null,
+            max_newborn: p.max_newborn ?? null,
+            sort_order: sortOrder,
+          });
+        }
+      }
+
+      const removedIds = Array.from(existingIdSet).filter((oldId) => !keptIds.has(oldId));
+      if (removedIds.length > 0) {
+        await this.paramsCol.deleteMany({ test_id: id, id: { $in: removedIds } });
       }
     }
   }

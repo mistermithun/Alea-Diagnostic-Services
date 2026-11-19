@@ -5,8 +5,8 @@ import {
   deduplicateTestResults,
   formatNumericResultDisplay,
   getOrderedCbcRows,
+  getOrderedUrineRows,
   getPageTypographyProfile,
-  getUrineSection,
   planReportPages,
   type ReportTypographyProfile,
   type ResolvedSignatures,
@@ -367,9 +367,9 @@ export async function exportDiagnosticReportPdf(opts: ExportReportPdfOptions): P
           ]);
         }
 
+        const orderedUrine = getOrderedUrineRows(seg.test.results || []);
         let lastSection = '';
-        for (const r of deduplicateTestResults(seg.test.results || [])) {
-          const sec = getUrineSection(r.parameter_name);
+        for (const { row: r, section: sec } of orderedUrine) {
           if (sec !== lastSection) {
             lastSection = sec;
             bodyRows.push([

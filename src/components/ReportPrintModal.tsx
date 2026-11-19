@@ -13,8 +13,8 @@ import {
   formatNumericResultDisplay,
   getCanonicalParameterKey,
   getOrderedCbcRows,
+  getOrderedUrineRows,
   getPageTypographyProfile,
-  getUrineSection,
   planReportPages,
   resolveReportSignatures,
   type ReportPagePlan,
@@ -791,6 +791,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
 
                             {seg.kind === 'urine' &&
                               (() => {
+                                const orderedUrine = getOrderedUrineRows(seg.test.results || []);
                                 let lastSection = '';
                                 return (
                                   <table
@@ -835,8 +836,7 @@ export const ReportPrintModal: React.FC<ReportPrintModalProps> = ({
                                           </td>
                                         </tr>
                                       )}
-                                      {deduplicateTestResults(seg.test.results || []).map((r) => {
-                                        const sec = getUrineSection(r.parameter_name);
+                                      {orderedUrine.map(({ row: r, section: sec }) => {
                                         const showSection = sec !== lastSection;
                                         lastSection = sec;
                                         const isAbn =

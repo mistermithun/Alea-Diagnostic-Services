@@ -73,25 +73,37 @@ const URINE_SECTIONS: Array<{
   {
     match: (n) =>
       n.includes('color') ||
+      n.includes('colour') ||
       n.includes('appearance') ||
+      n.includes('turbidity') ||
       n.includes('sediment') ||
       n.includes('specific gravity') ||
       n.includes('reaction') ||
-      n.includes('ph'),
+      n === 'ph' ||
+      /\bph\b/.test(n) ||
+      n.includes('(ph)') ||
+      n.includes('volume') ||
+      n.includes('odor') ||
+      n.includes('odour'),
     section: 'Physical Examination',
   },
   {
     match: (n) =>
-      n.includes('albumin') ||
-      n.includes('protein') ||
-      n.includes('sugar') ||
-      n.includes('glucose') ||
-      n.includes('ketone') ||
-      n.includes('bilirubin') ||
-      n.includes('urobilinogen') ||
-      n.includes('nitrite') ||
-      n.includes('leukocyte') ||
-      n.includes('blood'),
+      !n.includes('red blood') &&
+      !n.includes('rbc') &&
+      (n.includes('albumin') ||
+        n.includes('protein') ||
+        n.includes('sugar') ||
+        n.includes('glucose') ||
+        n.includes('ketone') ||
+        n.includes('bilirubin') ||
+        n.includes('urobilinogen') ||
+        n.includes('nitrite') ||
+        n.includes('leukocyte') ||
+        n.includes('leucocyte') ||
+        n.includes('bile') ||
+        n.includes('reducing') ||
+        n.includes('blood')),
     section: 'Chemical Examination',
   },
   {
@@ -99,6 +111,21 @@ const URINE_SECTIONS: Array<{
     section: 'Microscopic Examination',
   },
 ];
+
+const URINE_SECTION_ORDER: Record<string, number> = {
+  'Physical Examination': 0,
+  'Chemical Examination': 1,
+  'Microscopic Examination': 2,
+};
+
+const CBC_SECTION_ORDER: Record<string, number> = {
+  '': 0,
+  'ESR (Westergren Method)': 1,
+  'Total Count': 2,
+  'Differential WBC Count': 3,
+  'RBC Indices & Parameters': 4,
+  'Additional Parameters': 5,
+};
 
 export function getCanonicalParameterKey(paramName: string): string {
   const n = (paramName || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -221,7 +248,14 @@ export function deduplicateTestResults<T extends Partial<TestResultRow>>(
     }
   }
 
-  return deduped;
+  return deduped
+    .map((row, idx) => ({ row, idx }))
+    .sort((a, b) => {
+      const sa = typeof a.row.sort_order === 'number' && a.row.sort_order > 0 ? a.row.sort_order : a.idx + 10000;
+      const sb = typeof b.row.sort_order === 'number' && b.row.sort_order > 0 ? b.row.sort_order : b.idx + 10000;
+      return sa !== sb ? sa - sb : a.idx - b.idx;
+    })
+    .map((item) => item.row);
 }
 
 function getCbcSequenceMeta(paramName: string): { order: number; section?: string } {
@@ -231,7 +265,13 @@ function getCbcSequenceMeta(paramName: string): { order: number; section?: strin
       return { order: i, section: CBC_ORDER_KEYS[i].section };
     }
   }
-  return { order: 999 };
+  if (lower === 'wbc' || lower === 'wbc count') {
+    return { order: 2, section: 'Total Count' };
+  }
+  if (lower === 'rbc' || lower === 'rbc count') {
+    return { order: 3, section: 'Total Count' };
+  }
+  return { order: 999, section: 'Additional Parameters' };
 }
 
 export function getOrderedCbcRows(
@@ -240,9 +280,17 @@ export function getOrderedCbcRows(
   const uniqueRows = deduplicateTestResults(rows);
   const indexed = uniqueRows.map((row, idx) => {
     const meta = getCbcSequenceMeta(row.parameter_name);
-    return { row, idx, order: meta.order, section: meta.section };
+    const secKey = meta.section || '';
+    const sectionRank = CBC_SECTION_ORDER[secKey] ?? 5;
+    const sortVal = typeof row.sort_order === 'number' && row.sort_order > 0 ? row.sort_order : meta.order + 1000;
+    return { row, idx, sectionRank, sortVal, defaultOrder: meta.order, section: meta.section };
   });
-  indexed.sort((a, b) => (a.order !== b.order ? a.order - b.order : a.idx - b.idx));
+  indexed.sort((a, b) => {
+    if (a.sectionRank !== b.sectionRank) return a.sectionRank - b.sectionRank;
+    if (a.sortVal !== b.sortVal) return a.sortVal - b.sortVal;
+    if (a.defaultOrder !== b.defaultOrder) return a.defaultOrder - b.defaultOrder;
+    return a.idx - b.idx;
+  });
   return indexed.map(({ row, section }) => ({ row, section }));
 }
 
@@ -252,6 +300,24 @@ export function getUrineSection(paramName: string): string {
     if (rule.match(lower)) return rule.section;
   }
   return 'Microscopic Examination';
+}
+
+export function getOrderedUrineRows(
+  rows: TestResultRow[]
+): Array<{ row: TestResultRow; section: string }> {
+  const uniqueRows = deduplicateTestResults(rows);
+  const indexed = uniqueRows.map((row, idx) => {
+    const section = getUrineSection(row.parameter_name);
+    const sectionRank = URINE_SECTION_ORDER[section] ?? 2;
+    const sortVal = typeof row.sort_order === 'number' && row.sort_order > 0 ? row.sort_order : idx + 10000;
+    return { row, idx, sectionRank, sortVal, section };
+  });
+  indexed.sort((a, b) => {
+    if (a.sectionRank !== b.sectionRank) return a.sectionRank - b.sectionRank;
+    if (a.sortVal !== b.sortVal) return a.sortVal - b.sortVal;
+    return a.idx - b.idx;
+  });
+  return indexed.map(({ row, section }) => ({ row, section }));
 }
 
 export function formatNumericResultDisplay(value: string, paramName: string): string {
@@ -444,17 +510,17 @@ function getSingleTestMetrics(test: InvoiceTestItem): {
   }
 
   if (isUrineReTest(test)) {
+    const ordered = getOrderedUrineRows(rows);
     let lastSection = '';
     let sectionHeaders = 0;
-    for (const r of rows) {
-      const sec = getUrineSection(r.parameter_name);
-      if (sec !== lastSection) {
-        lastSection = sec;
+    for (const item of ordered) {
+      if (item.section !== lastSection) {
+        lastSection = item.section;
         sectionHeaders += 1;
       }
     }
     return {
-      paramRows: rows.length,
+      paramRows: ordered.length,
       extraLines,
       sectionHeaders,
       isDensePanel: true,

@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Edit2, Plus, Search, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Edit2, Plus, Search, Trash2, X } from 'lucide-react';
 import { apiFetch, formatBDT } from '../lib/api.ts';
 import type { DiagnosticTest, TestCategory } from '../types.ts';
 
 interface EditableParam {
+  id?: number;
   name: string;
   unit: string;
   input_type: 'numeric' | 'text' | 'select';
@@ -109,9 +110,13 @@ export const TestCatalogView: React.FC = () => {
     setFormName(t.name);
     setFormPrice(String(t.price));
     setFormSampleType(t.sample_type);
+    const sortedParams = [...t.parameters].sort(
+      (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id
+    );
     setFormParams(
-      t.parameters.length > 0
-        ? t.parameters.map((p) => ({
+      sortedParams.length > 0
+        ? sortedParams.map((p) => ({
+            id: p.id,
             name: p.name,
             unit: p.unit || '',
             input_type: p.input_type || 'numeric',
@@ -133,6 +138,17 @@ export const TestCatalogView: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const moveParam = (idx: number, direction: 'up' | 'down') => {
+    setFormParams((prev) => {
+      const target = direction === 'up' ? idx - 1 : idx + 1;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(idx, 1);
+      next.splice(target, 0, moved);
+      return next;
+    });
+  };
+
   const toNumOrNull = (s: string) => (s.trim() === '' ? null : Number(s));
 
   const handleSaveTest = async (e: React.FormEvent) => {
@@ -150,6 +166,7 @@ export const TestCatalogView: React.FC = () => {
         parameters: formParams
           .filter((p) => p.name.trim() !== '')
           .map((p) => ({
+            ...(p.id ? { id: p.id } : {}),
             name: p.name.trim(),
             unit: p.unit.trim(),
             input_type: p.input_type,
@@ -436,7 +453,52 @@ export const TestCatalogView: React.FC = () => {
 
                 <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
                   {formParams.map((p, idx) => (
-                    <div key={idx} className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+                    <div key={p.id ? `param-${p.id}` : `new-${idx}`} className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200/80">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="inline-flex items-center justify-center px-2 py-0.5 text-[11px] font-mono font-bold text-brand-navy bg-white border border-slate-200 rounded">
+                            #{idx + 1}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-700 truncate">
+                            {p.name.trim() || 'New Parameter'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => moveParam(idx, 'up')}
+                            disabled={idx === 0}
+                            title="Move Up"
+                            aria-label={`Move ${p.name || 'parameter'} up`}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-100 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5" />
+                            <span>Move Up</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveParam(idx, 'down')}
+                            disabled={idx === formParams.length - 1}
+                            title="Move Down"
+                            aria-label={`Move ${p.name || 'parameter'} down`}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-100 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            <ArrowDown className="w-3.5 h-3.5" />
+                            <span>Move Down</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFormParams((prev) => prev.filter((_, i) => i !== idx))}
+                            disabled={formParams.length === 1}
+                            title="Remove Parameter"
+                            aria-label={`Remove ${p.name || 'parameter'}`}
+                            className="p-1.5 text-slate-400 hover:text-red-600 disabled:opacity-30 cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
                         <div className="sm:col-span-4">
                           <label className="block text-[11px] font-medium text-slate-600 mb-1">Parameter Name</label>
@@ -485,7 +547,7 @@ export const TestCatalogView: React.FC = () => {
                             <option value="text">Text</option>
                           </select>
                         </div>
-                        <div className="sm:col-span-2">
+                        <div className="sm:col-span-3">
                           <label className="block text-[11px] font-medium text-slate-600 mb-1">Display Range Label</label>
                           <input
                             type="text"
@@ -514,17 +576,6 @@ export const TestCatalogView: React.FC = () => {
                             placeholder="Blank"
                             className="w-full px-2 py-1.5 text-xs border border-slate-300 rounded-md bg-white"
                           />
-                        </div>
-                        <div className="sm:col-span-1 text-right">
-                          <button
-                            type="button"
-                            onClick={() => setFormParams((prev) => prev.filter((_, i) => i !== idx))}
-                            disabled={formParams.length === 1}
-                            className="p-1.5 text-slate-400 hover:text-red-600 disabled:opacity-30"
-                            aria-label="Remove parameter"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
                         </div>
                       </div>
 

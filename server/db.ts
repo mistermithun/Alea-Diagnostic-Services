@@ -472,7 +472,9 @@ export function getAllSettings(): Record<string, string> {
       r.key === 'staff_password_hash' ||
       r.key === 'auth_secret' ||
       r.key === 'catalog_v2_synced' ||
-      r.key === 'staff_discount_limit_100_migrated'
+      r.key === 'staff_discount_limit_100_migrated' ||
+      r.key === 'cbc_params_v2_migrated' ||
+      r.key === 'urine_params_v2_migrated'
     ) {
       continue;
     }
@@ -783,10 +785,15 @@ function seedInitialOperationalDataIfEmpty() {
 }
 
 function migrateCbcParameters() {
+  if (getSetting('cbc_params_v2_migrated') === '1') return;
+
   const cbcTest = db
     .prepare(`SELECT id FROM tests WHERE code = 'HEM-01' LIMIT 1`)
     .get() as { id: number } | undefined;
-  if (!cbcTest) return;
+  if (!cbcTest) {
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cbc_params_v2_migrated', '1')`).run();
+    return;
+  }
 
   const desiredParams: Array<ParamSeed & { sort_order: number }> = [
     { name: 'Hemoglobin (Hb)', unit: 'g/dL', min_male: 13.0, max_male: 17.0, min_female: 12.0, max_female: 15.5, min_child: 11.0, max_child: 14.5, min_newborn: 14.0, max_newborn: 22.0, normal_text: 'M: 13.0–17.0 | F: 12.0–15.5\nChild: 11.0–14.5 | Newborn: 14.0–22.0', sort_order: 1 },
@@ -1021,11 +1028,14 @@ function migrateCbcParameters() {
         }
       }
     }
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cbc_params_v2_migrated', '1')`).run();
   });
   tx();
 }
 
 function migrateUrineReParameters() {
+  if (getSetting('urine_params_v2_migrated') === '1') return;
+
   const urineTest = db
     .prepare(`SELECT id FROM tests WHERE code = 'CLP-01' LIMIT 1`)
     .get() as { id: number } | undefined;
@@ -1231,6 +1241,7 @@ function migrateUrineReParameters() {
     });
     txStool();
   }
+  db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('urine_params_v2_migrated', '1')`).run();
 }
 
 export function resolveReferenceRange(

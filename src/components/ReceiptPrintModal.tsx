@@ -24,7 +24,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
   publicBaseUrl,
   onClose,
 }) => {
-  const [format, setFormat] = useState<'a4' | 'thermal'>('a4');
+  const [format, setFormat] = useState<'a4' | 'thermal' | 'thermal-lab'>('a4');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const portalWebsiteUrl = resolvePublicBaseUrl(publicBaseUrl);
 
@@ -55,7 +55,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
     <div className="fixed inset-0 z-50 bg-slate-900/70 overflow-y-auto p-4 sm:p-6 flex flex-col items-center print:block print:static print:inset-auto print:h-auto print:min-h-0 print:overflow-visible print:p-0 print:bg-white">
       {/* Toolbar - hidden during print */}
       <div className="w-full max-w-3xl bg-white border border-slate-200 rounded-xl px-4 py-3 mb-4 flex flex-wrap items-center justify-between gap-3 no-print shadow-sm">
-        <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+        <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg">
           <button
             type="button"
             onClick={() => setFormat('a4')}
@@ -73,6 +73,15 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
             }`}
           >
             80mm Thermal POS
+          </button>
+          <button
+            type="button"
+            onClick={() => setFormat('thermal-lab')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+              format === 'thermal-lab' ? 'bg-brand-navy text-white shadow-sm' : 'text-slate-600 hover:text-brand-navy'
+            }`}
+          >
+            80mm Thermal POS for Lab
           </button>
         </div>
 
@@ -289,16 +298,27 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
           </div>
         </div>
       ) : (
-        /* 80mm Thermal POS Format */
+        /* 80mm Thermal POS / 80mm Thermal POS for Lab Format */
         <div className="w-[320px] bg-white border border-slate-200 rounded-lg p-5 shadow-lg print-sheet print-thermal text-slate-900 font-mono text-xs">
-          <div className="text-center border-b border-dashed border-slate-400 pb-3">
-            <BrandLogo surface="print" className="h-10 w-auto mx-auto mb-1.5" />
-            <div className="text-sm font-bold text-brand-navy print:text-black">{settings.lab_name}</div>
-            <div className="text-[11px] text-slate-700 mt-0.5">{settings.lab_address}</div>
-            <div className="text-[11px] text-slate-700">Prop: {settings.proprietor_name}</div>
-            <div className="text-[11px] text-slate-700">Tel: {settings.lab_phone}</div>
-            <div className="mt-2 font-bold border-t border-dashed border-slate-300 pt-1.5">CASH MEMO</div>
-          </div>
+          {format === 'thermal-lab' ? (
+            <div className="text-center border-b border-dashed border-slate-400 pb-2.5">
+              <div className="text-sm font-bold text-brand-navy print:text-black">
+                {settings.lab_name || 'Alea Diagnostic Services'}
+              </div>
+              <div className="mt-1.5 font-bold border-t border-dashed border-slate-300 pt-1.5">
+                CASH MEMO
+              </div>
+            </div>
+          ) : (
+            <div className="text-center border-b border-dashed border-slate-400 pb-3">
+              <BrandLogo surface="print" className="h-10 w-auto mx-auto mb-1.5" />
+              <div className="text-sm font-bold text-brand-navy print:text-black">{settings.lab_name}</div>
+              <div className="text-[11px] text-slate-700 mt-0.5">{settings.lab_address}</div>
+              <div className="text-[11px] text-slate-700">Prop: {settings.proprietor_name}</div>
+              <div className="text-[11px] text-slate-700">Tel: {settings.lab_phone}</div>
+              <div className="mt-2 font-bold border-t border-dashed border-slate-300 pt-1.5">CASH MEMO</div>
+            </div>
+          )}
 
           <div className="py-2.5 border-b border-dashed border-slate-400 space-y-0.5 text-[11px]">
             <div className="flex justify-between">
@@ -362,29 +382,35 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
             </div>
           </div>
 
-          <div className="pt-3 text-center text-[10px] text-slate-600 space-y-1">
-            <div className="font-bold uppercase">Status: {invoice.payment_status}</div>
-            {(invoice.patient_portal_password || qrDataUrl) && (
-              <div className="border-t border-b border-dashed border-slate-300 py-2 my-1 text-slate-900 space-y-1">
-                <div className="font-bold">ONLINE REPORT PORTAL</div>
-                <div className="text-[9px] break-all">{portalWebsiteUrl}</div>
-                {invoice.patient_portal_password && (
-                  <div>ID: {invoice.patient_uid} | PW: {invoice.patient_portal_password}</div>
-                )}
-                {qrDataUrl && (
-                  <div className="flex flex-col items-center pt-1">
-                    <img
-                      src={qrDataUrl}
-                      alt={`QR Code for ${invoice.patient_uid}`}
-                      className="w-[88px] h-[88px] block border border-slate-300 p-0.5 bg-white"
-                    />
-                    <span className="text-[9px] font-bold mt-1">Scan QR for Instant Report</span>
-                  </div>
-                )}
-              </div>
-            )}
-            <div>Thank you for choosing {settings.lab_name}</div>
-          </div>
+          {format === 'thermal-lab' ? (
+            <div className="pt-2.5 text-center text-[10px] text-slate-700 print:text-black">
+              <div className="font-bold uppercase">Status: {invoice.payment_status}</div>
+            </div>
+          ) : (
+            <div className="pt-3 text-center text-[10px] text-slate-600 space-y-1">
+              <div className="font-bold uppercase">Status: {invoice.payment_status}</div>
+              {(invoice.patient_portal_password || qrDataUrl) && (
+                <div className="border-t border-b border-dashed border-slate-300 py-2 my-1 text-slate-900 space-y-1">
+                  <div className="font-bold">ONLINE REPORT PORTAL</div>
+                  <div className="text-[9px] break-all">{portalWebsiteUrl}</div>
+                  {invoice.patient_portal_password && (
+                    <div>ID: {invoice.patient_uid} | PW: {invoice.patient_portal_password}</div>
+                  )}
+                  {qrDataUrl && (
+                    <div className="flex flex-col items-center pt-1">
+                      <img
+                        src={qrDataUrl}
+                        alt={`QR Code for ${invoice.patient_uid}`}
+                        className="w-[88px] h-[88px] block border border-slate-300 p-0.5 bg-white"
+                      />
+                      <span className="text-[9px] font-bold mt-1">Scan QR for Instant Report</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div>Thank you for choosing {settings.lab_name}</div>
+            </div>
+          )}
         </div>
       )}
     </div>

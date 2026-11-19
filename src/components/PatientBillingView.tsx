@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, CreditCard, Edit3, FileText, Plus, Printer, Search, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import { apiFetch, formatAge, formatBDT, formatDateTime } from '../lib/api.ts';
+import { broadcastPatientsUpdated } from '../lib/liveSync.ts';
 import type { DiagnosticTest, Doctor, InvoiceSummary, LabSettings, PatientProfile, TestCategory } from '../types.ts';
 import { AdminAdjustBillModal } from './AdminAdjustBillModal.tsx';
 import { DeletePatientConfirmModal } from './DeletePatientConfirmModal.tsx';
@@ -366,6 +367,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
         }`
       );
       resetForm();
+      broadcastPatientsUpdated();
       if (printAfter) {
         onOpenReceipt(created.invoice.id);
       }

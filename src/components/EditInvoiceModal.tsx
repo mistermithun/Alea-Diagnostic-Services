@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Lock, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import { apiFetch, formatBDT, formatDateTime } from '../lib/api.ts';
+import { broadcastPatientsUpdated } from '../lib/liveSync.ts';
 import type {
   DiagnosticTest,
   Doctor,
@@ -355,6 +356,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
             : {}),
         }),
       });
+      broadcastPatientsUpdated();
       onSaved(updated.invoice, printAfter);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update patient entry.');

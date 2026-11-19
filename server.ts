@@ -1202,6 +1202,34 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
       doctorUpdateBus.off('sync', onSync);
     });
   });
+
+  app.get('/api/lab/live-stream', requireStaffOrAdmin, (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    const sendEvent = (eventName: string, data: Record<string, unknown>) => {
+      res.write(`event: ${eventName}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    sendEvent('connected', { at: Date.now() });
+
+    const onSync = (payload: { doctorId: number | null; at: number }) => {
+      sendEvent('refresh', { at: payload.at });
+    };
+
+    doctorUpdateBus.on('sync', onSync);
+    const heartbeat = setInterval(() => {
+      res.write(': heartbeat\n\n');
+    }, 25000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      doctorUpdateBus.off('sync', onSync);
+    });
+  });
 }
 
 function resolveServerPort(): number {
@@ -1252,6 +1280,7 @@ async function startServer() {
     app.use(express.static(distDir));
     app.use('/admin', express.static(distDir));
     app.use('/staff', express.static(distDir));
+    app.use('/live-display', express.static(distDir));
     app.use('/patient-dashboard', express.static(distDir));
     app.use('/doctor-login', express.static(distDir));
     app.use('/doctor-dashboard', express.static(distDir));

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Trash2, X } from 'lucide-react';
 import { apiFetch, formatBDT } from '../lib/api.ts';
+import { broadcastPatientsUpdated } from '../lib/liveSync.ts';
 
 export interface DeletePatientTarget {
   id: number;
@@ -63,6 +64,7 @@ export const DeletePatientConfirmModal: React.FC<DeletePatientConfirmModalProps>
       const result = await apiFetch<DeletePatientResponse>(`/api/invoices/${target.id}`, {
         method: 'DELETE',
       });
+      broadcastPatientsUpdated();
       await onDeleted(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete patient record.');

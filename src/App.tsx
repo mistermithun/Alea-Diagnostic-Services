@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Banknote,
   CreditCard,
+  ExternalLink,
   FlaskConical,
   LayoutDashboard,
   LogOut,
   Menu,
+  Monitor,
   Receipt,
   Scale,
   Settings,
@@ -27,6 +29,7 @@ import { DueLedgerView } from './components/DueLedgerView.tsx';
 import { ExpensesView } from './components/ExpensesView.tsx';
 import { LabResultsView } from './components/LabResultsView.tsx';
 import { LandingPortalView } from './components/LandingPortalView.tsx';
+import { LivePatientDisplayView } from './components/LivePatientDisplayView.tsx';
 import { PatientBillingView } from './components/PatientBillingView.tsx';
 import { PatientPortalView } from './components/PatientPortalView.tsx';
 import { PWAInstallButton } from './components/PWAInstallControl.tsx';
@@ -36,6 +39,7 @@ import { ReportPrintModal } from './components/ReportPrintModal.tsx';
 import { AdminLoginView, StaffLoginView } from './components/RoleLoginViews.tsx';
 import { SettingsBackupView } from './components/SettingsBackupView.tsx';
 import { TestCatalogView } from './components/TestCatalogView.tsx';
+import { attachLabTokenResponder, broadcastLabSignOut } from './lib/liveSync.ts';
 import {
   apiFetch,
   clearLabTokens,
@@ -64,6 +68,7 @@ type AppRoute =
   | 'doctor-login'
   | 'admin-dashboard'
   | 'staff-dashboard'
+  | 'live-display'
   | 'patient-dashboard'
   | 'doctor-dashboard'
   | 'qr-report';
@@ -115,6 +120,7 @@ function parseRouteSegment(segment: string): AppRoute {
   if (s === 'doctor-login' || s === 'doctor-portal') return 'doctor-login';
   if (s === 'admin' || s.startsWith('admin/')) return 'admin-dashboard';
   if (s === 'staff' || s.startsWith('staff/')) return 'staff-dashboard';
+  if (s === 'live-display' || s.startsWith('live-display/')) return 'live-display';
   if (s === 'patient-dashboard' || s.startsWith('patient-dashboard/')) return 'patient-dashboard';
   if (s === 'doctor-dashboard' || s === 'doctor' || s.startsWith('doctor-dashboard/')) return 'doctor-dashboard';
   if (s === 'view-report' || s === 'report' || s === 'r') return 'qr-report';
@@ -163,7 +169,7 @@ function resolveRouteFromLocation(): AppRoute {
   const direct = parseRouteSegment(p);
   if (direct !== 'landing') return direct;
   const suffixMatch = p.match(
-    /\/(admin-login|staff-login|patient-login|doctor-login|doctor-portal|portal|patient-portal|admin|staff|patient-dashboard|doctor-dashboard|doctor|view-report|report)$/
+    /\/(admin-login|staff-login|patient-login|doctor-login|doctor-portal|portal|patient-portal|admin|staff|live-display|patient-dashboard|doctor-dashboard|doctor|view-report|report)$/
   );
   if (suffixMatch) return parseRouteSegment(suffixMatch[1]);
   return 'landing';
@@ -183,6 +189,8 @@ function pathForRoute(route: AppRoute): string {
       return '/admin';
     case 'staff-dashboard':
       return '/staff';
+    case 'live-display':
+      return '/live-display';
     case 'patient-dashboard':
       return '/patient-dashboard';
     case 'doctor-dashboard':
@@ -345,7 +353,7 @@ export default function App() {
 
   // Strict Role-Based Route Guards (Instant force-redirect to Landing / on unauthorized URL access)
   useEffect(() => {
-    if (route === 'qr-report') {
+    if (route === 'qr-report' || route === 'live-display') {
       return;
     }
 
@@ -435,8 +443,32 @@ export default function App() {
     navigateTo('staff-dashboard');
   };
 
+  // Respond to Live Display popup token requests while authenticated in Admin or Staff Portal
+  useEffect(() => {
+    if (labAuthStatus !== 'admin' && labAuthStatus !== 'staff') return;
+    return attachLabTokenResponder();
+  }, [labAuthStatus]);
+
+  const openLiveDisplayWindow = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const targetUrl = isHashRoutingMode()
+      ? `${window.location.pathname}${window.location.search}#/live-display`
+      : '/live-display';
+    const popup = window.open(
+      targetUrl,
+      'LivePatientDisplay',
+      'width=1280,height=780,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes'
+    );
+    if (popup) {
+      popup.focus();
+    } else {
+      navigateTo('live-display');
+    }
+  }, [navigateTo]);
+
   const handleLabSignOut = () => {
     clearLabTokens();
+    broadcastLabSignOut();
     setLabAuthStatus('unauthenticated');
     setLabOperatorName('');
     setReceiptModalData(null);
@@ -620,6 +652,11 @@ export default function App() {
     );
   }
 
+  // 2.6. Standalone Live Patient Entry Display Popup (/live-display)
+  if (route === 'live-display') {
+    return <LivePatientDisplayView settings={settings} />;
+  }
+
   // 3. Protected Patient Dashboard (/patient-dashboard)
   if (route === 'patient-dashboard') {
     if (patientAuthStatus === 'checking') {
@@ -791,6 +828,21 @@ export default function App() {
               );
             })}
 
+          <button
+            type="button"
+            onClick={() => {
+              setMobileMenuOpen(false);
+              openLiveDisplayWindow();
+            }}
+            className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium rounded-lg text-teal-200 hover:bg-brand-navy-light hover:text-white transition-colors whitespace-nowrap"
+          >
+            <span className="flex items-center gap-3 min-w-0">
+              <Monitor className="w-4 h-4 shrink-0 text-teal-300" />
+              <span className="truncate">Live Patient Window</span>
+            </span>
+            <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-75" />
+          </button>
+
           {isAdmin && (
             <>
               <div className="px-3 pt-5 pb-1.5 text-[11px] font-medium text-teal-300">
@@ -885,6 +937,15 @@ export default function App() {
                 </>
               )}
             </div>
+            <button
+              type="button"
+              onClick={openLiveDisplayWindow}
+              title="Open Live Patient Entry Display in a separate popup window for a second monitor"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-brand-navy bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 whitespace-nowrap shrink-0 transition-colors"
+            >
+              <Monitor className="w-3.5 h-3.5 text-brand-cyan" />
+              <span>Live Display</span>
+            </button>
             <button
               type="button"
               onClick={() => setActiveTab('billing')}

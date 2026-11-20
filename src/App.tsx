@@ -8,6 +8,7 @@ import {
   LogOut,
   Menu,
   Monitor,
+  Package,
   Receipt,
   Scale,
   Settings,
@@ -35,6 +36,7 @@ import { PatientPortalView } from './components/PatientPortalView.tsx';
 import { OfflineSyncBadge } from './components/OfflineSyncBadge.tsx';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallControl.tsx';
 import { QrDirectReportView } from './components/QrDirectReportView.tsx';
+import { ReagentTrackerView } from './components/ReagentTrackerView.tsx';
 import { ReceiptPrintModal } from './components/ReceiptPrintModal.tsx';
 import { ReportPrintModal } from './components/ReportPrintModal.tsx';
 import { AdminLoginView, StaffLoginView } from './components/RoleLoginViews.tsx';
@@ -109,6 +111,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'billing', label: 'Patient & Billing', adminOnly: false, icon: Receipt },
   { id: 'lab', label: 'Lab Result Entry', adminOnly: false, icon: FlaskConical },
   { id: 'dues', label: 'Due Collection', adminOnly: false, icon: CreditCard },
+  { id: 'reagents', label: 'Reagent Tracker', adminOnly: false, icon: Package },
   { id: 'catalog', label: 'Test Catalog', adminOnly: true, icon: TestTube2 },
   { id: 'doctors', label: 'Referral Doctors', adminOnly: true, icon: Stethoscope },
   { id: 'payouts', label: 'Commission Payout', adminOnly: true, icon: Banknote },
@@ -1062,6 +1065,8 @@ export default function App() {
           {resolvedTab === 'dues' && (
             <DueLedgerView isAdmin={isAdmin} onOpenReceipt={handleOpenReceipt} />
           )}
+
+          {resolvedTab === 'reagents' && <ReagentTrackerView />}
 
           {resolvedTab === 'catalog' && isAdmin && <TestCatalogView />}
           {resolvedTab === 'doctors' && isAdmin && (

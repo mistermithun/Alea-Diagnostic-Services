@@ -11,6 +11,8 @@ import type {
   LabSettings,
   OtherRevenueItem,
   PatientProfile,
+  ReagentDeductionEntry,
+  ReagentItem,
   SystemInfo,
   TestCategory,
   TestCommissionOverride,
@@ -37,6 +39,7 @@ import {
   getAllLabQueueLocal,
   getAllOtherRevenuesLocal,
   getAllPatientsLocal,
+  getAllReagentsLocal,
   getApiCache,
   getFullInvoiceLocal,
   getLabTestDetailLocal,
@@ -44,6 +47,7 @@ import {
   getSyncQueue,
   idbClearAndPutMany,
   idbDelete,
+  idbGet,
   idbGetAll,
   idbPut,
   idbPutMany,
@@ -62,6 +66,96 @@ import {
 export const OFFLINE_SYNCED_EVENT = 'alea-offline-synced';
 const TEMP_ID_COUNTER_KEY = 'alea_offline_temp_id_seq';
 const AUTH_SESSION_LS_KEY = 'alea_offline_auth_session_v1';
+
+function normalizeMappedReagentsOffline(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    const clean = String(item ?? '').trim();
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+  }
+  return out;
+}
+
+async function deductReagentsFefoLocal(
+  mappedReagents: string[] | undefined,
+  nowTs: string
+): Promise<ReagentDeductionEntry[]> {
+  const names = normalizeMappedReagentsOffline(mappedReagents);
+  if (names.length === 0) return [];
+  const allReagents = await getAllReagentsLocal();
+  const deductions: ReagentDeductionEntry[] = [];
+  const changedIds = new Set<number>();
+
+  for (const reagentName of names) {
+    const targetKey = reagentName.trim().toLowerCase();
+    const candidates = allReagents
+      .filter((r) => r.name.trim().toLowerCase() === targetKey && Number(r.remaining_tests || 0) > 0)
+      .sort((a, b) => {
+        const expCmp = String(a.expiry_date || '').localeCompare(String(b.expiry_date || ''));
+        return expCmp !== 0 ? expCmp : a.id - b.id;
+      });
+    const batch = candidates[0];
+    if (!batch) continue;
+    batch.remaining_tests = Math.max(0, Number(batch.remaining_tests || 0) - 1);
+    batch.updated_at = nowTs;
+    changedIds.add(batch.id);
+    deductions.push({
+      reagent_id: batch.id,
+      reagent_name: batch.name,
+      quantity: 1,
+    });
+  }
+
+  if (changedIds.size > 0) {
+    await idbPutMany(
+      'reagents',
+      allReagents.filter((r) => changedIds.has(r.id))
+    );
+  }
+  return deductions;
+}
+
+async function restoreReagentDeductionsLocal(
+  deductions: ReagentDeductionEntry[] | undefined,
+  nowTs: string
+): Promise<void> {
+  if (!Array.isArray(deductions) || deductions.length === 0) return;
+  const allReagents = await getAllReagentsLocal();
+  const changedIds = new Set<number>();
+
+  for (const d of deductions) {
+    const qty = Math.max(0, Math.round(Number(d.quantity || 0)));
+    if (qty <= 0) continue;
+    let target = allReagents.find((r) => r.id === d.reagent_id);
+    if (!target) {
+      const targetKey = String(d.reagent_name || '').trim().toLowerCase();
+      target = allReagents
+        .filter((r) => r.name.trim().toLowerCase() === targetKey)
+        .sort((a, b) => {
+          const expCmp = String(a.expiry_date || '').localeCompare(String(b.expiry_date || ''));
+          return expCmp !== 0 ? expCmp : a.id - b.id;
+        })[0];
+    }
+    if (target) {
+      target.remaining_tests = Math.max(0, Number(target.remaining_tests || 0) + qty);
+      target.updated_at = nowTs;
+      changedIds.add(target.id);
+    }
+  }
+
+  if (changedIds.size > 0) {
+    await idbPutMany(
+      'reagents',
+      allReagents.filter((r) => changedIds.has(r.id))
+    );
+  }
+}
 
 export interface SyncStatusSnapshot {
   isOnline: boolean;
@@ -587,6 +681,15 @@ async function mirrorOnlineGetResponse(url: string, data: unknown): Promise<void
       return;
     }
 
+    if (pathname === '/api/reagents') {
+      const rData = data as { reagents?: ReagentItem[] };
+      if (Array.isArray(rData?.reagents)) {
+        await idbClearAndPutMany('reagents', rData.reagents);
+      }
+      await setApiCache(`GET:${url}`, data);
+      return;
+    }
+
     await setApiCache(`GET:${url}`, data);
   } catch {
     // non-fatal caching error
@@ -899,6 +1002,15 @@ async function serveOfflineGet<T>(url: string): Promise<T> {
     return { from, to, expenses: filtered, total } as unknown as T;
   }
 
+  if (pathname === '/api/reagents') {
+    const reagents = (await getAllReagentsLocal()).sort((a, b) => {
+      const expCmp = String(a.expiry_date || '').localeCompare(String(b.expiry_date || ''));
+      if (expCmp !== 0) return expCmp;
+      return b.id - a.id;
+    });
+    return { reagents } as unknown as T;
+  }
+
   if (pathname === '/api/staff/overview') {
     const todayStr = getTodayISO();
     const invoices = await getAllInvoicesLocal();
@@ -1147,6 +1259,7 @@ async function applyAndQueueOfflineMutation<T>(
         return dummyRow;
       });
 
+      const reagentDeductions = await deductReagentsFefoLocal(t.mapped_reagents, nowTs);
       const invTest: InvoiceTestItem = {
         id: tempItId,
         invoice_id: tempInvId,
@@ -1158,6 +1271,7 @@ async function applyAndQueueOfflineMutation<T>(
         commission_type: tc?.commission_type || 'percent',
         commission_value: tc?.commission_value || 0,
         commission_amount: tc?.commission_amount || 0,
+        reagent_deductions: reagentDeductions,
         status: 'Sample Collected',
         collected_at: nowTs,
         verified_at: null,
@@ -1341,6 +1455,11 @@ async function applyAndQueueOfflineMutation<T>(
     let nextTests = [...full.tests];
     const removedSet = new Set((payload.removeInvoiceTestIds || []).map(Number));
     if (removedSet.size > 0) {
+      for (const remTest of full.tests) {
+        if (removedSet.has(remTest.id)) {
+          await restoreReagentDeductionsLocal(remTest.reagent_deductions, nowTs);
+        }
+      }
       for (const remId of removedSet) {
         await idbDelete('labQueue', remId);
         await idbDelete('labTestDetails', remId);
@@ -1390,6 +1509,7 @@ async function applyAndQueueOfflineMutation<T>(
           min_newborn: p.min_newborn ?? null,
           max_newborn: p.max_newborn ?? null,
         }));
+        const reagentDeductions = await deductReagentsFefoLocal(testDef.mapped_reagents, nowTs);
         const newTestItem: InvoiceTestItem = {
           id: tempItId,
           invoice_id: inv.id,
@@ -1398,6 +1518,7 @@ async function applyAndQueueOfflineMutation<T>(
           category_name: testDef.category_name || catMap.get(testDef.category_id) || 'Pathology',
           sample_type: testDef.sample_type,
           price: Number(testDef.price || 0),
+          reagent_deductions: reagentDeductions,
           status: 'Sample Collected',
           collected_at: nowTs,
           verified_at: null,
@@ -1645,6 +1766,10 @@ async function applyAndQueueOfflineMutation<T>(
       (await buildFullInvoiceFallbackFromLocal(invoiceId));
     if (!full) throw new Error('Invoice not cached locally.');
 
+    const removedItem = full.tests.find((t) => t.id === invoiceTestId);
+    if (removedItem) {
+      await restoreReagentDeductionsLocal(removedItem.reagent_deductions, nowTs);
+    }
     const nextTests = full.tests.filter((t) => t.id !== invoiceTestId);
     const inv = { ...full.invoice };
     const subtotal = roundCurrency(nextTests.reduce((s, t) => s + Number(t.price || 0), 0));
@@ -1698,6 +1823,9 @@ async function applyAndQueueOfflineMutation<T>(
     const allInvs = await getAllInvoicesLocal();
     const inv = allInvs.find((i) => i.id === invoiceId);
     const full = await getFullInvoiceLocal(invoiceId);
+    for (const t of full?.tests || []) {
+      await restoreReagentDeductionsLocal(t.reagent_deductions, nowTs);
+    }
     const testIdsToRemove = (full?.tests || []).map((t) => t.id);
 
     await idbDelete('invoices', invoiceId);
@@ -1973,6 +2101,7 @@ async function applyAndQueueOfflineMutation<T>(
       price: Number(body?.price || 0),
       sample_type: String(body?.sample_type || ''),
       is_active: 1,
+      mapped_reagents: normalizeMappedReagentsOffline(body?.mapped_reagents),
       parameters: params,
     };
     const nextCat = { ...cat, tests: [...cat.tests, newTest] };
@@ -2036,6 +2165,10 @@ async function applyAndQueueOfflineMutation<T>(
         price: Number(body?.price ?? t.price),
         sample_type: String(body?.sample_type ?? t.sample_type),
         is_active: body?.is_active !== undefined ? Number(body.is_active) : t.is_active,
+        mapped_reagents:
+          body?.mapped_reagents !== undefined
+            ? normalizeMappedReagentsOffline(body.mapped_reagents)
+            : t.mapped_reagents,
         parameters: params,
       };
     });
@@ -2215,6 +2348,94 @@ async function applyAndQueueOfflineMutation<T>(
       url,
       entityType: 'expense_delete',
       label: `Delete Expense #${expId}`,
+      retryCount: 0,
+      status: 'pending',
+    });
+    await refreshQueueSnapshot();
+    return { success: true } as unknown as T;
+  }
+
+  // 10b. Reagent Inventory Tracker (Create, +1/-1 Adjust, Delete Offline)
+  if (method === 'POST' && path === '/api/reagents') {
+    const tempReagentId = allocateTempId();
+    const totalTests = Math.max(1, Math.round(Number(body?.total_tests || 0)));
+    const remainingTests = Math.max(
+      0,
+      Math.round(Number(body?.remaining_tests !== undefined ? body.remaining_tests : totalTests))
+    );
+    const lowStockThreshold = Math.max(
+      0,
+      Math.round(Number(body?.low_stock_threshold !== undefined ? body.low_stock_threshold : 10))
+    );
+    const newReagent: ReagentItem = {
+      id: tempReagentId,
+      name: String(body?.name || '').trim(),
+      total_tests: totalTests,
+      remaining_tests: remainingTests,
+      expiry_date: String(body?.expiry_date || ''),
+      low_stock_threshold: lowStockThreshold,
+      created_by: isAdmin ? 'Admin' : 'Staff',
+      updated_at: nowTs,
+      created_at: nowTs,
+    };
+    await idbPut('reagents', newReagent);
+    await enqueueSyncMutation({
+      clientMutationId: mutationId,
+      createdAt: nowTs,
+      method,
+      url,
+      body,
+      entityType: 'reagent_create',
+      label: `Reagent: ${newReagent.name} (${newReagent.remaining_tests}/${newReagent.total_tests})`,
+      tempIds: { reagentId: tempReagentId },
+      retryCount: 0,
+      status: 'pending',
+    });
+    await refreshQueueSnapshot();
+    return { reagent: newReagent } as unknown as T;
+  }
+
+  const adjReagentMatch = /^\/api\/reagents\/(-?\d+)\/adjust$/.exec(path);
+  if (method === 'POST' && adjReagentMatch) {
+    const reagentId = await resolveRemappedId('reagent', Number(adjReagentMatch[1]));
+    const existing = await idbGet<ReagentItem>('reagents', reagentId);
+    if (!existing) {
+      throw new Error('Cannot adjust reagent stock offline because item was not cached.');
+    }
+    const delta = Number(body?.delta || 0);
+    const nextRemaining = Math.max(0, Math.round(Number(existing.remaining_tests || 0) + delta));
+    const updated: ReagentItem = {
+      ...existing,
+      remaining_tests: nextRemaining,
+      updated_at: nowTs,
+    };
+    await idbPut('reagents', updated);
+    await enqueueSyncMutation({
+      clientMutationId: mutationId,
+      createdAt: nowTs,
+      method,
+      url,
+      body,
+      entityType: 'reagent_adjust',
+      label: `Reagent ${delta >= 0 ? `+${delta}` : delta}: ${existing.name}`,
+      retryCount: 0,
+      status: 'pending',
+    });
+    await refreshQueueSnapshot();
+    return { reagent: updated } as unknown as T;
+  }
+
+  const delReagentMatch = /^\/api\/reagents\/(-?\d+)$/.exec(path);
+  if (method === 'DELETE' && delReagentMatch) {
+    const reagentId = await resolveRemappedId('reagent', Number(delReagentMatch[1]));
+    await idbDelete('reagents', reagentId);
+    await enqueueSyncMutation({
+      clientMutationId: mutationId,
+      createdAt: nowTs,
+      method,
+      url,
+      entityType: 'reagent_delete',
+      label: `Delete Reagent #${reagentId}`,
       retryCount: 0,
       status: 'pending',
     });
@@ -2415,6 +2636,11 @@ async function remapUrlAndBodyForSync(item: OfflineQueueItem): Promise<{
     url = `${revMatch[1]}${await resolveRemappedId('otherRevenue', Number(revMatch[2]))}`;
   }
 
+  const reagentMatch = /^(\/api\/reagents\/)(-\d+)(\/adjust)?$/.exec(url);
+  if (reagentMatch) {
+    url = `${reagentMatch[1]}${await resolveRemappedId('reagent', Number(reagentMatch[2]))}${reagentMatch[3] || ''}`;
+  }
+
   if (body) {
     if (typeof body.existingPatientId === 'number' && body.existingPatientId < 0) {
       body.existingPatientId = await resolveRemappedId('patient', body.existingPatientId);
@@ -2508,6 +2734,13 @@ async function handlePostSyncIdRemapAndCleanup(item: OfflineQueueItem, serverRes
     if (created?.id) {
       await recordIdRemap('otherRevenue', item.tempIds.otherRevenueId, created.id);
       await idbDelete('otherRevenues', item.tempIds.otherRevenueId);
+    }
+  } else if (item.entityType === 'reagent_create' && item.tempIds.reagentId) {
+    const created = serverResponse as { reagent?: ReagentItem };
+    if (created?.reagent?.id) {
+      await recordIdRemap('reagent', item.tempIds.reagentId, created.reagent.id);
+      await idbDelete('reagents', item.tempIds.reagentId);
+      await idbPut('reagents', created.reagent);
     }
   }
 }
@@ -2646,6 +2879,7 @@ export async function warmOfflineCache(force = false): Promise<void> {
         '/api/invoices',
         '/api/lab-queue',
         '/api/staff/overview',
+        '/api/reagents',
       ];
 
       await Promise.allSettled(

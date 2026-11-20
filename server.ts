@@ -385,19 +385,28 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
     '/api/admin/tests',
     requireAdmin,
     asyncHandler(async (req, res) => {
-      const { category_id, code, name, price, sample_type, parameters } = req.body as {
+      const { category_id, code, name, price, sample_type, mapped_reagents, parameters } = req.body as {
         category_id: number;
         code: string;
         name: string;
         price: number;
         sample_type: string;
+        mapped_reagents?: string[];
         parameters?: ParamPayload[];
       };
       if (!category_id || !name?.trim() || price === undefined || !sample_type?.trim()) {
         res.status(400).json({ error: 'Category, test name, price, and sample type are required.' });
         return;
       }
-      const created = await store.createTest({ category_id, code, name, price, sample_type, parameters });
+      const created = await store.createTest({
+        category_id,
+        code,
+        name,
+        price,
+        sample_type,
+        mapped_reagents,
+        parameters,
+      });
       res.json(created);
     })
   );
@@ -407,20 +416,30 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
     requireAdmin,
     asyncHandler(async (req, res) => {
       const id = Number(req.params.id);
-      const { category_id, code, name, price, sample_type, is_active, parameters } = req.body as {
+      const { category_id, code, name, price, sample_type, is_active, mapped_reagents, parameters } = req.body as {
         category_id: number;
         code: string;
         name: string;
         price: number;
         sample_type: string;
         is_active?: number;
+        mapped_reagents?: string[];
         parameters?: ParamPayload[];
       };
       if (!category_id || !name?.trim() || price === undefined || !sample_type?.trim()) {
         res.status(400).json({ error: 'Category, test name, price, and sample type are required.' });
         return;
       }
-      await store.updateTest(id, { category_id, code, name, price, sample_type, is_active, parameters });
+      await store.updateTest(id, {
+        category_id,
+        code,
+        name,
+        price,
+        sample_type,
+        is_active,
+        mapped_reagents,
+        parameters,
+      });
       res.json({ success: true });
     })
   );
@@ -840,6 +859,91 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
       });
       emitDoctorSync(null);
       res.json(updated);
+    })
+  );
+
+  // Reagent Inventory Tracker (Admin & Staff)
+  app.get(
+    '/api/reagents',
+    requireStaffOrAdmin,
+    asyncHandler(async (_req, res) => {
+      const reagents = await store.listReagents();
+      res.json({ reagents });
+    })
+  );
+
+  app.post(
+    '/api/reagents',
+    requireStaffOrAdmin,
+    asyncHandler(async (req, res) => {
+      const { name, total_tests, remaining_tests, expiry_date, low_stock_threshold } = req.body as {
+        name?: string;
+        total_tests?: number;
+        remaining_tests?: number;
+        expiry_date?: string;
+        low_stock_threshold?: number;
+      };
+      if (!name?.trim()) {
+        res.status(400).json({ error: 'Reagent name is required.' });
+        return;
+      }
+      if (!total_tests || Number(total_tests) <= 0) {
+        res.status(400).json({ error: 'Total tests count must be greater than zero.' });
+        return;
+      }
+      if (!expiry_date?.trim()) {
+        res.status(400).json({ error: 'Expiry date is required.' });
+        return;
+      }
+
+      const token = extractTokenFromRequest(req);
+      const secret = getSecret();
+      const operatorName =
+        verifyAdminToken(token, secret)?.name || verifyStaffToken(token, secret)?.name || 'Staff';
+
+      const reagent = await store.createReagent({
+        name: name.trim(),
+        total_tests: Number(total_tests),
+        remaining_tests: remaining_tests !== undefined ? Number(remaining_tests) : Number(total_tests),
+        expiry_date: expiry_date.trim(),
+        low_stock_threshold: low_stock_threshold !== undefined ? Number(low_stock_threshold) : 10,
+        createdBy: operatorName,
+      });
+      res.json({ reagent });
+    })
+  );
+
+  app.post(
+    '/api/reagents/:id/adjust',
+    requireStaffOrAdmin,
+    asyncHandler(async (req, res) => {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).json({ error: 'Invalid reagent ID.' });
+        return;
+      }
+      const { delta } = req.body as { delta?: number };
+      const parsedDelta = Number(delta);
+      if (!Number.isFinite(parsedDelta) || parsedDelta === 0) {
+        res.status(400).json({ error: 'Adjustment delta (+1 or -1) is required.' });
+        return;
+      }
+      const reagent = await store.adjustReagentStock(id, parsedDelta);
+      res.json({ reagent });
+    })
+  );
+
+  app.delete(
+    '/api/reagents/:id',
+    requireStaffOrAdmin,
+    asyncHandler(async (req, res) => {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).json({ error: 'Invalid reagent ID.' });
+        return;
+      }
+      await store.deleteReagent(id);
+      res.json({ success: true });
     })
   );
 

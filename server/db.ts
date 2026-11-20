@@ -49,6 +49,7 @@ export function initDatabase() {
       price REAL NOT NULL,
       sample_type TEXT NOT NULL,
       is_active INTEGER DEFAULT 1,
+      mapped_reagents TEXT DEFAULT '[]',
       FOREIGN KEY (category_id) REFERENCES test_categories(id) ON DELETE CASCADE
     );
 
@@ -139,6 +140,7 @@ export function initDatabase() {
       verified_by TEXT DEFAULT '',
       consultant_name TEXT DEFAULT '',
       consultant_title TEXT DEFAULT '',
+      reagent_deductions TEXT DEFAULT '[]',
       FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
       FOREIGN KEY (test_id) REFERENCES tests(id)
     );
@@ -219,6 +221,18 @@ export function initDatabase() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_other_revenues_date ON other_revenues(revenue_date);
+
+    CREATE TABLE IF NOT EXISTS reagents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      total_tests INTEGER NOT NULL,
+      remaining_tests INTEGER NOT NULL,
+      expiry_date TEXT NOT NULL,
+      low_stock_threshold INTEGER NOT NULL DEFAULT 10,
+      created_by TEXT DEFAULT 'Staff',
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   migratePatientPortalColumns();
@@ -227,6 +241,7 @@ export function initDatabase() {
   migrateInvoiceTestConsultantColumns();
   migrateCommissionTrackingColumns();
   migrateBillingAndDiscountEnhancements();
+  migrateReagentMappingColumns();
   seedDefaultSettings();
   seedCatalogIfEmpty();
   syncExtendedCatalogV2();
@@ -234,6 +249,22 @@ export function initDatabase() {
   migrateCbcParameters();
   migrateUrineReParameters();
   ensurePatientPortalCredentials();
+}
+
+function migrateReagentMappingColumns() {
+  const testCols = new Set(
+    (db.prepare(`PRAGMA table_info(tests)`).all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  if (!testCols.has('mapped_reagents')) {
+    db.exec(`ALTER TABLE tests ADD COLUMN mapped_reagents TEXT DEFAULT '[]'`);
+  }
+
+  const invTestCols = new Set(
+    (db.prepare(`PRAGMA table_info(invoice_tests)`).all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  if (!invTestCols.has('reagent_deductions')) {
+    db.exec(`ALTER TABLE invoice_tests ADD COLUMN reagent_deductions TEXT DEFAULT '[]'`);
+  }
 }
 
 function migrateBillingAndDiscountEnhancements() {

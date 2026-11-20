@@ -30,11 +30,62 @@ import {
   type CreateInvoicePayload,
   type LimsStore,
   type ParamPayload,
+  type ReagentDeductionRecord,
   StoreError,
   type TestCommissionOverride,
   type UpdateInvoicePayload,
   type UpdateLabResultsPayload,
 } from './store-types.ts';
+
+function normalizeMappedReagents(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    const clean = String(item ?? '').trim();
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+  }
+  return out;
+}
+
+function parseMappedReagentsJson(raw: unknown): string[] {
+  if (Array.isArray(raw)) return normalizeMappedReagents(raw);
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  try {
+    return normalizeMappedReagents(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
+function parseReagentDeductionsJson(raw: unknown): ReagentDeductionRecord[] {
+  const arr = Array.isArray(raw)
+    ? raw
+    : typeof raw === 'string' && raw.trim()
+      ? (() => {
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return [];
+          }
+        })()
+      : [];
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map((d: unknown) => {
+      const obj = d as Partial<ReagentDeductionRecord>;
+      return {
+        reagent_id: Number(obj.reagent_id || 0),
+        reagent_name: String(obj.reagent_name || '').trim(),
+        quantity: Math.max(0, Math.round(Number(obj.quantity || 0))),
+      };
+    })
+    .filter((d) => d.reagent_id > 0 && d.reagent_name.length > 0 && d.quantity > 0);
+}
 
 export class SqliteLimsStore implements LimsStore {
   readonly mode = 'sqlite' as const;
@@ -482,7 +533,7 @@ export class SqliteLimsStore implements LimsStore {
          ${includeInactive ? '' : 'WHERE t.is_active = 1'}
          ORDER BY c.sort_order ASC, t.code ASC, t.id ASC`
       )
-      .all() as Array<{ id: number }>;
+      .all() as Array<{ id: number; mapped_reagents?: string }>;
 
     const params = db.prepare('SELECT * FROM test_parameters ORDER BY sort_order ASC, id ASC').all() as Array<{
       id: number;
@@ -498,6 +549,7 @@ export class SqliteLimsStore implements LimsStore {
 
     const enrichedTests = tests.map((t) => ({
       ...t,
+      mapped_reagents: parseMappedReagentsJson(t.mapped_reagents),
       parameters: paramsByTest.get(t.id) || [],
     }));
 
@@ -528,10 +580,14 @@ export class SqliteLimsStore implements LimsStore {
     name: string;
     price: number;
     sample_type: string;
+    mapped_reagents?: string[];
     parameters?: ParamPayload[];
   }): Promise<{ id: number }> {
     const testCode = payload.code?.trim() || `TST-${Date.now().toString().slice(-4)}`;
-    const insTest = db.prepare('INSERT INTO tests (category_id, code, name, price, sample_type) VALUES (?, ?, ?, ?, ?)');
+    const mappedReagentsJson = JSON.stringify(normalizeMappedReagents(payload.mapped_reagents));
+    const insTest = db.prepare(
+      'INSERT INTO tests (category_id, code, name, price, sample_type, mapped_reagents) VALUES (?, ?, ?, ?, ?, ?)'
+    );
     const insParam = db.prepare(`
       INSERT INTO test_parameters (
         test_id, name, unit, input_type, normal_text, default_value, select_options, abnormal_values,
@@ -540,7 +596,14 @@ export class SqliteLimsStore implements LimsStore {
     `);
 
     const id = db.transaction(() => {
-      const r = insTest.run(payload.category_id, testCode, payload.name.trim(), Number(payload.price), payload.sample_type.trim());
+      const r = insTest.run(
+        payload.category_id,
+        testCode,
+        payload.name.trim(),
+        Number(payload.price),
+        payload.sample_type.trim(),
+        mappedReagentsJson
+      );
       const testId = Number(r.lastInsertRowid);
       const list: ParamPayload[] =
         payload.parameters && payload.parameters.length > 0
@@ -582,12 +645,20 @@ export class SqliteLimsStore implements LimsStore {
       price: number;
       sample_type: string;
       is_active?: number;
+      mapped_reagents?: string[];
       parameters?: ParamPayload[];
     }
   ): Promise<void> {
     const updTest = db.prepare(
-      'UPDATE tests SET category_id = ?, code = ?, name = ?, price = ?, sample_type = ?, is_active = ? WHERE id = ?'
+      'UPDATE tests SET category_id = ?, code = ?, name = ?, price = ?, sample_type = ?, is_active = ?, mapped_reagents = ? WHERE id = ?'
     );
+    const existingRow = db.prepare('SELECT mapped_reagents FROM tests WHERE id = ?').get(id) as
+      | { mapped_reagents?: string }
+      | undefined;
+    const mappedReagentsJson =
+      payload.mapped_reagents !== undefined
+        ? JSON.stringify(normalizeMappedReagents(payload.mapped_reagents))
+        : existingRow?.mapped_reagents || '[]';
     const getExistingIds = db.prepare('SELECT id FROM test_parameters WHERE test_id = ?');
     const updParam = db.prepare(`
       UPDATE test_parameters
@@ -615,7 +686,16 @@ export class SqliteLimsStore implements LimsStore {
     `);
 
     db.transaction(() => {
-      updTest.run(payload.category_id, payload.code?.trim() || '', payload.name.trim(), Number(payload.price), payload.sample_type.trim(), payload.is_active ?? 1, id);
+      updTest.run(
+        payload.category_id,
+        payload.code?.trim() || '',
+        payload.name.trim(),
+        Number(payload.price),
+        payload.sample_type.trim(),
+        payload.is_active ?? 1,
+        mappedReagentsJson,
+        id
+      );
       if (Array.isArray(payload.parameters)) {
         const existingIdSet = new Set(
           (getExistingIds.all(id) as Array<{ id: number }>).map((row) => row.id)
@@ -1569,6 +1649,7 @@ export class SqliteLimsStore implements LimsStore {
       }>;
       const outTest: Record<string, unknown> = {
         ...t,
+        reagent_deductions: parseReagentDeductionsJson(t.reagent_deductions),
         results: deduplicateResultRows(rawResults),
       };
       if (!includeCommission) {
@@ -1583,6 +1664,58 @@ export class SqliteLimsStore implements LimsStore {
     const adjustments = db.prepare(`SELECT * FROM invoice_adjustments WHERE invoice_id = ? ORDER BY id DESC`).all(invoiceId);
 
     return { invoice, tests: enrichedTests, duePayments, adjustments };
+  }
+
+  private deductReagentsFefo(mappedReagentsRaw: unknown, nowTs: string): ReagentDeductionRecord[] {
+    const names = parseMappedReagentsJson(mappedReagentsRaw);
+    if (names.length === 0) return [];
+    const findEarliestBatch = db.prepare(
+      `SELECT id, name, remaining_tests
+       FROM reagents
+       WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND remaining_tests > 0
+       ORDER BY expiry_date ASC, id ASC
+       LIMIT 1`
+    );
+    const decBatch = db.prepare(
+      `UPDATE reagents SET remaining_tests = remaining_tests - 1, updated_at = ? WHERE id = ? AND remaining_tests > 0`
+    );
+    const deductions: ReagentDeductionRecord[] = [];
+    for (const reagentName of names) {
+      const batch = findEarliestBatch.get(reagentName) as
+        | { id: number; name: string; remaining_tests: number }
+        | undefined;
+      if (!batch) continue;
+      const res = decBatch.run(nowTs, batch.id);
+      if (res.changes > 0) {
+        deductions.push({
+          reagent_id: batch.id,
+          reagent_name: batch.name,
+          quantity: 1,
+        });
+      }
+    }
+    return deductions;
+  }
+
+  private restoreReagentDeductions(rawDeductions: unknown, nowTs: string): void {
+    const deductions = parseReagentDeductionsJson(rawDeductions);
+    if (deductions.length === 0) return;
+    const findById = db.prepare(`SELECT id FROM reagents WHERE id = ?`);
+    const findFallbackByName = db.prepare(
+      `SELECT id FROM reagents WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) ORDER BY expiry_date ASC, id ASC LIMIT 1`
+    );
+    const incBatch = db.prepare(`UPDATE reagents SET remaining_tests = remaining_tests + ?, updated_at = ? WHERE id = ?`);
+    for (const d of deductions) {
+      const byId = findById.get(d.reagent_id) as { id: number } | undefined;
+      if (byId) {
+        incBatch.run(d.quantity, nowTs, byId.id);
+        continue;
+      }
+      const fallback = findFallbackByName.get(d.reagent_name) as { id: number } | undefined;
+      if (fallback) {
+        incBatch.run(d.quantity, nowTs, fallback.id);
+      }
+    }
   }
 
   async createInvoice(payload: CreateInvoicePayload): Promise<Record<string, unknown>> {
@@ -1600,6 +1733,7 @@ export class SqliteLimsStore implements LimsStore {
       category_name: string;
       sample_type: string;
       price: number;
+      mapped_reagents?: string;
     }>;
 
     if (selectedTests.length === 0) throw new StoreError(400, 'Selected tests were not found.');
@@ -1746,8 +1880,8 @@ export class SqliteLimsStore implements LimsStore {
       const insInvTest = db.prepare(
         `INSERT INTO invoice_tests (
           invoice_id, test_id, test_name, category_name, sample_type, price,
-          commission_type, commission_value, commission_amount, status, collected_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Sample Collected', ?)`
+          commission_type, commission_value, commission_amount, reagent_deductions, status, collected_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Sample Collected', ?)`
       );
       const getParams = db.prepare(`SELECT * FROM test_parameters WHERE test_id = ? ORDER BY sort_order ASC, id ASC`);
       const insResult = db.prepare(
@@ -1757,6 +1891,7 @@ export class SqliteLimsStore implements LimsStore {
 
       for (const t of selectedTests) {
         const tc = computedComm.perTestMap.get(t.id);
+        const deductions = this.deductReagentsFefo(t.mapped_reagents, nowTs);
         const itRes = insInvTest.run(
           invoiceId,
           t.id,
@@ -1767,6 +1902,7 @@ export class SqliteLimsStore implements LimsStore {
           tc?.commission_type || 'percent',
           tc?.commission_value ?? docCommissionPct,
           tc?.commission_amount ?? 0,
+          JSON.stringify(deductions),
           nowTs
         );
         const invoiceTestId = Number(itRes.lastInsertRowid);
@@ -1865,13 +2001,14 @@ export class SqliteLimsStore implements LimsStore {
     );
 
     const existingTestRows = db
-      .prepare('SELECT id, test_id, price, commission_type, commission_value FROM invoice_tests WHERE invoice_id = ?')
+      .prepare('SELECT id, test_id, price, commission_type, commission_value, reagent_deductions FROM invoice_tests WHERE invoice_id = ?')
       .all(payload.invoiceId) as Array<{
       id: number;
       test_id: number;
       price: number;
       commission_type?: string;
       commission_value?: number;
+      reagent_deductions?: string;
     }>;
     const removedTestRows = existingTestRows.filter(
       (r) => removeInvTestIdSet.has(r.id) || removeCatalogTestIdSet.has(r.test_id)
@@ -1883,7 +2020,14 @@ export class SqliteLimsStore implements LimsStore {
     const keptExistingTestIds = new Set(keptExistingRows.map((r) => r.test_id));
     const newTestIds = requestedIds.filter((id) => !keptExistingTestIds.has(id));
 
-    let testsToAdd: Array<{ id: number; name: string; category_name: string; sample_type: string; price: number }> = [];
+    let testsToAdd: Array<{
+      id: number;
+      name: string;
+      category_name: string;
+      sample_type: string;
+      price: number;
+      mapped_reagents?: string;
+    }> = [];
     if (newTestIds.length > 0) {
       const ph = newTestIds.map(() => '?').join(',');
       testsToAdd = db
@@ -2034,6 +2178,7 @@ export class SqliteLimsStore implements LimsStore {
         const delResults = db.prepare(`DELETE FROM test_results WHERE invoice_test_id = ?`);
         const delInvTest = db.prepare(`DELETE FROM invoice_tests WHERE id = ?`);
         for (const rem of removedTestRows) {
+          this.restoreReagentDeductions(rem.reagent_deductions, nowTs);
           delResults.run(rem.id);
           delInvTest.run(rem.id);
         }
@@ -2095,8 +2240,8 @@ export class SqliteLimsStore implements LimsStore {
       const insInvTest = db.prepare(
         `INSERT INTO invoice_tests (
           invoice_id, test_id, test_name, category_name, sample_type, price,
-          commission_type, commission_value, commission_amount, status, collected_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Sample Collected', ?)`
+          commission_type, commission_value, commission_amount, reagent_deductions, status, collected_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Sample Collected', ?)`
       );
       const getParams = db.prepare(`SELECT * FROM test_parameters WHERE test_id = ? ORDER BY sort_order ASC, id ASC`);
       const insResult = db.prepare(
@@ -2106,6 +2251,7 @@ export class SqliteLimsStore implements LimsStore {
 
       for (const t of testsToAdd) {
         const tc = computedComm.perTestMap.get(t.id);
+        const deductions = this.deductReagentsFefo(t.mapped_reagents, nowTs);
         const itRes = insInvTest.run(
           payload.invoiceId,
           t.id,
@@ -2116,6 +2262,7 @@ export class SqliteLimsStore implements LimsStore {
           tc?.commission_type || 'percent',
           tc?.commission_value ?? docCommissionPct,
           tc?.commission_amount ?? 0,
+          JSON.stringify(deductions),
           nowTs
         );
         const invoiceTestId = Number(itRes.lastInsertRowid);
@@ -2552,10 +2699,14 @@ export class SqliteLimsStore implements LimsStore {
     let deletedResultsCount = 0;
     let patientDeleted = false;
 
+    const nowTs = getLocalTimestampStr();
     db.transaction(() => {
       const invTests = db
-        .prepare('SELECT id FROM invoice_tests WHERE invoice_id = ?')
-        .all(invoiceId) as Array<{ id: number }>;
+        .prepare('SELECT id, reagent_deductions FROM invoice_tests WHERE invoice_id = ?')
+        .all(invoiceId) as Array<{ id: number; reagent_deductions?: string }>;
+      for (const it of invTests) {
+        this.restoreReagentDeductions(it.reagent_deductions, nowTs);
+      }
       const itIds = invTests.map((it) => it.id);
 
       if (itIds.length > 0) {
@@ -3109,6 +3260,77 @@ export class SqliteLimsStore implements LimsStore {
 
   async deleteExpense(id: number): Promise<void> {
     db.prepare('DELETE FROM expenses WHERE id = ?').run(id);
+  }
+
+  async listReagents(): Promise<unknown[]> {
+    return db.prepare(`SELECT * FROM reagents ORDER BY expiry_date ASC, id DESC`).all();
+  }
+
+  async createReagent(payload: {
+    name: string;
+    total_tests: number;
+    remaining_tests: number;
+    expiry_date: string;
+    low_stock_threshold?: number;
+    createdBy?: string;
+  }): Promise<Record<string, unknown>> {
+    const cleanName = payload.name.trim();
+    if (!cleanName) {
+      throw new StoreError(400, 'Reagent name is required.');
+    }
+    const totalTests = Math.max(1, Math.round(Number(payload.total_tests || 0)));
+    const remainingTests = Math.max(0, Math.round(Number(payload.remaining_tests ?? totalTests)));
+    const lowStockThreshold = Math.max(0, Math.round(Number(payload.low_stock_threshold ?? 10)));
+    const expiryDate = String(payload.expiry_date || '').trim();
+    if (!expiryDate) {
+      throw new StoreError(400, 'Expiry date is required.');
+    }
+    const nowTs = getLocalTimestampStr();
+    const info = db
+      .prepare(
+        `INSERT INTO reagents (name, total_tests, remaining_tests, expiry_date, low_stock_threshold, created_by, updated_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        cleanName,
+        totalTests,
+        remainingTests,
+        expiryDate,
+        lowStockThreshold,
+        payload.createdBy?.trim() || 'Staff',
+        nowTs,
+        nowTs
+      );
+    const created = db.prepare(`SELECT * FROM reagents WHERE id = ?`).get(Number(info.lastInsertRowid)) as Record<
+      string,
+      unknown
+    >;
+    return created;
+  }
+
+  async adjustReagentStock(id: number, delta: number): Promise<Record<string, unknown>> {
+    const existing = db.prepare(`SELECT * FROM reagents WHERE id = ?`).get(id) as
+      | { remaining_tests: number; [k: string]: unknown }
+      | undefined;
+    if (!existing) {
+      throw new StoreError(404, 'Reagent inventory item not found.');
+    }
+    const nextRemaining = Math.max(0, Math.round(Number(existing.remaining_tests || 0) + Number(delta || 0)));
+    const updatedAt = getLocalTimestampStr();
+    db.prepare(`UPDATE reagents SET remaining_tests = ?, updated_at = ? WHERE id = ?`).run(
+      nextRemaining,
+      updatedAt,
+      id
+    );
+    return {
+      ...existing,
+      remaining_tests: nextRemaining,
+      updated_at: updatedAt,
+    };
+  }
+
+  async deleteReagent(id: number): Promise<void> {
+    db.prepare('DELETE FROM reagents WHERE id = ?').run(id);
   }
 
   private getCumulativeCashBalanceBefore(cutoffDate: string): number {

@@ -5,11 +5,12 @@ import type {
   LabQueueItem,
   OtherRevenueItem,
   PatientProfile,
+  ReagentItem,
   TestResultRow,
 } from '../types.ts';
 
 const DB_NAME = 'alea_lims_offline_v1';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export type OfflineStoreName =
   | 'snapshots'
@@ -20,6 +21,7 @@ export type OfflineStoreName =
   | 'patients'
   | 'expenses'
   | 'otherRevenues'
+  | 'reagents'
   | 'apiCache'
   | 'syncQueue'
   | 'idRemaps';
@@ -47,6 +49,9 @@ export type OfflineEntityType =
   | 'expense_delete'
   | 'other_revenue_create'
   | 'other_revenue_delete'
+  | 'reagent_create'
+  | 'reagent_adjust'
+  | 'reagent_delete'
   | 'settings_update';
 
 export interface OfflineQueueItem {
@@ -66,6 +71,7 @@ export interface OfflineQueueItem {
     doctorId?: number;
     expenseId?: number;
     otherRevenueId?: number;
+    reagentId?: number;
     invoiceTestIdByTestId?: Record<number, number>;
     addedInvoiceTestIdsByTestId?: Record<number, number>;
   };
@@ -89,7 +95,7 @@ export interface StoredLabTestDetail {
 
 export interface IdRemapRecord {
   key: string; // `${entity}:${tempId}`
-  entity: 'invoice' | 'patient' | 'invoiceTest' | 'test' | 'category' | 'doctor' | 'expense' | 'otherRevenue' | 'parameter';
+  entity: 'invoice' | 'patient' | 'invoiceTest' | 'test' | 'category' | 'doctor' | 'expense' | 'otherRevenue' | 'reagent' | 'parameter';
   tempId: number;
   realId: number;
   createdAt: number;
@@ -143,6 +149,9 @@ function openOfflineDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('otherRevenues')) {
         db.createObjectStore('otherRevenues', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('reagents')) {
+        db.createObjectStore('reagents', { keyPath: 'id' });
       }
       if (!db.objectStoreNames.contains('apiCache')) {
         db.createObjectStore('apiCache', { keyPath: 'key' });
@@ -333,6 +342,10 @@ export async function getAllExpensesLocal(): Promise<ExpenseItem[]> {
 
 export async function getAllOtherRevenuesLocal(): Promise<OtherRevenueItem[]> {
   return idbGetAll<OtherRevenueItem>('otherRevenues');
+}
+
+export async function getAllReagentsLocal(): Promise<ReagentItem[]> {
+  return idbGetAll<ReagentItem>('reagents');
 }
 
 export async function getFullInvoiceLocal(invoiceId: number): Promise<FullInvoice | undefined> {

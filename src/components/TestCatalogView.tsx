@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ArrowDown, ArrowUp, Edit2, Plus, Search, Trash2, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, Edit2, FlaskConical, Plus, Search, Trash2, X } from 'lucide-react';
 import { apiFetch, formatBDT } from '../lib/api.ts';
 import { OFFLINE_SYNCED_EVENT } from '../lib/offlineEngine.ts';
-import type { DiagnosticTest, TestCategory } from '../types.ts';
+import type { DiagnosticTest, ReagentItem, TestCategory } from '../types.ts';
 
 interface EditableParam {
   id?: number;
@@ -44,6 +44,7 @@ const emptyParam = (): EditableParam => ({
 export const TestCatalogView: React.FC = () => {
   const [categories, setCategories] = useState<TestCategory[]>([]);
   const [tests, setTests] = useState<DiagnosticTest[]>([]);
+  const [reagents, setReagents] = useState<ReagentItem[]>([]);
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('All');
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -58,16 +59,36 @@ export const TestCatalogView: React.FC = () => {
   const [formName, setFormName] = useState('');
   const [formPrice, setFormPrice] = useState('');
   const [formSampleType, setFormSampleType] = useState('Serum');
+  const [formMappedReagents, setFormMappedReagents] = useState<string[]>([]);
+  const [reagentInput, setReagentInput] = useState('');
   const [formParams, setFormParams] = useState<EditableParam[]>([emptyParam()]);
   const [saving, setSaving] = useState(false);
 
+  const availableReagentSummaries = useMemo(() => {
+    const byKey = new Map<string, { name: string; totalRemaining: number }>();
+    for (const r of reagents) {
+      const clean = r.name.trim();
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.totalRemaining += Number(r.remaining_tests || 0);
+      } else {
+        byKey.set(key, { name: clean, totalRemaining: Number(r.remaining_tests || 0) });
+      }
+    }
+    return Array.from(byKey.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [reagents]);
+
   const loadCatalog = useCallback(async () => {
     try {
-      const res = await apiFetch<{ categories: TestCategory[]; tests: DiagnosticTest[] }>(
-        '/api/catalog'
-      );
-      setCategories(res.categories);
-      setTests(res.tests);
+      const [catRes, reagentRes] = await Promise.all([
+        apiFetch<{ categories: TestCategory[]; tests: DiagnosticTest[] }>('/api/catalog'),
+        apiFetch<{ reagents: ReagentItem[] }>('/api/reagents').catch(() => ({ reagents: [] as ReagentItem[] })),
+      ]);
+      setCategories(catRes.categories);
+      setTests(catRes.tests);
+      setReagents(reagentRes.reagents || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load catalog.');
     }
@@ -107,6 +128,8 @@ export const TestCatalogView: React.FC = () => {
     setFormName('');
     setFormPrice('');
     setFormSampleType('Serum');
+    setFormMappedReagents([]);
+    setReagentInput('');
     setFormParams([emptyParam()]);
     setIsModalOpen(true);
   };
@@ -118,6 +141,8 @@ export const TestCatalogView: React.FC = () => {
     setFormName(t.name);
     setFormPrice(String(t.price));
     setFormSampleType(t.sample_type);
+    setFormMappedReagents(Array.isArray(t.mapped_reagents) ? [...t.mapped_reagents] : []);
+    setReagentInput('');
     const sortedParams = [...t.parameters].sort(
       (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id
     );
@@ -146,6 +171,24 @@ export const TestCatalogView: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const addMappedReagent = (rawName: string) => {
+    const clean = rawName.trim();
+    if (!clean) return;
+    setFormMappedReagents((prev) => {
+      if (prev.some((r) => r.trim().toLowerCase() === clean.toLowerCase())) {
+        return prev;
+      }
+      return [...prev, clean];
+    });
+    setReagentInput('');
+  };
+
+  const removeMappedReagent = (nameToRemove: string) => {
+    setFormMappedReagents((prev) =>
+      prev.filter((r) => r.trim().toLowerCase() !== nameToRemove.trim().toLowerCase())
+    );
+  };
+
   const moveParam = (idx: number, direction: 'up' | 'down') => {
     setFormParams((prev) => {
       const target = direction === 'up' ? idx - 1 : idx + 1;
@@ -171,6 +214,7 @@ export const TestCatalogView: React.FC = () => {
         name: formName.trim(),
         price: Number(formPrice || 0),
         sample_type: formSampleType.trim(),
+        mapped_reagents: formMappedReagents,
         parameters: formParams
           .filter((p) => p.name.trim() !== '')
           .map((p) => ({
@@ -319,18 +363,37 @@ export const TestCatalogView: React.FC = () => {
                 <th className="py-2 pr-3 font-medium">Test Name</th>
                 <th className="py-2 pr-3 font-medium">Department</th>
                 <th className="py-2 pr-3 font-medium">Sample Type</th>
+                <th className="py-2 pr-3 font-medium">Linked Reagents</th>
                 <th className="py-2 pr-3 font-medium text-center">Parameters</th>
                 <th className="py-2 pr-3 font-medium text-right">Price (BDT)</th>
                 <th className="py-2 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filteredTests.map((t) => (
+              {filteredTests.map((t) => {
+                const mapped = Array.isArray(t.mapped_reagents) ? t.mapped_reagents : [];
+                return (
                 <tr key={t.id} className="hover:bg-slate-50">
                   <td className="py-3 pr-3 font-mono text-xs font-semibold text-slate-700">{t.code}</td>
                   <td className="py-3 pr-3 font-semibold text-slate-900">{t.name}</td>
                   <td className="py-3 pr-3 text-xs text-slate-600">{t.category_name}</td>
                   <td className="py-3 pr-3 text-xs text-slate-600">{t.sample_type}</td>
+                  <td className="py-3 pr-3 text-xs">
+                    {mapped.length === 0 ? (
+                      <span className="text-slate-400">—</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1 max-w-[230px]">
+                        {mapped.map((rName) => (
+                          <span
+                            key={rName}
+                            className="inline-flex items-center px-1.5 py-0.5 text-[11px] font-medium bg-cyan-50 text-brand-navy border border-cyan-200 rounded"
+                          >
+                            {rName}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </td>
                   <td className="py-3 pr-3 text-center font-mono tabular-nums text-xs text-slate-700">
                     {t.parameters.length}
                   </td>
@@ -358,7 +421,8 @@ export const TestCatalogView: React.FC = () => {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -438,6 +502,117 @@ export const TestCatalogView: React.FC = () => {
                     required
                   />
                 </div>
+              </div>
+
+              {/* Linked Reagents (FEFO Auto-Deduction) */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-brand-navy flex items-center gap-1.5">
+                      <FlaskConical className="w-4 h-4 text-brand-cyan shrink-0" />
+                      <span>Linked Reagents (Auto-Deduct on Order)</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Link 1 reagent (e.g. Triglyceride) or multiple reagents for panel tests (e.g. Lipid Profile: Cholesterol, Triglyceride, HDL, LDL). Ordering deducts 1 test from the earliest-expiring batch first.
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono font-semibold text-slate-600 shrink-0">
+                    {formMappedReagents.length} linked
+                  </span>
+                </div>
+
+                {formMappedReagents.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {formMappedReagents.map((rName) => {
+                      const stockInfo = availableReagentSummaries.find(
+                        (s) => s.name.toLowerCase() === rName.trim().toLowerCase()
+                      );
+                      return (
+                        <span
+                          key={rName}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold bg-white text-brand-navy border border-brand-navy/25 rounded-md shadow-2xs"
+                        >
+                          <span>{rName}</span>
+                          {stockInfo !== undefined && (
+                            <span
+                              className={`text-[10.5px] font-mono ${
+                                stockInfo.totalRemaining <= 10 ? 'text-brand-red' : 'text-teal-700'
+                              }`}
+                            >
+                              ({stockInfo.totalRemaining} left)
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeMappedReagent(rName)}
+                            aria-label={`Unlink ${rName}`}
+                            className="text-slate-400 hover:text-brand-red cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    list="catalog-reagent-suggestions"
+                    value={reagentInput}
+                    onChange={(e) => setReagentInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addMappedReagent(reagentInput);
+                      }
+                    }}
+                    placeholder="Type or select reagent name (e.g. Cholesterol, SGPT)..."
+                    className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 focus:border-brand-navy"
+                  />
+                  <datalist id="catalog-reagent-suggestions">
+                    {availableReagentSummaries.map((s) => (
+                      <option key={s.name} value={s.name} />
+                    ))}
+                  </datalist>
+                  <button
+                    type="button"
+                    onClick={() => addMappedReagent(reagentInput)}
+                    disabled={!reagentInput.trim()}
+                    className="inline-flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-brand-navy rounded-md hover:bg-brand-navy-light disabled:opacity-40 whitespace-nowrap cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Link Reagent</span>
+                  </button>
+                </div>
+
+                {availableReagentSummaries.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="text-[11px] font-medium text-slate-500 mr-1">
+                      Quick Add from Inventory:
+                    </span>
+                    {availableReagentSummaries
+                      .filter(
+                        (s) =>
+                          !formMappedReagents.some(
+                            (mapped) => mapped.trim().toLowerCase() === s.name.toLowerCase()
+                          )
+                      )
+                      .map((s) => (
+                        <button
+                          key={s.name}
+                          type="button"
+                          onClick={() => addMappedReagent(s.name)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded hover:border-brand-cyan hover:text-brand-navy transition-colors cursor-pointer"
+                        >
+                          <Plus className="w-3 h-3 text-teal-700" />
+                          <span>{s.name}</span>
+                          <span className="text-[10px] font-mono text-slate-400">({s.totalRemaining})</span>
+                        </button>
+                      ))}
+                  </div>
+                )}
               </div>
 
               {/* Sub-parameters & Age/Gender Ranges */}

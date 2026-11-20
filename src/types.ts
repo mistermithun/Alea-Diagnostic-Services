@@ -5,6 +5,7 @@ export type NavTab =
   | 'billing'
   | 'lab'
   | 'dues'
+  | 'reagents'
   | 'catalog'
   | 'doctors'
   | 'payouts'
@@ -73,6 +74,7 @@ export interface DiagnosticTest {
   price: number;
   sample_type: string;
   is_active: number;
+  mapped_reagents?: string[];
   parameters: TestParameter[];
 }
 
@@ -226,6 +228,12 @@ export interface TestResultRow {
   max_newborn?: number | null;
 }
 
+export interface ReagentDeductionEntry {
+  reagent_id: number;
+  reagent_name: string;
+  quantity: number;
+}
+
 export interface InvoiceTestItem {
   id: number;
   invoice_id: number;
@@ -237,6 +245,7 @@ export interface InvoiceTestItem {
   commission_type?: 'percent' | 'flat';
   commission_value?: number;
   commission_amount?: number;
+  reagent_deductions?: ReagentDeductionEntry[];
   status: 'Sample Collected' | 'Processing' | 'Verified' | 'Ready';
   collected_at: string;
   verified_at: string | null;
@@ -303,6 +312,18 @@ export interface ExpenseItem {
   expense_date: string;
   note: string;
   created_by: string;
+  created_at: string;
+}
+
+export interface ReagentItem {
+  id: number;
+  name: string;
+  total_tests: number;
+  remaining_tests: number;
+  expiry_date: string;
+  low_stock_threshold: number;
+  created_by: string;
+  updated_at: string;
   created_at: string;
 }
 

@@ -33,6 +33,12 @@ export interface TestCommissionOverride {
   commissionValue: number;
 }
 
+export interface ReagentDeductionRecord {
+  reagent_id: number;
+  reagent_name: string;
+  quantity: number;
+}
+
 export interface CreateInvoicePayload {
   existingPatientId?: number | null;
   patient: {
@@ -135,6 +141,7 @@ export interface LimsStore {
     name: string;
     price: number;
     sample_type: string;
+    mapped_reagents?: string[];
     parameters?: ParamPayload[];
   }): Promise<{ id: number }>;
   updateTest(
@@ -146,6 +153,7 @@ export interface LimsStore {
       price: number;
       sample_type: string;
       is_active?: number;
+      mapped_reagents?: string[];
       parameters?: ParamPayload[];
     }
   ): Promise<void>;
@@ -259,6 +267,19 @@ export interface LimsStore {
     note?: string;
   }): Promise<{ id: number }>;
   deleteExpense(id: number): Promise<void>;
+
+  // Reagent Inventory Tracker
+  listReagents(): Promise<unknown[]>;
+  createReagent(payload: {
+    name: string;
+    total_tests: number;
+    remaining_tests: number;
+    expiry_date: string;
+    low_stock_threshold?: number;
+    createdBy?: string;
+  }): Promise<Record<string, unknown>>;
+  adjustReagentStock(id: number, delta: number): Promise<Record<string, unknown>>;
+  deleteReagent(id: number): Promise<void>;
 
   // Daily Cash Balance Ledger & Other Revenues
   getBalanceLedger(from: string, to: string): Promise<Record<string, unknown>>;

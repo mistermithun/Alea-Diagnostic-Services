@@ -2366,7 +2366,7 @@ async function applyAndQueueOfflineMutation<T>(
     );
     const lowStockThreshold = Math.max(
       0,
-      Math.round(Number(body?.low_stock_threshold !== undefined ? body.low_stock_threshold : 10))
+      Math.round(Number(body?.low_stock_threshold !== undefined ? body.low_stock_threshold : 5))
     );
     const linkedTestIdRaw = body?.linked_test_id;
     const linkedParamIdRaw = body?.linked_parameter_id;

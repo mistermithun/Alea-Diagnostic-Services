@@ -34,7 +34,10 @@ import {
   type UpdateInvoicePayload,
   type UpdateLabResultsPayload,
 } from './store-types.ts';
-import { selectFefoReagentBatchesForTest } from '../shared/reagentMatcher.ts';
+import {
+  getCanonicalReagentKey,
+  selectFefoReagentBatchesForTest,
+} from '../shared/reagentMatcher.ts';
 
 interface CounterDoc {
   _id: string;
@@ -366,6 +369,7 @@ export class MongoLimsStore implements LimsStore {
     await this.migrateStaffDiscountLimitTo100();
     await this.seedCatalogIfEmpty();
     await this.syncExtendedCatalogV2();
+    await this.syncLipidIndividualTestsV3();
     await this.seedInitialOperationalDataIfEmpty();
     await this.migrateCbcParameters();
     await this.migrateUrineReParameters();
@@ -497,6 +501,8 @@ export class MongoLimsStore implements LimsStore {
         r.key === 'auth_secret' ||
         r.key === 'initial_seed_done' ||
         r.key === 'catalog_v2_synced' ||
+        r.key === 'catalog_lipid_v3_synced' ||
+        r.key === 'catalog_lipid_v4_synced' ||
         r.key === 'staff_discount_limit_100_migrated' ||
         r.key === 'cbc_params_v2_migrated' ||
         r.key === 'urine_params_v2_migrated'
@@ -557,6 +563,7 @@ export class MongoLimsStore implements LimsStore {
           price: t.price,
           sample_type: t.sample_type,
           is_active: 1,
+          mapped_reagents: normalizeMappedReagents(t.mapped_reagents),
         });
 
         for (let idx = 0; idx < t.parameters.length; idx++) {
@@ -627,6 +634,7 @@ export class MongoLimsStore implements LimsStore {
           price: t.price,
           sample_type: t.sample_type,
           is_active: 1,
+          mapped_reagents: normalizeMappedReagents(t.mapped_reagents),
         });
         existingCodes.add(t.code.trim().toLowerCase());
         existingNames.add(t.name.trim().toLowerCase());
@@ -659,6 +667,121 @@ export class MongoLimsStore implements LimsStore {
     }
 
     await this.setSetting('catalog_v2_synced', '1');
+  }
+
+  private async syncLipidIndividualTestsV3(): Promise<void> {
+    const synced = await this.getSetting('catalog_lipid_v4_synced');
+    if (synced === '1') return;
+
+    const biochemGroup = SEED_CATALOG.find(
+      (g) => g.category.trim().toLowerCase() === 'biochemistry'
+    );
+    if (!biochemGroup) {
+      await this.setSetting('catalog_lipid_v4_synced', '1');
+      return;
+    }
+
+    let biochemCat = await this.categoriesCol.findOne(
+      { name: { $regex: /^biochemistry$/i } },
+      { projection: { _id: 0 } }
+    );
+    let biochemCatId = biochemCat?.id;
+    if (biochemCatId === undefined) {
+      biochemCatId = await this.nextSeq('test_categories');
+      await this.categoriesCol.insertOne({
+        id: biochemCatId,
+        name: biochemGroup.category,
+        sort_order: biochemGroup.sort_order,
+      });
+    }
+
+    const existingTests = await this.testsCol.find({}, { projection: { _id: 0 } }).toArray();
+    const existingCodes = new Set(existingTests.map((t) => t.code.trim().toLowerCase()));
+    const existingNames = new Set(existingTests.map((t) => t.name.trim().toLowerCase()));
+    const existingCanonicalKeys = new Set(
+      existingTests.map((t) => getCanonicalReagentKey(t.name)).filter(Boolean)
+    );
+
+    const allocateNextBioCode = (preferredCode: string): string => {
+      if (!existingCodes.has(preferredCode.trim().toLowerCase())) {
+        return preferredCode;
+      }
+      let num = 14;
+      while (existingCodes.has(`bio-${String(num).padStart(2, '0')}`)) {
+        num += 1;
+      }
+      return `BIO-${String(num).padStart(2, '0')}`;
+    };
+
+    const lipidProfileSeed = biochemGroup.tests.find((t) => t.code === 'BIO-04');
+    if (lipidProfileSeed) {
+      const existingLipidProfile = existingTests.find(
+        (t) =>
+          t.code.trim().toLowerCase() === 'bio-04' ||
+          getCanonicalReagentKey(t.name) === 'reagent:panel_lipid_profile'
+      );
+      if (existingLipidProfile && normalizeMappedReagents(existingLipidProfile.mapped_reagents).length === 0) {
+        await this.testsCol.updateOne(
+          { id: existingLipidProfile.id },
+          { $set: { mapped_reagents: normalizeMappedReagents(lipidProfileSeed.mapped_reagents) } }
+        );
+      }
+    }
+
+    const individualCodes = new Set(['BIO-14', 'BIO-15', 'BIO-16', 'BIO-17']);
+    for (const t of biochemGroup.tests) {
+      if (!individualCodes.has(t.code)) continue;
+      const canonicalKey = getCanonicalReagentKey(t.name);
+      if (
+        existingNames.has(t.name.trim().toLowerCase()) ||
+        (canonicalKey && existingCanonicalKeys.has(canonicalKey))
+      ) {
+        continue;
+      }
+
+      const assignedCode = allocateNextBioCode(t.code);
+      const testId = await this.nextSeq('tests');
+      await this.testsCol.insertOne({
+        id: testId,
+        category_id: biochemCatId,
+        code: assignedCode,
+        name: t.name,
+        price: t.price,
+        sample_type: t.sample_type,
+        is_active: 1,
+        mapped_reagents: normalizeMappedReagents(t.mapped_reagents),
+      });
+      existingCodes.add(assignedCode.trim().toLowerCase());
+      existingNames.add(t.name.trim().toLowerCase());
+      if (canonicalKey) existingCanonicalKeys.add(canonicalKey);
+
+      for (let idx = 0; idx < t.parameters.length; idx++) {
+        const p = t.parameters[idx];
+        const paramId = await this.nextSeq('test_parameters');
+        await this.paramsCol.insertOne({
+          id: paramId,
+          test_id: testId,
+          name: p.name,
+          unit: p.unit || '',
+          input_type: p.input_type || 'numeric',
+          normal_text: p.normal_text || '',
+          default_value: p.default_value ?? '',
+          select_options: p.select_options || '',
+          abnormal_values: p.abnormal_values || '',
+          min_male: p.min_male ?? null,
+          max_male: p.max_male ?? null,
+          min_female: p.min_female ?? p.min_male ?? null,
+          max_female: p.max_female ?? p.max_male ?? null,
+          min_child: p.min_child ?? null,
+          max_child: p.max_child ?? null,
+          min_newborn: p.min_newborn ?? null,
+          max_newborn: p.max_newborn ?? null,
+          sort_order: idx + 1,
+        });
+      }
+    }
+
+    await this.setSetting('catalog_lipid_v4_synced', '1');
   }
 
   private async seedInitialOperationalDataIfEmpty(): Promise<void> {
@@ -4275,7 +4398,7 @@ export class MongoLimsStore implements LimsStore {
     const remainingTests = Math.max(0, Math.round(Number(payload.remaining_tests ?? totalTests)));
     const lowStockThreshold = Math.max(
       0,
-      Math.round(Number(payload.low_stock_threshold ?? 10))
+      Math.round(Number(payload.low_stock_threshold ?? 5))
     );
     const expiryDate = String(payload.expiry_date || '').trim();
     if (!expiryDate) {

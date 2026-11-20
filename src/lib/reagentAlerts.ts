@@ -12,7 +12,7 @@ export function computeDaysUntilExpiry(expiryDate: string, todayIso: string): nu
 }
 
 export function doesReagentNeedAttention(item: ReagentItem, todayIso: string): boolean {
-  const threshold = Number(item.low_stock_threshold ?? 10);
+  const threshold = Number(item.low_stock_threshold ?? 5);
   const remaining = Number(item.remaining_tests || 0);
   if (remaining <= threshold) return true;
   const daysLeft = computeDaysUntilExpiry(item.expiry_date, todayIso);

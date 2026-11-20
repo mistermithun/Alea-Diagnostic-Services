@@ -3309,7 +3309,7 @@ export class SqliteLimsStore implements LimsStore {
     }
     const totalTests = Math.max(1, Math.round(Number(payload.total_tests || 0)));
     const remainingTests = Math.max(0, Math.round(Number(payload.remaining_tests ?? totalTests)));
-    const lowStockThreshold = Math.max(0, Math.round(Number(payload.low_stock_threshold ?? 10)));
+    const lowStockThreshold = Math.max(0, Math.round(Number(payload.low_stock_threshold ?? 5)));
     const expiryDate = String(payload.expiry_date || '').trim();
     if (!expiryDate) {
       throw new StoreError(400, 'Expiry date is required.');

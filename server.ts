@@ -874,7 +874,7 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
 
   app.post(
     '/api/reagents',
-    requireStaffOrAdmin,
+    requireAdmin,
     asyncHandler(async (req, res) => {
       const {
         name,
@@ -913,7 +913,7 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
       const token = extractTokenFromRequest(req);
       const secret = getSecret();
       const operatorName =
-        verifyAdminToken(token, secret)?.name || verifyStaffToken(token, secret)?.name || 'Staff';
+        verifyAdminToken(token, secret)?.name || verifyStaffToken(token, secret)?.name || 'Admin';
 
       const parsedLinkedTestId =
         linked_test_id !== undefined && linked_test_id !== null && Number(linked_test_id) > 0
@@ -933,7 +933,7 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
         total_tests: Number(total_tests),
         remaining_tests: remaining_tests !== undefined ? Number(remaining_tests) : Number(total_tests),
         expiry_date: expiry_date.trim(),
-        low_stock_threshold: low_stock_threshold !== undefined ? Number(low_stock_threshold) : 10,
+        low_stock_threshold: low_stock_threshold !== undefined ? Number(low_stock_threshold) : 5,
         createdBy: operatorName,
       });
       res.json({ reagent });
@@ -942,7 +942,7 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
 
   app.post(
     '/api/reagents/:id/adjust',
-    requireStaffOrAdmin,
+    requireAdmin,
     asyncHandler(async (req, res) => {
       const id = Number(req.params.id);
       if (!Number.isInteger(id) || id <= 0) {
@@ -962,7 +962,7 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
 
   app.delete(
     '/api/reagents/:id',
-    requireStaffOrAdmin,
+    requireAdmin,
     asyncHandler(async (req, res) => {
       const id = Number(req.params.id);
       if (!Number.isInteger(id) || id <= 0) {

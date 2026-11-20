@@ -1143,7 +1143,7 @@ export default function App() {
             <DueLedgerView isAdmin={isAdmin} onOpenReceipt={handleOpenReceipt} />
           )}
 
-          {resolvedTab === 'reagents' && <ReagentTrackerView />}
+          {resolvedTab === 'reagents' && <ReagentTrackerView isAdmin={isAdmin} />}
 
           {resolvedTab === 'catalog' && isAdmin && <TestCatalogView />}
           {resolvedTab === 'doctors' && isAdmin && (

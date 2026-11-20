@@ -536,7 +536,7 @@ export const TestCatalogView: React.FC = () => {
                           {stockInfo !== undefined && (
                             <span
                               className={`text-[10.5px] font-mono ${
-                                stockInfo.totalRemaining <= 10 ? 'text-brand-red' : 'text-teal-700'
+                                stockInfo.totalRemaining <= 5 ? 'text-brand-red' : 'text-teal-700'
                               }`}
                             >
                               ({stockInfo.totalRemaining} left)

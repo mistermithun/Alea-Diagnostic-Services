@@ -22,6 +22,7 @@ export interface TestSeed {
   name: string;
   price: number;
   sample_type: string;
+  mapped_reagents?: string[];
   parameters: ParamSeed[];
 }
 
@@ -384,6 +385,12 @@ export const SEED_CATALOG: Array<{ category: string; sort_order: number; tests: 
         name: 'Lipid Profile',
         price: 1000,
         sample_type: 'Serum (Fasting)',
+        mapped_reagents: [
+          'Total Cholesterol',
+          'Triglycerides (TG)',
+          'HDL Cholesterol',
+          'LDL Cholesterol',
+        ],
         parameters: [
           { name: 'Total Cholesterol', unit: 'mg/dL', min_male: 0, max_male: 200, min_female: 0, max_female: 200, normal_text: '< 200' },
           { name: 'Triglycerides (TG)', unit: 'mg/dL', min_male: 0, max_male: 150, min_female: 0, max_female: 150, normal_text: '< 150' },
@@ -475,6 +482,46 @@ export const SEED_CATALOG: Array<{ category: string; sort_order: number; tests: 
         sample_type: 'Serum',
         parameters: [
           { name: 'SGPT (ALT)', unit: 'U/L', min_male: 0, max_male: 41, min_female: 0, max_female: 33, min_child: 0, max_child: 35, normal_text: 'M: <41 | F: <33' },
+        ],
+      },
+      {
+        code: 'BIO-14',
+        name: 'Total Cholesterol',
+        price: 300,
+        sample_type: 'Serum (Fasting)',
+        mapped_reagents: ['Total Cholesterol'],
+        parameters: [
+          { name: 'Total Cholesterol', unit: 'mg/dL', min_male: 0, max_male: 200, min_female: 0, max_female: 200, normal_text: '< 200' },
+        ],
+      },
+      {
+        code: 'BIO-15',
+        name: 'Triglycerides (TG)',
+        price: 350,
+        sample_type: 'Serum (Fasting)',
+        mapped_reagents: ['Triglycerides (TG)'],
+        parameters: [
+          { name: 'Triglycerides (TG)', unit: 'mg/dL', min_male: 0, max_male: 150, min_female: 0, max_female: 150, normal_text: '< 150' },
+        ],
+      },
+      {
+        code: 'BIO-16',
+        name: 'HDL Cholesterol',
+        price: 350,
+        sample_type: 'Serum (Fasting)',
+        mapped_reagents: ['HDL Cholesterol'],
+        parameters: [
+          { name: 'HDL Cholesterol', unit: 'mg/dL', min_male: 40, max_male: 100, min_female: 50, max_female: 100, normal_text: 'M: >40 | F: >50' },
+        ],
+      },
+      {
+        code: 'BIO-17',
+        name: 'LDL Cholesterol',
+        price: 350,
+        sample_type: 'Serum (Fasting)',
+        mapped_reagents: ['LDL Cholesterol'],
+        parameters: [
+          { name: 'LDL Cholesterol', unit: 'mg/dL', min_male: 0, max_male: 100, min_female: 0, max_female: 100, normal_text: '< 100' },
         ],
       },
     ],

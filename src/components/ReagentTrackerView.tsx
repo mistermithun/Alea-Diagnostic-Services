@@ -47,7 +47,11 @@ interface LinkedCatalogSelection {
   linked_parameter_name: string;
 }
 
-export const ReagentTrackerView: React.FC = () => {
+interface ReagentTrackerViewProps {
+  isAdmin?: boolean;
+}
+
+export const ReagentTrackerView: React.FC<ReagentTrackerViewProps> = ({ isAdmin = false }) => {
   const todayIso = getTodayISO();
   const [reagents, setReagents] = useState<ReagentItem[]>([]);
   const [catalogTests, setCatalogTests] = useState<DiagnosticTest[]>([]);
@@ -65,7 +69,7 @@ export const ReagentTrackerView: React.FC = () => {
   const [remainingTests, setRemainingTests] = useState('100');
   const [remainingTouched, setRemainingTouched] = useState(false);
   const [expiryDate, setExpiryDate] = useState('');
-  const [lowStockThreshold, setLowStockThreshold] = useState('10');
+  const [lowStockThreshold, setLowStockThreshold] = useState('5');
 
   const [saving, setSaving] = useState(false);
   const [adjustingIds, setAdjustingIds] = useState<Set<number>>(() => new Set());
@@ -196,7 +200,7 @@ export const ReagentTrackerView: React.FC = () => {
     const remNum = Math.round(Number(remainingTests === '' ? totalNum : remainingTests));
     const thresholdNum = Math.max(
       0,
-      Math.round(Number(lowStockThreshold === '' ? 10 : lowStockThreshold))
+      Math.round(Number(lowStockThreshold === '' ? 5 : lowStockThreshold))
     );
 
     if (!cleanName) {
@@ -255,7 +259,7 @@ export const ReagentTrackerView: React.FC = () => {
       setRemainingTests('100');
       setRemainingTouched(false);
       setExpiryDate('');
-      setLowStockThreshold('10');
+      setLowStockThreshold('5');
       setSuccessMsg(`Added "${cleanName}" (${remNum}/${totalNum} tests) to Reagent Tracker.`);
       await loadReagents();
     } catch (err) {
@@ -318,7 +322,7 @@ export const ReagentTrackerView: React.FC = () => {
 
     for (const r of reagents) {
       totalRemainingTests += Number(r.remaining_tests || 0);
-      if (Number(r.remaining_tests) <= Number(r.low_stock_threshold ?? 10)) {
+      if (Number(r.remaining_tests) <= Number(r.low_stock_threshold ?? 5)) {
         lowStockCount += 1;
       }
       const daysLeft = computeDaysUntilExpiry(r.expiry_date, todayIso);
@@ -421,11 +425,12 @@ export const ReagentTrackerView: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-        {/* Add Reagent Card */}
-        <form
-          onSubmit={handleAddReagent}
-          className="xl:col-span-4 bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs"
-        >
+        {/* Add Reagent Card (Admin Only) */}
+        {isAdmin && (
+          <form
+            onSubmit={handleAddReagent}
+            className="xl:col-span-4 bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs"
+          >
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <h2 className="text-sm font-bold text-brand-navy">Add Reagent Kit / Stock</h2>
             <span className="text-[11px] font-medium text-brand-cyan">Catalog Linked</span>
@@ -654,10 +659,15 @@ export const ReagentTrackerView: React.FC = () => {
             <Plus className="w-4 h-4" />
             <span>{saving ? 'Saving Reagent...' : 'Add Reagent Item'}</span>
           </button>
-        </form>
+          </form>
+        )}
 
         {/* Reagent Inventory Table */}
-        <div className="xl:col-span-8 bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
+        <div
+          className={`${
+            isAdmin ? 'xl:col-span-8' : 'xl:col-span-12'
+          } bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs`}
+        >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h2 className="text-sm font-bold text-brand-navy">
               Active Reagent Inventory ({visibleReagents.length})
@@ -700,27 +710,31 @@ export const ReagentTrackerView: React.FC = () => {
                   <th className="py-2.5 px-3 font-semibold text-center">Alert At</th>
                   <th className="py-2.5 px-3 font-semibold">Expiry Date</th>
                   <th className="py-2.5 px-3 font-semibold text-center whitespace-nowrap">Days Left</th>
-                  <th className="py-2.5 pl-3 pr-3 font-semibold text-right">Action</th>
+                  {isAdmin && (
+                    <th className="py-2.5 pl-3 pr-3 font-semibold text-right">Action</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="py-10 text-center text-sm text-slate-500">
+                    <td colSpan={isAdmin ? 7 : 6} className="py-10 text-center text-sm text-slate-500">
                       Loading reagent inventory...
                     </td>
                   </tr>
                 ) : visibleReagents.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-10 text-center text-sm text-slate-500">
+                    <td colSpan={isAdmin ? 7 : 6} className="py-10 text-center text-sm text-slate-500">
                       {reagents.length === 0
-                        ? 'No reagent kits added yet. Use the form on the left to add your first reagent.'
+                        ? isAdmin
+                          ? 'No reagent kits added yet. Use the form on the left to add your first reagent.'
+                          : 'No reagent kits added yet.'
                         : 'No reagent items match your current filter.'}
                     </td>
                   </tr>
                 ) : (
                   visibleReagents.map((item) => {
-                    const threshold = Number(item.low_stock_threshold ?? 10);
+                    const threshold = Number(item.low_stock_threshold ?? 5);
                     const remaining = Number(item.remaining_tests || 0);
                     const total = Math.max(1, Number(item.total_tests || 1));
                     const isOut = remaining <= 0;
@@ -818,16 +832,18 @@ export const ReagentTrackerView: React.FC = () => {
 
                         <td className="py-3 px-3 align-middle">
                           <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              type="button"
-                              disabled={isOut || isBusy}
-                              onClick={() => void handleAdjustStock(item, -1)}
-                              title="Decrease remaining tests by 1"
-                              className="inline-flex items-center gap-0.5 px-2 py-1 rounded border border-red-200 bg-white text-brand-red hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold font-mono transition-colors cursor-pointer"
-                            >
-                              <Minus className="w-3 h-3" />
-                              <span>1</span>
-                            </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                disabled={isOut || isBusy}
+                                onClick={() => void handleAdjustStock(item, -1)}
+                                title="Decrease remaining tests by 1"
+                                className="inline-flex items-center gap-0.5 px-2 py-1 rounded border border-red-200 bg-white text-brand-red hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold font-mono transition-colors cursor-pointer"
+                              >
+                                <Minus className="w-3 h-3" />
+                                <span>1</span>
+                              </button>
+                            )}
 
                             <span
                               className={`min-w-[3.25rem] text-center px-2 py-1 rounded border font-mono tabular-nums text-sm font-bold ${
@@ -839,16 +855,18 @@ export const ReagentTrackerView: React.FC = () => {
                               {remaining}
                             </span>
 
-                            <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => void handleAdjustStock(item, 1)}
-                              title="Increase remaining tests by 1"
-                              className="inline-flex items-center gap-0.5 px-2 py-1 rounded border border-teal-300 bg-teal-50 text-teal-800 hover:bg-teal-100 disabled:opacity-40 text-xs font-bold font-mono transition-colors cursor-pointer"
-                            >
-                              <Plus className="w-3 h-3" />
-                              <span>1</span>
-                            </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => void handleAdjustStock(item, 1)}
+                                title="Increase remaining tests by 1"
+                                className="inline-flex items-center gap-0.5 px-2 py-1 rounded border border-teal-300 bg-teal-50 text-teal-800 hover:bg-teal-100 disabled:opacity-40 text-xs font-bold font-mono transition-colors cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>1</span>
+                              </button>
+                            )}
                           </div>
                         </td>
 
@@ -888,21 +906,23 @@ export const ReagentTrackerView: React.FC = () => {
                           )}
                         </td>
 
-                        <td className="py-3 pl-3 pr-3 align-middle text-right">
-                          <button
-                            type="button"
-                            onClick={() => void handleDeleteReagent(item)}
-                            className={`p-1.5 transition-colors cursor-pointer ${
-                              needsAttention
-                                ? 'text-red-400 hover:text-red-700'
-                                : 'text-slate-400 hover:text-red-600'
-                            }`}
-                            title={`Remove ${item.name}`}
-                            aria-label={`Remove ${item.name}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
+                        {isAdmin && (
+                          <td className="py-3 pl-3 pr-3 align-middle text-right">
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteReagent(item)}
+                              className={`p-1.5 transition-colors cursor-pointer ${
+                                needsAttention
+                                  ? 'text-red-400 hover:text-red-700'
+                                  : 'text-slate-400 hover:text-red-600'
+                              }`}
+                              title={`Remove ${item.name}`}
+                              aria-label={`Remove ${item.name}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })

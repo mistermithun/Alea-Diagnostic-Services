@@ -16,6 +16,7 @@ import {
   getTodayDateStr,
   SEED_CATALOG,
 } from './clinical-rules.ts';
+import { getCanonicalReagentKey } from '../shared/reagentMatcher.ts';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 if (!fs.existsSync(DATA_DIR)) {
@@ -232,7 +233,7 @@ export function initDatabase() {
       total_tests INTEGER NOT NULL,
       remaining_tests INTEGER NOT NULL,
       expiry_date TEXT NOT NULL,
-      low_stock_threshold INTEGER NOT NULL DEFAULT 10,
+      low_stock_threshold INTEGER NOT NULL DEFAULT 5,
       created_by TEXT DEFAULT 'Staff',
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -249,6 +250,7 @@ export function initDatabase() {
   seedDefaultSettings();
   seedCatalogIfEmpty();
   syncExtendedCatalogV2();
+  syncLipidIndividualTestsV3();
   seedInitialOperationalDataIfEmpty();
   migrateCbcParameters();
   migrateUrineReParameters();
@@ -523,6 +525,8 @@ export function getAllSettings(): Record<string, string> {
       r.key === 'staff_password_hash' ||
       r.key === 'auth_secret' ||
       r.key === 'catalog_v2_synced' ||
+      r.key === 'catalog_lipid_v3_synced' ||
+      r.key === 'catalog_lipid_v4_synced' ||
       r.key === 'staff_discount_limit_100_migrated' ||
       r.key === 'cbc_params_v2_migrated' ||
       r.key === 'urine_params_v2_migrated'
@@ -565,7 +569,9 @@ function seedCatalogIfEmpty() {
   if (catCount > 0) return;
 
   const insCat = db.prepare('INSERT INTO test_categories (name, sort_order) VALUES (?, ?)');
-  const insTest = db.prepare('INSERT INTO tests (category_id, code, name, price, sample_type) VALUES (?, ?, ?, ?, ?)');
+  const insTest = db.prepare(
+    'INSERT INTO tests (category_id, code, name, price, sample_type, mapped_reagents) VALUES (?, ?, ?, ?, ?, ?)'
+  );
   const insParam = db.prepare(`
     INSERT INTO test_parameters (
       test_id, name, unit, input_type, normal_text, default_value, select_options, abnormal_values,
@@ -578,7 +584,8 @@ function seedCatalogIfEmpty() {
       const catRes = insCat.run(group.category, group.sort_order);
       const catId = Number(catRes.lastInsertRowid);
       for (const t of group.tests) {
-        const testRes = insTest.run(catId, t.code, t.name, t.price, t.sample_type);
+        const mappedJson = JSON.stringify(Array.isArray(t.mapped_reagents) ? t.mapped_reagents : []);
+        const testRes = insTest.run(catId, t.code, t.name, t.price, t.sample_type, mappedJson);
         const testId = Number(testRes.lastInsertRowid);
         t.parameters.forEach((p, idx) => {
           insParam.run(
@@ -620,7 +627,7 @@ function syncExtendedCatalogV2() {
     'SELECT id FROM tests WHERE LOWER(code) = LOWER(?) OR LOWER(name) = LOWER(?)'
   );
   const insTest = db.prepare(
-    'INSERT INTO tests (category_id, code, name, price, sample_type, is_active) VALUES (?, ?, ?, ?, ?, 1)'
+    'INSERT INTO tests (category_id, code, name, price, sample_type, is_active, mapped_reagents) VALUES (?, ?, ?, ?, ?, 1, ?)'
   );
   const insParam = db.prepare(`
     INSERT INTO test_parameters (
@@ -641,7 +648,8 @@ function syncExtendedCatalogV2() {
         const existing = findTestByCodeOrName.get(t.code, t.name) as { id: number } | undefined;
         if (existing) continue;
 
-        const testRes = insTest.run(catRow.id, t.code, t.name, t.price, t.sample_type);
+        const mappedJson = JSON.stringify(Array.isArray(t.mapped_reagents) ? t.mapped_reagents : []);
+        const testRes = insTest.run(catRow.id, t.code, t.name, t.price, t.sample_type, mappedJson);
         const testId = Number(testRes.lastInsertRowid);
         t.parameters.forEach((p, idx) => {
           insParam.run(
@@ -667,6 +675,130 @@ function syncExtendedCatalogV2() {
       }
     }
     db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('catalog_v2_synced', '1')`).run();
+  });
+  tx();
+}
+
+function syncLipidIndividualTestsV3() {
+  const flagRow = db.prepare(`SELECT value FROM settings WHERE key = 'catalog_lipid_v4_synced'`).get() as
+    | { value: string }
+    | undefined;
+  if (flagRow?.value === '1') return;
+
+  const biochemGroup = SEED_CATALOG.find(
+    (g) => g.category.trim().toLowerCase() === 'biochemistry'
+  );
+  if (!biochemGroup) {
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('catalog_lipid_v4_synced', '1')`).run();
+    return;
+  }
+
+  const getCatByName = db.prepare('SELECT id FROM test_categories WHERE LOWER(name) = LOWER(?)');
+  const insCat = db.prepare('INSERT INTO test_categories (name, sort_order) VALUES (?, ?)');
+  const insTest = db.prepare(
+    'INSERT INTO tests (category_id, code, name, price, sample_type, is_active, mapped_reagents) VALUES (?, ?, ?, ?, ?, 1, ?)'
+  );
+  const insParam = db.prepare(`
+    INSERT INTO test_parameters (
+      test_id, name, unit, input_type, normal_text, default_value, select_options, abnormal_values,
+      min_male, max_male, min_female, max_female, min_child, max_child, min_newborn, max_newborn, sort_order
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const tx = db.transaction(() => {
+    let catRow = getCatByName.get(biochemGroup.category) as { id: number } | undefined;
+    if (!catRow) {
+      const res = insCat.run(biochemGroup.category, biochemGroup.sort_order);
+      catRow = { id: Number(res.lastInsertRowid) };
+    }
+
+    const existingTests = db
+      .prepare('SELECT id, code, name, mapped_reagents FROM tests')
+      .all() as Array<{ id: number; code: string; name: string; mapped_reagents: string }>;
+    const existingCodes = new Set(existingTests.map((t) => t.code.trim().toLowerCase()));
+    const existingNames = new Set(existingTests.map((t) => t.name.trim().toLowerCase()));
+    const existingCanonicalKeys = new Set(
+      existingTests.map((t) => getCanonicalReagentKey(t.name)).filter(Boolean)
+    );
+
+    const allocateNextBioCode = (preferredCode: string): string => {
+      if (!existingCodes.has(preferredCode.trim().toLowerCase())) {
+        return preferredCode;
+      }
+      let num = 14;
+      while (existingCodes.has(`bio-${String(num).padStart(2, '0')}`)) {
+        num += 1;
+      }
+      return `BIO-${String(num).padStart(2, '0')}`;
+    };
+
+    const lipidProfileSeed = biochemGroup.tests.find((t) => t.code === 'BIO-04');
+    if (lipidProfileSeed) {
+      const existingLipidProfile = existingTests.find(
+        (t) =>
+          t.code.trim().toLowerCase() === 'bio-04' ||
+          getCanonicalReagentKey(t.name) === 'reagent:panel_lipid_profile'
+      );
+      if (existingLipidProfile) {
+        let parsedMapped: string[] = [];
+        try {
+          const parsed = JSON.parse(existingLipidProfile.mapped_reagents || '[]');
+          if (Array.isArray(parsed)) parsedMapped = parsed;
+        } catch {
+          parsedMapped = [];
+        }
+        if (parsedMapped.length === 0) {
+          db.prepare('UPDATE tests SET mapped_reagents = ? WHERE id = ?').run(
+            JSON.stringify(lipidProfileSeed.mapped_reagents || []),
+            existingLipidProfile.id
+          );
+        }
+      }
+    }
+
+    const individualCodes = new Set(['BIO-14', 'BIO-15', 'BIO-16', 'BIO-17']);
+    for (const t of biochemGroup.tests) {
+      if (!individualCodes.has(t.code)) continue;
+      const canonicalKey = getCanonicalReagentKey(t.name);
+      if (
+        existingNames.has(t.name.trim().toLowerCase()) ||
+        (canonicalKey && existingCanonicalKeys.has(canonicalKey))
+      ) {
+        continue;
+      }
+
+      const assignedCode = allocateNextBioCode(t.code);
+      const mappedJson = JSON.stringify(Array.isArray(t.mapped_reagents) ? t.mapped_reagents : []);
+      const testRes = insTest.run(catRow.id, assignedCode, t.name, t.price, t.sample_type, mappedJson);
+      const testId = Number(testRes.lastInsertRowid);
+      existingCodes.add(assignedCode.trim().toLowerCase());
+      existingNames.add(t.name.trim().toLowerCase());
+      if (canonicalKey) existingCanonicalKeys.add(canonicalKey);
+
+      t.parameters.forEach((p, idx) => {
+        insParam.run(
+          testId,
+          p.name,
+          p.unit || '',
+          p.input_type || 'numeric',
+          p.normal_text || '',
+          p.default_value ?? '',
+          p.select_options || '',
+          p.abnormal_values || '',
+          p.min_male ?? null,
+          p.max_male ?? null,
+          p.min_female ?? p.min_male ?? null,
+          p.max_female ?? p.max_male ?? null,
+          p.min_child ?? null,
+          p.max_child ?? null,
+          p.min_newborn ?? null,
+          p.max_newborn ?? null,
+          idx + 1
+        );
+      });
+    }
+
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('catalog_lipid_v4_synced', '1')`).run();
   });
   tx();
 }

@@ -42,7 +42,12 @@ import { ReportPrintModal } from './components/ReportPrintModal.tsx';
 import { AdminLoginView, StaffLoginView } from './components/RoleLoginViews.tsx';
 import { SettingsBackupView } from './components/SettingsBackupView.tsx';
 import { TestCatalogView } from './components/TestCatalogView.tsx';
-import { attachLabTokenResponder, broadcastLabSignOut } from './lib/liveSync.ts';
+import {
+  attachLabTokenResponder,
+  broadcastLabSignOut,
+  LIVE_SYNC_CHANNEL,
+  type LiveSyncMessage,
+} from './lib/liveSync.ts';
 import {
   apiFetch,
   clearLabTokens,
@@ -51,6 +56,7 @@ import {
   getDoctorToken,
   getLabToken,
   getPatientToken,
+  getTodayISO,
   patientApiFetch,
   resolvePublicBaseUrl,
   setDoctorToken,
@@ -62,11 +68,16 @@ import {
   warmOfflineCache,
 } from './lib/offlineEngine.ts';
 import {
+  countReagentsNeedingAttention,
+  PATIENTS_UPDATED_LOCAL_EVENT,
+  REAGENT_ALERTS_UPDATED_EVENT,
+} from './lib/reagentAlerts.ts';
+import {
   SampleTimerNotificationTray,
   SampleTimerProvider,
   TopBarTimerSummary,
 } from './lib/sampleTimers.tsx';
-import type { FullInvoice, LabSettings, NavTab, SystemInfo } from './types.ts';
+import type { FullInvoice, LabSettings, NavTab, ReagentItem, SystemInfo } from './types.ts';
 
 type AppRoute =
   | 'landing'
@@ -227,6 +238,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [selectedPayoutDoctorId, setSelectedPayoutDoctorId] = useState<number | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [reagentAlertCount, setReagentAlertCount] = useState(0);
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo>({
     settings: DEFAULT_SETTINGS,
@@ -347,6 +359,60 @@ export default function App() {
   useEffect(() => {
     bootstrap();
   }, [bootstrap]);
+
+  const refreshReagentAlerts = useCallback(async () => {
+    if (labAuthStatus !== 'admin' && labAuthStatus !== 'staff') {
+      setReagentAlertCount(0);
+      return;
+    }
+    try {
+      const res = await apiFetch<{ reagents: ReagentItem[] }>('/api/reagents');
+      setReagentAlertCount(countReagentsNeedingAttention(res.reagents || [], getTodayISO()));
+    } catch {
+      // ignore transient errors; existing badge count remains until next fetch
+    }
+  }, [labAuthStatus]);
+
+  useEffect(() => {
+    void refreshReagentAlerts();
+    if (labAuthStatus !== 'admin' && labAuthStatus !== 'staff') return;
+
+    const onCustomAlertCount = (event: Event) => {
+      const custom = event as CustomEvent<{ count?: number }>;
+      if (typeof custom.detail?.count === 'number') {
+        setReagentAlertCount(custom.detail.count);
+      }
+    };
+    const onRefreshNeeded = () => {
+      void refreshReagentAlerts();
+    };
+
+    window.addEventListener(REAGENT_ALERTS_UPDATED_EVENT, onCustomAlertCount);
+    window.addEventListener(OFFLINE_SYNCED_EVENT, onRefreshNeeded);
+    window.addEventListener(PATIENTS_UPDATED_LOCAL_EVENT, onRefreshNeeded);
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        channel = new BroadcastChannel(LIVE_SYNC_CHANNEL);
+        channel.onmessage = (event) => {
+          const data = event.data as Partial<LiveSyncMessage> | null;
+          if (data?.type === 'PATIENTS_UPDATED') {
+            void refreshReagentAlerts();
+          }
+        };
+      } catch {
+        channel = null;
+      }
+    }
+
+    return () => {
+      window.removeEventListener(REAGENT_ALERTS_UPDATED_EVENT, onCustomAlertCount);
+      window.removeEventListener(OFFLINE_SYNCED_EVENT, onRefreshNeeded);
+      window.removeEventListener(PATIENTS_UPDATED_LOCAL_EVENT, onRefreshNeeded);
+      channel?.close();
+    };
+  }, [labAuthStatus, refreshReagentAlerts]);
 
   useEffect(() => {
     const onLocationChange = () => {
@@ -872,14 +938,25 @@ export default function App() {
                     setMobileMenuOpen(false);
                     setActiveTab(item.id);
                   }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
                     active
                       ? 'bg-white text-brand-navy font-semibold shadow-sm'
                       : 'text-slate-200 hover:bg-brand-navy-light hover:text-white'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-brand-red' : ''}`} />
-                  <span>{staffOrAdminNavLabel(item)}</span>
+                  <span className="flex items-center gap-3 min-w-0">
+                    <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-brand-red' : ''}`} />
+                    <span className="truncate">{staffOrAdminNavLabel(item)}</span>
+                  </span>
+                  {item.id === 'reagents' && reagentAlertCount > 0 && (
+                    <span
+                      title={`${reagentAlertCount} reagent${reagentAlertCount === 1 ? '' : 's'} need attention (low stock or expiring/expired)`}
+                      aria-label={`${reagentAlertCount} reagent alerts`}
+                      className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-brand-red text-white text-[11px] font-bold font-mono tabular-nums leading-none shrink-0"
+                    >
+                      {reagentAlertCount}
+                    </span>
+                  )}
                 </button>
               );
             })}

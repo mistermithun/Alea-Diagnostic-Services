@@ -11,15 +11,14 @@ import {
 import { apiFetch, getTodayISO } from '../lib/api.ts';
 import { LIVE_SYNC_CHANNEL, type LiveSyncMessage } from '../lib/liveSync.ts';
 import { OFFLINE_SYNCED_EVENT } from '../lib/offlineEngine.ts';
+import {
+  computeDaysUntilExpiry,
+  countReagentsNeedingAttention,
+  dispatchReagentAlertsCount,
+  doesReagentNeedAttention,
+  PATIENTS_UPDATED_LOCAL_EVENT,
+} from '../lib/reagentAlerts.ts';
 import type { ReagentItem } from '../types.ts';
-
-function computeDaysUntilExpiry(expiryDate: string, todayIso: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test((expiryDate || '').trim())) return null;
-  const expMs = Date.parse(`${expiryDate.trim()}T00:00:00Z`);
-  const todayMs = Date.parse(`${todayIso}T00:00:00Z`);
-  if (Number.isNaN(expMs) || Number.isNaN(todayMs)) return null;
-  return Math.round((expMs - todayMs) / (1000 * 60 * 60 * 24));
-}
 
 function formatExpiryReadable(expiryDate: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test((expiryDate || '').trim())) return expiryDate || '—';
@@ -66,10 +65,11 @@ export const ReagentTrackerView: React.FC = () => {
 
   useEffect(() => {
     void loadReagents();
-    const onOfflineSynced = () => {
+    const onRefresh = () => {
       void loadReagents();
     };
-    window.addEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    window.addEventListener(OFFLINE_SYNCED_EVENT, onRefresh);
+    window.addEventListener(PATIENTS_UPDATED_LOCAL_EVENT, onRefresh);
 
     let channel: BroadcastChannel | null = null;
     if (typeof BroadcastChannel !== 'undefined') {
@@ -87,10 +87,17 @@ export const ReagentTrackerView: React.FC = () => {
     }
 
     return () => {
-      window.removeEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+      window.removeEventListener(OFFLINE_SYNCED_EVENT, onRefresh);
+      window.removeEventListener(PATIENTS_UPDATED_LOCAL_EVENT, onRefresh);
       channel?.close();
     };
   }, [loadReagents]);
+
+  useEffect(() => {
+    if (!loading) {
+      dispatchReagentAlertsCount(countReagentsNeedingAttention(reagents, todayIso));
+    }
+  }, [reagents, todayIso, loading]);
 
   const handleTotalTestsChange = (val: string) => {
     setTotalTests(val);
@@ -233,10 +240,7 @@ export const ReagentTrackerView: React.FC = () => {
     return reagents.filter((r) => {
       if (q && !r.name.toLowerCase().includes(q)) return false;
       if (alertsOnly) {
-        const isLow = Number(r.remaining_tests) <= Number(r.low_stock_threshold ?? 10);
-        const daysLeft = computeDaysUntilExpiry(r.expiry_date, todayIso);
-        const isExpAlert = daysLeft !== null && daysLeft <= 30;
-        return isLow || isExpAlert;
+        return doesReagentNeedAttention(r, todayIso);
       }
       return true;
     });
@@ -252,7 +256,7 @@ export const ReagentTrackerView: React.FC = () => {
             <span>Reagent Inventory Tracker</span>
           </h1>
           <p className="text-sm text-slate-600 mt-0.5">
-            Track diagnostic reagent kits, remaining test capacity, expiry dates, and low-stock alert thresholds.
+            Track diagnostic reagent kits, remaining test capacity, expiry countdowns, and low-stock alert thresholds.
           </p>
         </div>
 
@@ -282,14 +286,14 @@ export const ReagentTrackerView: React.FC = () => {
           <div
             className={`border rounded-lg px-3.5 py-2 text-right ${
               summary.expiringOrExpiredCount > 0
-                ? 'bg-amber-50 border-amber-200'
+                ? 'bg-red-50 border-red-200'
                 : 'bg-white border-slate-200'
             }`}
           >
             <div className="text-[11px] font-medium text-slate-600">Expiring &le;30d</div>
             <div
               className={`text-lg font-bold font-mono tabular-nums ${
-                summary.expiringOrExpiredCount > 0 ? 'text-amber-700' : 'text-slate-700'
+                summary.expiringOrExpiredCount > 0 ? 'text-brand-red' : 'text-slate-700'
               }`}
             >
               {summary.expiringOrExpiredCount}
@@ -454,19 +458,20 @@ export const ReagentTrackerView: React.FC = () => {
                   <th className="py-2.5 px-3 font-semibold text-center">Remaining Tests</th>
                   <th className="py-2.5 px-3 font-semibold text-center">Alert At</th>
                   <th className="py-2.5 px-3 font-semibold">Expiry Date</th>
+                  <th className="py-2.5 px-3 font-semibold text-center whitespace-nowrap">Days Left</th>
                   <th className="py-2.5 pl-3 pr-3 font-semibold text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="py-10 text-center text-sm text-slate-500">
+                    <td colSpan={7} className="py-10 text-center text-sm text-slate-500">
                       Loading reagent inventory...
                     </td>
                   </tr>
                 ) : visibleReagents.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-10 text-center text-sm text-slate-500">
+                    <td colSpan={7} className="py-10 text-center text-sm text-slate-500">
                       {reagents.length === 0
                         ? 'No reagent kits added yet. Use the form on the left to add your first reagent.'
                         : 'No reagent items match your current filter.'}
@@ -484,28 +489,33 @@ export const ReagentTrackerView: React.FC = () => {
                     const daysLeft = computeDaysUntilExpiry(item.expiry_date, todayIso);
                     const isExpired = daysLeft !== null && daysLeft < 0;
                     const isExpiringSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 30;
+                    const needsAttention = isLowStock || isExpired || isExpiringSoon;
                     const isBusy = adjustingIds.has(item.id);
 
                     return (
                       <tr
                         key={item.id}
                         className={`transition-colors ${
-                          isExpired || isOut
-                            ? 'bg-red-50/50 hover:bg-red-50/80'
-                            : isLowStock || isExpiringSoon
-                              ? 'bg-amber-50/40 hover:bg-amber-50/70'
-                              : 'hover:bg-slate-50'
+                          needsAttention
+                            ? 'bg-red-50 hover:bg-red-100/80'
+                            : 'hover:bg-slate-50'
                         }`}
                       >
                         <td className="py-3 pl-3 pr-3 align-middle">
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="font-semibold text-slate-900">{item.name}</span>
+                            <span
+                              className={`font-semibold ${
+                                needsAttention ? 'text-red-950' : 'text-slate-900'
+                              }`}
+                            >
+                              {item.name}
+                            </span>
                             {isOut ? (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 border border-red-300 text-[10.5px] font-bold text-brand-red">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 border border-red-300 text-[10.5px] font-bold text-red-800">
                                 Out of Stock
                               </span>
                             ) : isLowStock ? (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-50 border border-red-200 text-[10.5px] font-semibold text-brand-red">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 border border-red-300 text-[10.5px] font-semibold text-red-800">
                                 <AlertTriangle className="w-3 h-3" />
                                 Low Stock
                               </span>
@@ -515,17 +525,21 @@ export const ReagentTrackerView: React.FC = () => {
                                 Expired
                               </span>
                             ) : isExpiringSoon ? (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-[10.5px] font-semibold text-amber-800">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 border border-red-300 text-[10.5px] font-semibold text-red-800">
                                 <CalendarClock className="w-3 h-3" />
-                                {daysLeft === 0 ? 'Expires Today' : `${daysLeft}d left`}
+                                Expiring Soon
                               </span>
                             ) : null}
                           </div>
 
-                          <div className="mt-1.5 w-36 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className={`mt-1.5 w-36 h-1.5 rounded-full overflow-hidden ${
+                              needsAttention ? 'bg-red-200/80' : 'bg-slate-200'
+                            }`}
+                          >
                             <div
                               className={`h-full transition-all ${
-                                isOut || isLowStock
+                                needsAttention
                                   ? 'bg-brand-red'
                                   : pct <= 35
                                     ? 'bg-amber-500'
@@ -547,7 +561,7 @@ export const ReagentTrackerView: React.FC = () => {
                               disabled={isOut || isBusy}
                               onClick={() => void handleAdjustStock(item, -1)}
                               title="Decrease remaining tests by 1"
-                              className="inline-flex items-center gap-0.5 px-2 py-1 rounded border border-red-200 bg-red-50 text-brand-red hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold font-mono transition-colors cursor-pointer"
+                              className="inline-flex items-center gap-0.5 px-2 py-1 rounded border border-red-200 bg-white text-brand-red hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold font-mono transition-colors cursor-pointer"
                             >
                               <Minus className="w-3 h-3" />
                               <span>1</span>
@@ -556,7 +570,7 @@ export const ReagentTrackerView: React.FC = () => {
                             <span
                               className={`min-w-[3.25rem] text-center px-2 py-1 rounded border font-mono tabular-nums text-sm font-bold ${
                                 isLowStock
-                                  ? 'bg-red-50 border-red-200 text-brand-red'
+                                  ? 'bg-red-100 border-red-300 text-red-800'
                                   : 'bg-slate-50 border-slate-200 text-brand-navy'
                               }`}
                             >
@@ -583,22 +597,44 @@ export const ReagentTrackerView: React.FC = () => {
                         <td className="py-3 px-3 align-middle whitespace-nowrap">
                           <div
                             className={`font-mono tabular-nums text-xs font-semibold ${
-                              isExpired
-                                ? 'text-red-700'
-                                : isExpiringSoon
-                                  ? 'text-amber-700'
-                                  : 'text-slate-700'
+                              isExpired || isExpiringSoon ? 'text-red-700' : 'text-slate-700'
                             }`}
                           >
                             {formatExpiryReadable(item.expiry_date)}
                           </div>
                         </td>
 
+                        <td className="py-3 px-3 align-middle text-center whitespace-nowrap">
+                          {daysLeft === null ? (
+                            <span className="font-mono text-xs text-slate-400">—</span>
+                          ) : daysLeft < 0 ? (
+                            <span className="font-mono tabular-nums text-xs font-bold text-red-700">
+                              Expired ({Math.abs(daysLeft)}d ago)
+                            </span>
+                          ) : daysLeft === 0 ? (
+                            <span className="font-mono tabular-nums text-xs font-bold text-red-700">
+                              0d (Today)
+                            </span>
+                          ) : daysLeft <= 30 ? (
+                            <span className="font-mono tabular-nums text-xs font-bold text-red-700">
+                              {daysLeft} {daysLeft === 1 ? 'day' : 'days'}
+                            </span>
+                          ) : (
+                            <span className="font-mono tabular-nums text-xs font-semibold text-emerald-700">
+                              {daysLeft} days
+                            </span>
+                          )}
+                        </td>
+
                         <td className="py-3 pl-3 pr-3 align-middle text-right">
                           <button
                             type="button"
                             onClick={() => void handleDeleteReagent(item)}
-                            className="p-1.5 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+                            className={`p-1.5 transition-colors cursor-pointer ${
+                              needsAttention
+                                ? 'text-red-400 hover:text-red-700'
+                                : 'text-slate-400 hover:text-red-600'
+                            }`}
                             title={`Remove ${item.name}`}
                             aria-label={`Remove ${item.name}`}
                           >

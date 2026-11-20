@@ -1,4 +1,5 @@
 import { getAdminToken, getStaffToken } from './api.ts';
+import { PATIENTS_UPDATED_LOCAL_EVENT } from './reagentAlerts.ts';
 import type { SampleTimerEntry } from './sampleTimers.tsx';
 
 export const LIVE_SYNC_CHANNEL = 'alea_lims_live_sync';
@@ -25,6 +26,9 @@ function postToChannel(msg: LiveSyncMessage) {
 export function broadcastPatientsUpdated() {
   const msg: LiveSyncMessage = { type: 'PATIENTS_UPDATED', at: Date.now() };
   postToChannel(msg);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(PATIENTS_UPDATED_LOCAL_EVENT));
+  }
   if (typeof window !== 'undefined' && window.opener && window.opener !== window) {
     try {
       window.opener.postMessage(msg, window.location.origin);

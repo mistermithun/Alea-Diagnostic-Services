@@ -34,6 +34,7 @@ import {
   type UpdateInvoicePayload,
   type UpdateLabResultsPayload,
 } from './store-types.ts';
+import { selectFefoReagentBatchesForTest } from '../shared/reagentMatcher.ts';
 
 interface CounterDoc {
   _id: string;
@@ -244,6 +245,10 @@ interface OtherRevenueDoc {
 interface ReagentDoc {
   id: number;
   name: string;
+  linked_test_id?: number | null;
+  linked_test_name?: string;
+  linked_parameter_id?: number | null;
+  linked_parameter_name?: string;
   total_tests: number;
   remaining_tests: number;
   expiry_date: string;
@@ -2819,18 +2824,31 @@ export class MongoLimsStore implements LimsStore {
   }
 
   private async deductReagentsFefo(
-    mappedReagentsRaw: unknown,
+    test: { id: number; name: string; code?: string; mapped_reagents?: unknown },
+    params: Array<{ id?: number; name: string }>,
     nowTs: string
   ): Promise<ReagentDeductionRecord[]> {
-    const names = normalizeMappedReagents(mappedReagentsRaw);
-    if (names.length === 0) return [];
+    const availableBatches = await this.reagentsCol
+      .find({ remaining_tests: { $gt: 0 } }, { projection: { _id: 0 } })
+      .sort({ expiry_date: 1, id: 1 })
+      .toArray();
+    if (availableBatches.length === 0) return [];
+
+    const selected = selectFefoReagentBatchesForTest(availableBatches, {
+      test_id: test.id,
+      test_name: test.name,
+      test_code: test.code,
+      mapped_reagents: normalizeMappedReagents(test.mapped_reagents),
+      parameters: params.map((p) => ({ id: p.id, name: p.name })),
+    });
+    if (selected.length === 0) return [];
+
     const deductions: ReagentDeductionRecord[] = [];
-    for (const reagentName of names) {
-      const pattern = new RegExp(`^\\s*${escapeRegex(reagentName)}\\s*$`, 'i');
+    for (const batch of selected) {
       const updated = await this.reagentsCol.findOneAndUpdate(
-        { name: { $regex: pattern }, remaining_tests: { $gt: 0 } },
+        { id: batch.id, remaining_tests: { $gt: 0 } },
         { $inc: { remaining_tests: -1 }, $set: { updated_at: nowTs } },
-        { sort: { expiry_date: 1, id: 1 }, returnDocument: 'after', projection: { _id: 0 } }
+        { returnDocument: 'after', projection: { _id: 0 } }
       );
       if (updated) {
         deductions.push({
@@ -2999,7 +3017,11 @@ export class MongoLimsStore implements LimsStore {
     for (const t of selectedTestDocs) {
       const invoiceTestId = await this.nextSeq('invoice_tests');
       const tc = computedComm.perTestMap.get(t.id);
-      const deductions = await this.deductReagentsFefo(t.mapped_reagents, nowTs);
+      const params = await this.paramsCol
+        .find({ test_id: t.id }, { projection: { _id: 0 } })
+        .sort({ sort_order: 1, id: 1 })
+        .toArray();
+      const deductions = await this.deductReagentsFefo(t, params, nowTs);
       await this.invoiceTestsCol.insertOne({
         id: invoiceTestId,
         invoice_id: invoiceId,
@@ -3020,11 +3042,6 @@ export class MongoLimsStore implements LimsStore {
         consultant_name: '',
         consultant_title: '',
       });
-
-      const params = await this.paramsCol
-        .find({ test_id: t.id }, { projection: { _id: 0 } })
-        .sort({ sort_order: 1, id: 1 })
-        .toArray();
       for (const param of params) {
         const initialVal = param.default_value || '';
         const evalRes = evaluateResultFlag(
@@ -3280,7 +3297,11 @@ export class MongoLimsStore implements LimsStore {
     for (const t of testsToAdd) {
       const invoiceTestId = await this.nextSeq('invoice_tests');
       const tc = computedComm.perTestMap.get(t.id);
-      const deductions = await this.deductReagentsFefo(t.mapped_reagents, nowTs);
+      const params = await this.paramsCol
+        .find({ test_id: t.id }, { projection: { _id: 0 } })
+        .sort({ sort_order: 1, id: 1 })
+        .toArray();
+      const deductions = await this.deductReagentsFefo(t, params, nowTs);
       await this.invoiceTestsCol.insertOne({
         id: invoiceTestId,
         invoice_id: payload.invoiceId,
@@ -3301,11 +3322,6 @@ export class MongoLimsStore implements LimsStore {
         consultant_name: '',
         consultant_title: '',
       });
-
-      const params = await this.paramsCol
-        .find({ test_id: t.id }, { projection: { _id: 0 } })
-        .sort({ sort_order: 1, id: 1 })
-        .toArray();
       for (const param of params) {
         const initialVal = param.default_value || '';
         const evalRes = evaluateResultFlag(
@@ -4241,6 +4257,10 @@ export class MongoLimsStore implements LimsStore {
 
   async createReagent(payload: {
     name: string;
+    linked_test_id?: number | null;
+    linked_test_name?: string;
+    linked_parameter_id?: number | null;
+    linked_parameter_name?: string;
     total_tests: number;
     remaining_tests: number;
     expiry_date: string;
@@ -4267,6 +4287,18 @@ export class MongoLimsStore implements LimsStore {
     const doc: ReagentDoc = {
       id,
       name: cleanName,
+      linked_test_id:
+        payload.linked_test_id !== undefined && payload.linked_test_id !== null && Number(payload.linked_test_id) > 0
+          ? Number(payload.linked_test_id)
+          : null,
+      linked_test_name: payload.linked_test_name?.trim() || '',
+      linked_parameter_id:
+        payload.linked_parameter_id !== undefined &&
+        payload.linked_parameter_id !== null &&
+        Number(payload.linked_parameter_id) > 0
+          ? Number(payload.linked_parameter_id)
+          : null,
+      linked_parameter_name: payload.linked_parameter_name?.trim() || '',
       total_tests: totalTests,
       remaining_tests: remainingTests,
       expiry_date: expiryDate,

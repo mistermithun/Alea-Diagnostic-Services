@@ -1,12 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CalendarClock,
+  Check,
+  ChevronDown,
+  Link2,
   Minus,
   Package,
   Plus,
   Search,
   Trash2,
+  X,
 } from 'lucide-react';
 import { apiFetch, getTodayISO } from '../lib/api.ts';
 import { LIVE_SYNC_CHANNEL, type LiveSyncMessage } from '../lib/liveSync.ts';
@@ -18,7 +22,11 @@ import {
   doesReagentNeedAttention,
   PATIENTS_UPDATED_LOCAL_EVENT,
 } from '../lib/reagentAlerts.ts';
-import type { ReagentItem } from '../types.ts';
+import {
+  buildCatalogReagentOptions,
+  type CatalogReagentOption,
+} from '../../shared/reagentMatcher.ts';
+import type { DiagnosticTest, ReagentItem } from '../types.ts';
 
 function formatExpiryReadable(expiryDate: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test((expiryDate || '').trim())) return expiryDate || '—';
@@ -32,15 +40,27 @@ function formatExpiryReadable(expiryDate: string): string {
   });
 }
 
+interface LinkedCatalogSelection {
+  linked_test_id: number;
+  linked_test_name: string;
+  linked_parameter_id: number | null;
+  linked_parameter_name: string;
+}
+
 export const ReagentTrackerView: React.FC = () => {
   const todayIso = getTodayISO();
   const [reagents, setReagents] = useState<ReagentItem[]>([]);
+  const [catalogTests, setCatalogTests] = useState<DiagnosticTest[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [alertsOnly, setAlertsOnly] = useState(false);
 
   // Add Reagent Form State
   const [name, setName] = useState('');
+  const [selectedLink, setSelectedLink] = useState<LinkedCatalogSelection | null>(null);
+  const [selectorOpen, setSelectorOpen] = useState(false);
+  const selectorContainerRef = useRef<HTMLDivElement>(null);
+
   const [totalTests, setTotalTests] = useState('100');
   const [remainingTests, setRemainingTests] = useState('100');
   const [remainingTouched, setRemainingTouched] = useState(false);
@@ -54,8 +74,16 @@ export const ReagentTrackerView: React.FC = () => {
 
   const loadReagents = useCallback(async () => {
     try {
-      const res = await apiFetch<{ reagents: ReagentItem[] }>('/api/reagents');
-      setReagents(res.reagents || []);
+      const [reagentRes, catalogRes] = await Promise.all([
+        apiFetch<{ reagents: ReagentItem[] }>('/api/reagents'),
+        apiFetch<{ tests: DiagnosticTest[] }>('/api/catalog').catch(() => ({
+          tests: [] as DiagnosticTest[],
+        })),
+      ]);
+      setReagents(reagentRes.reagents || []);
+      if (Array.isArray(catalogRes?.tests)) {
+        setCatalogTests(catalogRes.tests);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load reagent inventory.');
     } finally {
@@ -99,6 +127,53 @@ export const ReagentTrackerView: React.FC = () => {
     }
   }, [reagents, todayIso, loading]);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        selectorContainerRef.current &&
+        !selectorContainerRef.current.contains(event.target as Node)
+      ) {
+        setSelectorOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const catalogOptions = useMemo(() => buildCatalogReagentOptions(catalogTests), [catalogTests]);
+
+  const filteredCatalogOptions = useMemo(() => {
+    const q = name.trim().toLowerCase();
+    if (!q) return catalogOptions;
+    const tokens = q.split(/\s+/).filter(Boolean);
+    return catalogOptions.filter((opt) => tokens.every((tok) => opt.searchText.includes(tok)));
+  }, [catalogOptions, name]);
+
+  const groupedSelectorOptions = useMemo(() => {
+    const paramOptions = filteredCatalogOptions.filter((o) => o.kind === 'parameter');
+    const testOptions = filteredCatalogOptions.filter((o) => o.kind === 'test');
+    return { paramOptions, testOptions };
+  }, [filteredCatalogOptions]);
+
+  const handleSelectCatalogOption = (opt: CatalogReagentOption) => {
+    setName(opt.displayName);
+    setSelectedLink({
+      linked_test_id: opt.linked_test_id,
+      linked_test_name: opt.linked_test_name,
+      linked_parameter_id: opt.linked_parameter_id,
+      linked_parameter_name: opt.linked_parameter_name,
+    });
+    setSelectorOpen(false);
+  };
+
+  const handleReagentNameInputChange = (val: string) => {
+    setName(val);
+    setSelectorOpen(true);
+    if (!val.trim()) {
+      setSelectedLink(null);
+    }
+  };
+
   const handleTotalTestsChange = (val: string) => {
     setTotalTests(val);
     if (!remainingTouched) {
@@ -119,7 +194,10 @@ export const ReagentTrackerView: React.FC = () => {
     const cleanName = name.trim();
     const totalNum = Math.round(Number(totalTests || 0));
     const remNum = Math.round(Number(remainingTests === '' ? totalNum : remainingTests));
-    const thresholdNum = Math.max(0, Math.round(Number(lowStockThreshold === '' ? 10 : lowStockThreshold)));
+    const thresholdNum = Math.max(
+      0,
+      Math.round(Number(lowStockThreshold === '' ? 10 : lowStockThreshold))
+    );
 
     if (!cleanName) {
       setError('Reagent Name is required.');
@@ -138,12 +216,32 @@ export const ReagentTrackerView: React.FC = () => {
       return;
     }
 
+    // If user typed an exact catalog match without clicking the dropdown, auto-attach its link metadata
+    let resolvedLink = selectedLink;
+    if (!resolvedLink) {
+      const exactMatch = catalogOptions.find(
+        (opt) => opt.displayName.trim().toLowerCase() === cleanName.toLowerCase()
+      );
+      if (exactMatch) {
+        resolvedLink = {
+          linked_test_id: exactMatch.linked_test_id,
+          linked_test_name: exactMatch.linked_test_name,
+          linked_parameter_id: exactMatch.linked_parameter_id,
+          linked_parameter_name: exactMatch.linked_parameter_name,
+        };
+      }
+    }
+
     setSaving(true);
     try {
       await apiFetch<{ reagent: ReagentItem }>('/api/reagents', {
         method: 'POST',
         body: JSON.stringify({
           name: cleanName,
+          linked_test_id: resolvedLink?.linked_test_id ?? null,
+          linked_test_name: resolvedLink?.linked_test_name ?? '',
+          linked_parameter_id: resolvedLink?.linked_parameter_id ?? null,
+          linked_parameter_name: resolvedLink?.linked_parameter_name ?? '',
           total_tests: totalNum,
           remaining_tests: remNum,
           expiry_date: expiryDate.trim(),
@@ -151,6 +249,8 @@ export const ReagentTrackerView: React.FC = () => {
         }),
       });
       setName('');
+      setSelectedLink(null);
+      setSelectorOpen(false);
       setTotalTests('100');
       setRemainingTests('100');
       setRemainingTouched(false);
@@ -238,7 +338,14 @@ export const ReagentTrackerView: React.FC = () => {
   const visibleReagents = useMemo(() => {
     const q = search.trim().toLowerCase();
     return reagents.filter((r) => {
-      if (q && !r.name.toLowerCase().includes(q)) return false;
+      if (
+        q &&
+        !r.name.toLowerCase().includes(q) &&
+        !(r.linked_test_name || '').toLowerCase().includes(q) &&
+        !(r.linked_parameter_name || '').toLowerCase().includes(q)
+      ) {
+        return false;
+      }
       if (alertsOnly) {
         return doesReagentNeedAttention(r, todayIso);
       }
@@ -256,7 +363,7 @@ export const ReagentTrackerView: React.FC = () => {
             <span>Reagent Inventory Tracker</span>
           </h1>
           <p className="text-sm text-slate-600 mt-0.5">
-            Track diagnostic reagent kits, remaining test capacity, expiry countdowns, and low-stock alert thresholds.
+            Track diagnostic reagent kits linked to Test Catalog tests &amp; sub-parameters, with automatic FEFO deduction on patient test entry.
           </p>
         </div>
 
@@ -321,21 +428,155 @@ export const ReagentTrackerView: React.FC = () => {
         >
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <h2 className="text-sm font-bold text-brand-navy">Add Reagent Kit / Stock</h2>
-            <span className="text-[11px] font-medium text-brand-cyan">Inventory Entry</span>
+            <span className="text-[11px] font-medium text-brand-cyan">Catalog Linked</span>
           </div>
 
-          <div>
+          <div ref={selectorContainerRef} className="relative">
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Reagent Name
+              Reagent Name (from Test Catalog or Custom)
             </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Creatinine Reagent Kit (100T)"
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 focus:border-brand-navy"
-              required
-            />
+            <div className="relative flex items-center">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
+              <input
+                type="text"
+                value={name}
+                onFocus={() => setSelectorOpen(true)}
+                onChange={(e) => handleReagentNameInputChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setSelectorOpen(false);
+                  }
+                }}
+                placeholder="Search test or parameter (e.g. TG, Cholesterol, SGPT, Urine R/E)..."
+                className="w-full pl-8 pr-8 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 focus:border-brand-navy"
+                autoComplete="off"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setSelectorOpen((prev) => !prev)}
+                aria-label="Toggle reagent catalog list"
+                className="absolute right-2 p-1 text-slate-400 hover:text-brand-navy cursor-pointer"
+              >
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${selectorOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+            </div>
+
+            {selectedLink && (
+              <div className="mt-1.5 flex items-center justify-between gap-2 px-2.5 py-1 rounded-md bg-teal-50 border border-teal-200 text-[11px] text-teal-900">
+                <span className="inline-flex items-center gap-1 min-w-0">
+                  <Link2 className="w-3 h-3 text-teal-700 shrink-0" />
+                  <span className="truncate font-medium">
+                    {selectedLink.linked_parameter_name
+                      ? `Linked: ${selectedLink.linked_parameter_name} (${selectedLink.linked_test_name})`
+                      : `Linked Test: ${selectedLink.linked_test_name}`}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedLink(null)}
+                  className="text-teal-700 hover:text-brand-red shrink-0 cursor-pointer"
+                  title="Unlink from catalog item (keep custom name)"
+                  aria-label="Unlink catalog selection"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {selectorOpen && (
+              <div className="absolute z-30 left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-white border border-slate-300 rounded-lg shadow-lg divide-y divide-slate-100">
+                {groupedSelectorOptions.paramOptions.length > 0 && (
+                  <div className="py-1">
+                    <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-50">
+                      Test Sub-Parameters (Panel Components)
+                    </div>
+                    {groupedSelectorOptions.paramOptions.map((opt) => {
+                      const isSelected =
+                        selectedLink?.linked_parameter_name === opt.linked_parameter_name &&
+                        selectedLink?.linked_test_id === opt.linked_test_id;
+                      return (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() => handleSelectCatalogOption(opt)}
+                          className={`w-full text-left px-3 py-1.5 hover:bg-sky-50 flex items-center justify-between gap-2 cursor-pointer ${
+                            isSelected ? 'bg-sky-50/80' : ''
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-brand-navy truncate">
+                              {opt.displayName}
+                            </div>
+                            <div className="text-[10.5px] text-slate-500 truncate">
+                              {opt.subtitle}
+                            </div>
+                          </div>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-teal-700 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {groupedSelectorOptions.testOptions.length > 0 && (
+                  <div className="py-1">
+                    <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-50">
+                      Test Catalog Tests
+                    </div>
+                    {groupedSelectorOptions.testOptions.map((opt) => {
+                      const isSelected =
+                        selectedLink?.linked_test_id === opt.linked_test_id &&
+                        !selectedLink?.linked_parameter_name;
+                      return (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() => handleSelectCatalogOption(opt)}
+                          className={`w-full text-left px-3 py-1.5 hover:bg-sky-50 flex items-center justify-between gap-2 cursor-pointer ${
+                            isSelected ? 'bg-sky-50/80' : ''
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-slate-900 truncate">
+                              {opt.displayName}
+                            </div>
+                            <div className="text-[10.5px] text-slate-500 truncate">
+                              {opt.subtitle}
+                            </div>
+                          </div>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-teal-700 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {name.trim() !== '' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedLink(null);
+                      setSelectorOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs font-medium text-brand-navy bg-slate-50 hover:bg-slate-100 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-brand-cyan shrink-0" />
+                    <span className="truncate">
+                      Use custom reagent name: &ldquo;{name.trim()}&rdquo;
+                    </span>
+                  </button>
+                )}
+
+                {filteredCatalogOptions.length === 0 && name.trim() === '' && (
+                  <div className="px-3 py-3 text-xs text-slate-500 text-center">
+                    No active catalog tests loaded yet. You can type a custom reagent name above.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -402,7 +643,7 @@ export const ReagentTrackerView: React.FC = () => {
           </div>
 
           <p className="text-[11px] text-slate-500 leading-relaxed">
-            Items trigger a Low Stock alert automatically whenever Remaining Tests reaches or drops below the threshold (default: 10).
+            Ordering a single test or panel test (e.g., Lipid Profile, LFT) automatically deducts 1 test from each matching reagent batch with the earliest Expiry Date first.
           </p>
 
           <button
@@ -492,6 +733,10 @@ export const ReagentTrackerView: React.FC = () => {
                     const needsAttention = isLowStock || isExpired || isExpiringSoon;
                     const isBusy = adjustingIds.has(item.id);
 
+                    const hasLinkMeta =
+                      Boolean(item.linked_parameter_name?.trim()) ||
+                      Boolean(item.linked_test_name?.trim());
+
                     return (
                       <tr
                         key={item.id}
@@ -531,6 +776,23 @@ export const ReagentTrackerView: React.FC = () => {
                               </span>
                             ) : null}
                           </div>
+
+                          {hasLinkMeta && (
+                            <div
+                              className={`mt-0.5 inline-flex items-center gap-1 text-[11px] ${
+                                needsAttention ? 'text-red-800/80' : 'text-slate-500'
+                              }`}
+                            >
+                              <Link2 className="w-3 h-3 shrink-0" />
+                              <span>
+                                {item.linked_parameter_name
+                                  ? `${item.linked_parameter_name}${
+                                      item.linked_test_name ? ` • ${item.linked_test_name}` : ''
+                                    }`
+                                  : item.linked_test_name}
+                              </span>
+                            </div>
+                          )}
 
                           <div
                             className={`mt-1.5 w-36 h-1.5 rounded-full overflow-hidden ${

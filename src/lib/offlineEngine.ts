@@ -32,6 +32,7 @@ import {
   resolveApiUrl,
 } from './apiBase.ts';
 import { broadcastPatientsUpdated } from './liveSync.ts';
+import { selectFefoReagentBatchesForTest } from '../../shared/reagentMatcher.ts';
 import {
   enqueueSyncMutation,
   getAllExpensesLocal,
@@ -83,25 +84,25 @@ function normalizeMappedReagentsOffline(raw: unknown): string[] {
 }
 
 async function deductReagentsFefoLocal(
-  mappedReagents: string[] | undefined,
+  test: DiagnosticTest,
   nowTs: string
 ): Promise<ReagentDeductionEntry[]> {
-  const names = normalizeMappedReagentsOffline(mappedReagents);
-  if (names.length === 0) return [];
   const allReagents = await getAllReagentsLocal();
+  if (allReagents.length === 0) return [];
+
+  const selected = selectFefoReagentBatchesForTest(allReagents, {
+    test_id: test.id,
+    test_name: test.name,
+    test_code: test.code,
+    mapped_reagents: normalizeMappedReagentsOffline(test.mapped_reagents),
+    parameters: (test.parameters || []).map((p) => ({ id: p.id, name: p.name })),
+  });
+  if (selected.length === 0) return [];
+
   const deductions: ReagentDeductionEntry[] = [];
   const changedIds = new Set<number>();
 
-  for (const reagentName of names) {
-    const targetKey = reagentName.trim().toLowerCase();
-    const candidates = allReagents
-      .filter((r) => r.name.trim().toLowerCase() === targetKey && Number(r.remaining_tests || 0) > 0)
-      .sort((a, b) => {
-        const expCmp = String(a.expiry_date || '').localeCompare(String(b.expiry_date || ''));
-        return expCmp !== 0 ? expCmp : a.id - b.id;
-      });
-    const batch = candidates[0];
-    if (!batch) continue;
+  for (const batch of selected) {
     batch.remaining_tests = Math.max(0, Number(batch.remaining_tests || 0) - 1);
     batch.updated_at = nowTs;
     changedIds.add(batch.id);
@@ -1259,7 +1260,7 @@ async function applyAndQueueOfflineMutation<T>(
         return dummyRow;
       });
 
-      const reagentDeductions = await deductReagentsFefoLocal(t.mapped_reagents, nowTs);
+      const reagentDeductions = await deductReagentsFefoLocal(t, nowTs);
       const invTest: InvoiceTestItem = {
         id: tempItId,
         invoice_id: tempInvId,
@@ -1509,7 +1510,7 @@ async function applyAndQueueOfflineMutation<T>(
           min_newborn: p.min_newborn ?? null,
           max_newborn: p.max_newborn ?? null,
         }));
-        const reagentDeductions = await deductReagentsFefoLocal(testDef.mapped_reagents, nowTs);
+        const reagentDeductions = await deductReagentsFefoLocal(testDef, nowTs);
         const newTestItem: InvoiceTestItem = {
           id: tempItId,
           invoice_id: inv.id,
@@ -2367,9 +2368,21 @@ async function applyAndQueueOfflineMutation<T>(
       0,
       Math.round(Number(body?.low_stock_threshold !== undefined ? body.low_stock_threshold : 10))
     );
+    const linkedTestIdRaw = body?.linked_test_id;
+    const linkedParamIdRaw = body?.linked_parameter_id;
     const newReagent: ReagentItem = {
       id: tempReagentId,
       name: String(body?.name || '').trim(),
+      linked_test_id:
+        linkedTestIdRaw !== undefined && linkedTestIdRaw !== null && Number(linkedTestIdRaw) > 0
+          ? Number(linkedTestIdRaw)
+          : null,
+      linked_test_name: String(body?.linked_test_name || '').trim(),
+      linked_parameter_id:
+        linkedParamIdRaw !== undefined && linkedParamIdRaw !== null && Number(linkedParamIdRaw) > 0
+          ? Number(linkedParamIdRaw)
+          : null,
+      linked_parameter_name: String(body?.linked_parameter_name || '').trim(),
       total_tests: totalTests,
       remaining_tests: remainingTests,
       expiry_date: String(body?.expiry_date || ''),

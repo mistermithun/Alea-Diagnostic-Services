@@ -876,8 +876,22 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
     '/api/reagents',
     requireStaffOrAdmin,
     asyncHandler(async (req, res) => {
-      const { name, total_tests, remaining_tests, expiry_date, low_stock_threshold } = req.body as {
+      const {
+        name,
+        linked_test_id,
+        linked_test_name,
+        linked_parameter_id,
+        linked_parameter_name,
+        total_tests,
+        remaining_tests,
+        expiry_date,
+        low_stock_threshold,
+      } = req.body as {
         name?: string;
+        linked_test_id?: number | null;
+        linked_test_name?: string;
+        linked_parameter_id?: number | null;
+        linked_parameter_name?: string;
         total_tests?: number;
         remaining_tests?: number;
         expiry_date?: string;
@@ -901,8 +915,21 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
       const operatorName =
         verifyAdminToken(token, secret)?.name || verifyStaffToken(token, secret)?.name || 'Staff';
 
+      const parsedLinkedTestId =
+        linked_test_id !== undefined && linked_test_id !== null && Number(linked_test_id) > 0
+          ? Number(linked_test_id)
+          : null;
+      const parsedLinkedParamId =
+        linked_parameter_id !== undefined && linked_parameter_id !== null && Number(linked_parameter_id) > 0
+          ? Number(linked_parameter_id)
+          : null;
+
       const reagent = await store.createReagent({
         name: name.trim(),
+        linked_test_id: parsedLinkedTestId,
+        linked_test_name: linked_test_name?.trim() || '',
+        linked_parameter_id: parsedLinkedParamId,
+        linked_parameter_name: linked_parameter_name?.trim() || '',
         total_tests: Number(total_tests),
         remaining_tests: remaining_tests !== undefined ? Number(remaining_tests) : Number(total_tests),
         expiry_date: expiry_date.trim(),

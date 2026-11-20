@@ -36,6 +36,10 @@ import {
   type UpdateInvoicePayload,
   type UpdateLabResultsPayload,
 } from './store-types.ts';
+import {
+  type ReagentMatchCandidate,
+  selectFefoReagentBatchesForTest,
+} from '../shared/reagentMatcher.ts';
 
 function normalizeMappedReagents(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -1666,25 +1670,35 @@ export class SqliteLimsStore implements LimsStore {
     return { invoice, tests: enrichedTests, duePayments, adjustments };
   }
 
-  private deductReagentsFefo(mappedReagentsRaw: unknown, nowTs: string): ReagentDeductionRecord[] {
-    const names = parseMappedReagentsJson(mappedReagentsRaw);
-    if (names.length === 0) return [];
-    const findEarliestBatch = db.prepare(
-      `SELECT id, name, remaining_tests
-       FROM reagents
-       WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND remaining_tests > 0
-       ORDER BY expiry_date ASC, id ASC
-       LIMIT 1`
-    );
+  private deductReagentsFefo(
+    test: { id: number; name: string; code?: string; mapped_reagents?: unknown },
+    params: Array<{ id?: number; name: string }>,
+    nowTs: string
+  ): ReagentDeductionRecord[] {
+    const availableBatches = db
+      .prepare(
+        `SELECT id, name, remaining_tests, expiry_date, linked_test_id, linked_test_name, linked_parameter_id, linked_parameter_name
+         FROM reagents
+         WHERE remaining_tests > 0
+         ORDER BY expiry_date ASC, id ASC`
+      )
+      .all() as ReagentMatchCandidate[];
+    if (availableBatches.length === 0) return [];
+
+    const selected = selectFefoReagentBatchesForTest(availableBatches, {
+      test_id: test.id,
+      test_name: test.name,
+      test_code: test.code,
+      mapped_reagents: parseMappedReagentsJson(test.mapped_reagents),
+      parameters: params.map((p) => ({ id: p.id, name: p.name })),
+    });
+    if (selected.length === 0) return [];
+
     const decBatch = db.prepare(
       `UPDATE reagents SET remaining_tests = remaining_tests - 1, updated_at = ? WHERE id = ? AND remaining_tests > 0`
     );
     const deductions: ReagentDeductionRecord[] = [];
-    for (const reagentName of names) {
-      const batch = findEarliestBatch.get(reagentName) as
-        | { id: number; name: string; remaining_tests: number }
-        | undefined;
-      if (!batch) continue;
+    for (const batch of selected) {
       const res = decBatch.run(nowTs, batch.id);
       if (res.changes > 0) {
         deductions.push({
@@ -1735,6 +1749,16 @@ export class SqliteLimsStore implements LimsStore {
       price: number;
       mapped_reagents?: string;
     }>;
+    type SelectedTestRow = {
+      id: number;
+      code?: string;
+      name: string;
+      category_name: string;
+      sample_type: string;
+      price: number;
+      mapped_reagents?: string;
+    };
+    const typedSelectedTests = selectedTests as SelectedTestRow[];
 
     if (selectedTests.length === 0) throw new StoreError(400, 'Selected tests were not found.');
 
@@ -1889,23 +1913,8 @@ export class SqliteLimsStore implements LimsStore {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       );
 
-      for (const t of selectedTests) {
+      for (const t of typedSelectedTests) {
         const tc = computedComm.perTestMap.get(t.id);
-        const deductions = this.deductReagentsFefo(t.mapped_reagents, nowTs);
-        const itRes = insInvTest.run(
-          invoiceId,
-          t.id,
-          t.name,
-          t.category_name,
-          t.sample_type,
-          t.price,
-          tc?.commission_type || 'percent',
-          tc?.commission_value ?? docCommissionPct,
-          tc?.commission_amount ?? 0,
-          JSON.stringify(deductions),
-          nowTs
-        );
-        const invoiceTestId = Number(itRes.lastInsertRowid);
         const params = getParams.all(t.id) as Array<{
           id: number;
           name: string;
@@ -1924,6 +1933,21 @@ export class SqliteLimsStore implements LimsStore {
           max_newborn: number | null;
           sort_order: number;
         }>;
+        const deductions = this.deductReagentsFefo(t, params, nowTs);
+        const itRes = insInvTest.run(
+          invoiceId,
+          t.id,
+          t.name,
+          t.category_name,
+          t.sample_type,
+          t.price,
+          tc?.commission_type || 'percent',
+          tc?.commission_value ?? docCommissionPct,
+          tc?.commission_amount ?? 0,
+          JSON.stringify(deductions),
+          nowTs
+        );
+        const invoiceTestId = Number(itRes.lastInsertRowid);
         for (const param of params) {
           const initialVal = param.default_value || '';
           const evalRes = evaluateResultFlag(
@@ -2022,6 +2046,7 @@ export class SqliteLimsStore implements LimsStore {
 
     let testsToAdd: Array<{
       id: number;
+      code?: string;
       name: string;
       category_name: string;
       sample_type: string;
@@ -2251,21 +2276,6 @@ export class SqliteLimsStore implements LimsStore {
 
       for (const t of testsToAdd) {
         const tc = computedComm.perTestMap.get(t.id);
-        const deductions = this.deductReagentsFefo(t.mapped_reagents, nowTs);
-        const itRes = insInvTest.run(
-          payload.invoiceId,
-          t.id,
-          t.name,
-          t.category_name,
-          t.sample_type,
-          t.price,
-          tc?.commission_type || 'percent',
-          tc?.commission_value ?? docCommissionPct,
-          tc?.commission_amount ?? 0,
-          JSON.stringify(deductions),
-          nowTs
-        );
-        const invoiceTestId = Number(itRes.lastInsertRowid);
         const params = getParams.all(t.id) as Array<{
           id: number;
           name: string;
@@ -2284,6 +2294,21 @@ export class SqliteLimsStore implements LimsStore {
           max_newborn: number | null;
           sort_order: number;
         }>;
+        const deductions = this.deductReagentsFefo(t, params, nowTs);
+        const itRes = insInvTest.run(
+          payload.invoiceId,
+          t.id,
+          t.name,
+          t.category_name,
+          t.sample_type,
+          t.price,
+          tc?.commission_type || 'percent',
+          tc?.commission_value ?? docCommissionPct,
+          tc?.commission_amount ?? 0,
+          JSON.stringify(deductions),
+          nowTs
+        );
+        const invoiceTestId = Number(itRes.lastInsertRowid);
         for (const param of params) {
           const initialVal = param.default_value || '';
           const evalRes = evaluateResultFlag(
@@ -3268,6 +3293,10 @@ export class SqliteLimsStore implements LimsStore {
 
   async createReagent(payload: {
     name: string;
+    linked_test_id?: number | null;
+    linked_test_name?: string;
+    linked_parameter_id?: number | null;
+    linked_parameter_name?: string;
     total_tests: number;
     remaining_tests: number;
     expiry_date: string;
@@ -3285,14 +3314,32 @@ export class SqliteLimsStore implements LimsStore {
     if (!expiryDate) {
       throw new StoreError(400, 'Expiry date is required.');
     }
+    const linkedTestId =
+      payload.linked_test_id !== undefined && payload.linked_test_id !== null && Number(payload.linked_test_id) > 0
+        ? Number(payload.linked_test_id)
+        : null;
+    const linkedTestName = payload.linked_test_name?.trim() || '';
+    const linkedParamId =
+      payload.linked_parameter_id !== undefined &&
+      payload.linked_parameter_id !== null &&
+      Number(payload.linked_parameter_id) > 0
+        ? Number(payload.linked_parameter_id)
+        : null;
+    const linkedParamName = payload.linked_parameter_name?.trim() || '';
     const nowTs = getLocalTimestampStr();
     const info = db
       .prepare(
-        `INSERT INTO reagents (name, total_tests, remaining_tests, expiry_date, low_stock_threshold, created_by, updated_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO reagents (
+           name, linked_test_id, linked_test_name, linked_parameter_id, linked_parameter_name,
+           total_tests, remaining_tests, expiry_date, low_stock_threshold, created_by, updated_at, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         cleanName,
+        linkedTestId,
+        linkedTestName,
+        linkedParamId,
+        linkedParamName,
         totalTests,
         remainingTests,
         expiryDate,

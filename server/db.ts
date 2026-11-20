@@ -225,6 +225,10 @@ export function initDatabase() {
     CREATE TABLE IF NOT EXISTS reagents (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
+      linked_test_id INTEGER DEFAULT NULL,
+      linked_test_name TEXT DEFAULT '',
+      linked_parameter_id INTEGER DEFAULT NULL,
+      linked_parameter_name TEXT DEFAULT '',
       total_tests INTEGER NOT NULL,
       remaining_tests INTEGER NOT NULL,
       expiry_date TEXT NOT NULL,
@@ -264,6 +268,22 @@ function migrateReagentMappingColumns() {
   );
   if (!invTestCols.has('reagent_deductions')) {
     db.exec(`ALTER TABLE invoice_tests ADD COLUMN reagent_deductions TEXT DEFAULT '[]'`);
+  }
+
+  const reagentCols = new Set(
+    (db.prepare(`PRAGMA table_info(reagents)`).all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  if (!reagentCols.has('linked_test_id')) {
+    db.exec(`ALTER TABLE reagents ADD COLUMN linked_test_id INTEGER DEFAULT NULL`);
+  }
+  if (!reagentCols.has('linked_test_name')) {
+    db.exec(`ALTER TABLE reagents ADD COLUMN linked_test_name TEXT DEFAULT ''`);
+  }
+  if (!reagentCols.has('linked_parameter_id')) {
+    db.exec(`ALTER TABLE reagents ADD COLUMN linked_parameter_id INTEGER DEFAULT NULL`);
+  }
+  if (!reagentCols.has('linked_parameter_name')) {
+    db.exec(`ALTER TABLE reagents ADD COLUMN linked_parameter_name TEXT DEFAULT ''`);
   }
 }
 

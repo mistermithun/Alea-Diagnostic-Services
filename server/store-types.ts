@@ -272,6 +272,10 @@ export interface LimsStore {
   listReagents(): Promise<unknown[]>;
   createReagent(payload: {
     name: string;
+    linked_test_id?: number | null;
+    linked_test_name?: string;
+    linked_parameter_id?: number | null;
+    linked_parameter_name?: string;
     total_tests: number;
     remaining_tests: number;
     expiry_date: string;

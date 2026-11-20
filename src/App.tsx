@@ -1037,25 +1037,29 @@ export default function App() {
       {/* Main Content Shell */}
       <div className={`flex-1 flex flex-col min-w-0 ${receiptModalData || reportModalData ? 'no-print' : ''}`}>
         {/* Top Bar Contract */}
-        <header className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-4 no-print">
-          <div className="flex items-center gap-3 min-w-0">
+        <header className="sticky top-0 z-20 bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-4 no-print">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 -ml-2 text-brand-navy hover:bg-slate-100 rounded-lg"
+              className="lg:hidden p-2 -ml-1.5 sm:-ml-2 text-brand-navy hover:bg-slate-100 rounded-lg shrink-0"
               aria-label="Open navigation"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <div className="flex items-center gap-2.5 text-sm truncate">
-              <BrandLogo surface="light" className="h-8 w-auto hidden sm:block" />
-              <span className="font-bold text-brand-navy whitespace-nowrap">{settings.lab_name}</span>
-              <span className="text-slate-300" aria-hidden="true">/</span>
-              <span className="text-slate-600 font-medium truncate">{staffOrAdminNavLabel(activeNavMeta)}</span>
+            <div className="flex items-center gap-2 sm:gap-2.5 text-sm min-w-0">
+              <BrandLogo surface="light" className="h-8 w-auto hidden sm:block shrink-0" />
+              <span className="font-bold text-brand-navy whitespace-nowrap hidden sm:inline">
+                {settings.lab_name}
+              </span>
+              <span className="text-slate-300 hidden sm:inline shrink-0" aria-hidden="true">/</span>
+              <span className="text-brand-navy sm:text-slate-600 font-semibold sm:font-medium truncate">
+                {staffOrAdminNavLabel(activeNavMeta)}
+              </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             <OfflineSyncBadge variant="light" />
             <TopBarTimerSummary />
             <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 border border-slate-200 rounded-lg whitespace-nowrap shrink-0">
@@ -1073,27 +1077,19 @@ export default function App() {
             </div>
             <button
               type="button"
-              onClick={openLiveDisplayWindow}
-              title="Open Live Patient Entry Display in a separate popup window for a second monitor"
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-brand-navy bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 whitespace-nowrap shrink-0 transition-colors"
-            >
-              <Monitor className="w-3.5 h-3.5 text-brand-cyan" />
-              <span>Live Display</span>
-            </button>
-            <button
-              type="button"
               onClick={() => setActiveTab('billing')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark whitespace-nowrap shrink-0 transition-colors"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 text-xs font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark whitespace-nowrap shrink-0 transition-colors"
             >
-              <UserPlus className="w-3.5 h-3.5" />
+              <UserPlus className="w-3.5 h-3.5 shrink-0" />
               <span>New Patient</span>
             </button>
             <button
               type="button"
               onClick={handleLabSignOut}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
+              aria-label="Sign Out"
+              className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 sm:py-2 text-xs font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
             >
-              <LogOut className="w-3.5 h-3.5" />
+              <LogOut className="w-3.5 h-3.5 shrink-0" />
               <span className="hidden sm:inline">Sign Out</span>
             </button>
           </div>

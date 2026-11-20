@@ -69,42 +69,62 @@ export const OfflineSyncBadge: React.FC<OfflineSyncBadgeProps> = ({
 
   let buttonClass = '';
   let iconEl: React.ReactNode = null;
-  let labelText = '';
+  let labelNode: React.ReactNode = null;
 
   if (status.isSyncing) {
     buttonClass = isDark
       ? 'bg-sky-500/20 text-sky-200 border-sky-400/35 hover:bg-sky-500/30'
       : 'bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100';
     iconEl = <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />;
-    labelText =
-      status.pendingCount > 0
-        ? `Syncing ${status.pendingCount} item${status.pendingCount === 1 ? '' : 's'}...`
-        : 'Syncing...';
+    labelNode =
+      status.pendingCount > 0 ? (
+        <>
+          <span className="sm:hidden">Syncing ({status.pendingCount})</span>
+          <span className="hidden sm:inline">
+            {`Syncing ${status.pendingCount} item${status.pendingCount === 1 ? '' : 's'}...`}
+          </span>
+        </>
+      ) : (
+        'Syncing...'
+      );
   } else if (!status.isOnline) {
     buttonClass = isDark
       ? 'bg-amber-500/25 text-amber-200 border-amber-400/40 hover:bg-amber-500/35'
       : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100';
     iconEl = <WifiOff className="w-3.5 h-3.5 shrink-0" />;
     if (compact) {
-      labelText = status.pendingCount > 0 ? `Offline (${status.pendingCount})` : 'Offline Mode';
+      labelNode = status.pendingCount > 0 ? `Offline (${status.pendingCount})` : 'Offline Mode';
     } else {
-      labelText =
-        status.pendingCount > 0
-          ? `Offline Mode (${status.pendingCount} queued)`
-          : 'Offline Mode (Saving Locally)';
+      labelNode = (
+        <>
+          <span className="sm:hidden">
+            {status.pendingCount > 0 ? `Offline (${status.pendingCount})` : 'Offline'}
+          </span>
+          <span className="hidden sm:inline">
+            {status.pendingCount > 0
+              ? `Offline Mode (${status.pendingCount} queued)`
+              : 'Offline Mode (Saving Locally)'}
+          </span>
+        </>
+      );
     }
   } else if (status.failedCount > 0) {
     buttonClass = isDark
       ? 'bg-red-500/25 text-red-200 border-red-400/40 hover:bg-red-500/35'
       : 'bg-red-50 text-red-700 border-red-300 hover:bg-red-100';
     iconEl = <AlertTriangle className="w-3.5 h-3.5 shrink-0" />;
-    labelText = `${status.failedCount} Sync Retry`;
+    labelNode = `${status.failedCount} Sync Retry`;
   } else if (status.pendingCount > 0) {
     buttonClass = isDark
       ? 'bg-teal-500/25 text-teal-200 border-teal-400/40 hover:bg-teal-500/35'
       : 'bg-teal-50 text-teal-800 border-teal-300 hover:bg-teal-100';
     iconEl = <CloudUpload className="w-3.5 h-3.5 shrink-0" />;
-    labelText = `${status.pendingCount} Pending Sync`;
+    labelNode = (
+      <>
+        <span className="sm:hidden">{status.pendingCount} Pending</span>
+        <span className="hidden sm:inline">{status.pendingCount} Pending Sync</span>
+      </>
+    );
   } else {
     buttonClass = isDark
       ? 'bg-white/10 text-emerald-200 border-white/15 hover:bg-white/15'
@@ -116,7 +136,7 @@ export const OfflineSyncBadge: React.FC<OfflineSyncBadgeProps> = ({
         }`}
       />
     );
-    labelText = 'Online • Synced';
+    labelNode = 'Online • Synced';
   }
 
   return (
@@ -126,11 +146,13 @@ export const OfflineSyncBadge: React.FC<OfflineSyncBadgeProps> = ({
         onClick={() => setOpen((prev) => !prev)}
         title="Click to inspect offline cache & MongoDB sync status"
         className={`inline-flex items-center gap-1.5 border font-semibold transition-colors whitespace-nowrap cursor-pointer ${
-          compact ? 'px-2 py-0.5 rounded text-[11px] leading-tight' : 'px-2.5 py-1.5 rounded-lg text-xs'
+          compact
+            ? 'px-2 py-0.5 rounded text-[11px] leading-tight'
+            : 'px-2 sm:px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs'
         } ${buttonClass}`}
       >
         {iconEl}
-        <span>{labelText}</span>
+        <span>{labelNode}</span>
       </button>
 
       {open && (

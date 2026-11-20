@@ -17,6 +17,7 @@ import {
   requestLabTokenFromParent,
   requestTimersFromParent,
 } from '../lib/liveSync.ts';
+import { OFFLINE_SYNCED_EVENT } from '../lib/offlineEngine.ts';
 import {
   formatCountdownMs,
   readStoredSampleTimers,
@@ -25,6 +26,7 @@ import {
 } from '../lib/sampleTimers.tsx';
 import type { InvoiceSummary, LabSettings } from '../types.ts';
 import { BrandLogo } from './BrandLogo.tsx';
+import { OfflineSyncBadge } from './OfflineSyncBadge.tsx';
 
 interface LivePatientDisplayViewProps {
   settings: LabSettings;
@@ -346,6 +348,11 @@ export const LivePatientDisplayView: React.FC<LivePatientDisplayViewProps> = ({ 
     window.addEventListener('focus', onFocusOrVisible);
     document.addEventListener('visibilitychange', onFocusOrVisible);
 
+    const onOfflineSynced = () => {
+      void loadPatients(true);
+    };
+    window.addEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+
     const pollInterval = window.setInterval(() => {
       void loadPatients(true);
     }, 5000);
@@ -357,6 +364,7 @@ export const LivePatientDisplayView: React.FC<LivePatientDisplayViewProps> = ({ 
       window.removeEventListener('storage', onStorageChange);
       window.removeEventListener('focus', onFocusOrVisible);
       document.removeEventListener('visibilitychange', onFocusOrVisible);
+      window.removeEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
       window.clearInterval(pollInterval);
     };
   }, [authState, loadPatients]);
@@ -442,6 +450,8 @@ export const LivePatientDisplayView: React.FC<LivePatientDisplayViewProps> = ({ 
           </span>
 
           <div className="flex items-center gap-2 text-[11.5px] shrink-0">
+            <OfflineSyncBadge variant="dark" compact />
+
             <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 border border-white/10 leading-tight">
               <Users className="w-3 h-3 text-teal-300" />
               <span className="font-bold tabular-nums">{invoices.length}</span>

@@ -1,7 +1,6 @@
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import {ErrorBoundary} from './components/ErrorBoundary.tsx';
-import {OfflineIndicator} from './components/PWAInstallControl.tsx';
 import './index.css';
 
 if ('serviceWorker' in navigator) {
@@ -18,6 +17,5 @@ if ('serviceWorker' in navigator) {
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
     <App />
-    <OfflineIndicator />
   </ErrorBoundary>
 );

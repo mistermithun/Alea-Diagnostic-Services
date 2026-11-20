@@ -32,7 +32,8 @@ import { LandingPortalView } from './components/LandingPortalView.tsx';
 import { LivePatientDisplayView } from './components/LivePatientDisplayView.tsx';
 import { PatientBillingView } from './components/PatientBillingView.tsx';
 import { PatientPortalView } from './components/PatientPortalView.tsx';
-import { PWAInstallButton } from './components/PWAInstallControl.tsx';
+import { OfflineSyncBadge } from './components/OfflineSyncBadge.tsx';
+import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallControl.tsx';
 import { QrDirectReportView } from './components/QrDirectReportView.tsx';
 import { ReceiptPrintModal } from './components/ReceiptPrintModal.tsx';
 import { ReportPrintModal } from './components/ReportPrintModal.tsx';
@@ -53,6 +54,11 @@ import {
   setDoctorToken,
   setPatientToken,
 } from './lib/api.ts';
+import {
+  OFFLINE_SYNCED_EVENT,
+  processOfflineQueue,
+  warmOfflineCache,
+} from './lib/offlineEngine.ts';
 import {
   SampleTimerNotificationTray,
   SampleTimerProvider,
@@ -443,10 +449,24 @@ export default function App() {
     navigateTo('staff-dashboard');
   };
 
-  // Respond to Live Display popup token requests while authenticated in Admin or Staff Portal
+  // Respond to Live Display popup token requests, warm IndexedDB cache, and sync offline updates
   useEffect(() => {
     if (labAuthStatus !== 'admin' && labAuthStatus !== 'staff') return;
-    return attachLabTokenResponder();
+    void warmOfflineCache();
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      void processOfflineQueue();
+    }
+    const handleOfflineSynced = () => {
+      void apiFetch<SystemInfo>('/api/system/info')
+        .then((info) => setSystemInfo(info))
+        .catch(() => {});
+    };
+    window.addEventListener(OFFLINE_SYNCED_EVENT, handleOfflineSynced);
+    const detachResponder = attachLabTokenResponder();
+    return () => {
+      window.removeEventListener(OFFLINE_SYNCED_EVENT, handleOfflineSynced);
+      detachResponder();
+    };
   }, [labAuthStatus]);
 
   const openLiveDisplayWindow = useCallback(() => {
@@ -522,39 +542,42 @@ export default function App() {
   // 1. Dedicated Landing Page (/)
   if (route === 'landing') {
     return (
-      <LandingPortalView
-        settings={settings}
-        onSelectAdminLogin={() => {
-          if (labAuthStatus === 'admin') {
-            setActiveTab('dashboard');
-            navigateTo('admin-dashboard');
-          } else {
-            navigateTo('admin-login');
-          }
-        }}
-        onSelectStaffLogin={() => {
-          if (labAuthStatus === 'staff') {
-            setActiveTab('billing');
-            navigateTo('staff-dashboard');
-          } else {
-            navigateTo('staff-login');
-          }
-        }}
-        onSelectPatientLogin={() => {
-          if (patientAuthStatus === 'authenticated') {
-            navigateTo('patient-dashboard');
-          } else {
-            navigateTo('patient-login');
-          }
-        }}
-        onSelectDoctorLogin={() => {
-          if (doctorAuthStatus === 'authenticated') {
-            navigateTo('doctor-dashboard');
-          } else {
-            navigateTo('doctor-login');
-          }
-        }}
-      />
+      <>
+        <LandingPortalView
+          settings={settings}
+          onSelectAdminLogin={() => {
+            if (labAuthStatus === 'admin') {
+              setActiveTab('dashboard');
+              navigateTo('admin-dashboard');
+            } else {
+              navigateTo('admin-login');
+            }
+          }}
+          onSelectStaffLogin={() => {
+            if (labAuthStatus === 'staff') {
+              setActiveTab('billing');
+              navigateTo('staff-dashboard');
+            } else {
+              navigateTo('staff-login');
+            }
+          }}
+          onSelectPatientLogin={() => {
+            if (patientAuthStatus === 'authenticated') {
+              navigateTo('patient-dashboard');
+            } else {
+              navigateTo('patient-login');
+            }
+          }}
+          onSelectDoctorLogin={() => {
+            if (doctorAuthStatus === 'authenticated') {
+              navigateTo('doctor-dashboard');
+            } else {
+              navigateTo('doctor-login');
+            }
+          }}
+        />
+        <OfflineIndicator />
+      </>
     );
   }
 
@@ -568,11 +591,14 @@ export default function App() {
       );
     }
     return (
-      <AdminLoginView
-        settings={settings}
-        onAuthenticated={handleAdminAuthenticated}
-        onBackToHome={() => navigateTo('landing')}
-      />
+      <>
+        <AdminLoginView
+          settings={settings}
+          onAuthenticated={handleAdminAuthenticated}
+          onBackToHome={() => navigateTo('landing')}
+        />
+        <OfflineIndicator />
+      </>
     );
   }
 
@@ -585,11 +611,14 @@ export default function App() {
       );
     }
     return (
-      <StaffLoginView
-        settings={settings}
-        onAuthenticated={handleStaffAuthenticated}
-        onBackToHome={() => navigateTo('landing')}
-      />
+      <>
+        <StaffLoginView
+          settings={settings}
+          onAuthenticated={handleStaffAuthenticated}
+          onBackToHome={() => navigateTo('landing')}
+        />
+        <OfflineIndicator />
+      </>
     );
   }
 
@@ -602,14 +631,17 @@ export default function App() {
       );
     }
     return (
-      <PatientPortalView
-        settings={settings}
-        publicBaseUrl={systemInfo.publicBaseUrl}
-        mode="login"
-        onAuthenticated={handlePatientAuthenticated}
-        onSignedOut={handlePatientSignedOut}
-        onBackToHome={() => navigateTo('landing')}
-      />
+      <>
+        <PatientPortalView
+          settings={settings}
+          publicBaseUrl={systemInfo.publicBaseUrl}
+          mode="login"
+          onAuthenticated={handlePatientAuthenticated}
+          onSignedOut={handlePatientSignedOut}
+          onBackToHome={() => navigateTo('landing')}
+        />
+        <OfflineIndicator />
+      </>
     );
   }
 
@@ -622,14 +654,17 @@ export default function App() {
       );
     }
     return (
-      <DoctorPortalView
-        settings={settings}
-        publicBaseUrl={systemInfo.publicBaseUrl}
-        mode="login"
-        onAuthenticated={handleDoctorAuthenticated}
-        onSignedOut={handleDoctorSignedOut}
-        onBackToHome={() => navigateTo('landing')}
-      />
+      <>
+        <DoctorPortalView
+          settings={settings}
+          publicBaseUrl={systemInfo.publicBaseUrl}
+          mode="login"
+          onAuthenticated={handleDoctorAuthenticated}
+          onSignedOut={handleDoctorSignedOut}
+          onBackToHome={() => navigateTo('landing')}
+        />
+        <OfflineIndicator />
+      </>
     );
   }
 
@@ -637,18 +672,21 @@ export default function App() {
   if (route === 'qr-report') {
     const qrParams = getQrParamsFromLocation();
     return (
-      <QrDirectReportView
-        settings={settings}
-        publicBaseUrl={systemInfo.publicBaseUrl}
-        patientIdParam={qrParams.id}
-        qrToken={qrParams.qr}
-        invoiceId={qrParams.inv}
-        testId={qrParams.test}
-        onQrAuthenticated={() => setPatientAuthStatus('authenticated')}
-        onOpenFullArchive={() => navigateTo('patient-dashboard')}
-        onGoToManualLogin={() => navigateTo('patient-login')}
-        onBackToHome={() => navigateTo('landing')}
-      />
+      <>
+        <QrDirectReportView
+          settings={settings}
+          publicBaseUrl={systemInfo.publicBaseUrl}
+          patientIdParam={qrParams.id}
+          qrToken={qrParams.qr}
+          invoiceId={qrParams.inv}
+          testId={qrParams.test}
+          onQrAuthenticated={() => setPatientAuthStatus('authenticated')}
+          onOpenFullArchive={() => navigateTo('patient-dashboard')}
+          onGoToManualLogin={() => navigateTo('patient-login')}
+          onBackToHome={() => navigateTo('landing')}
+        />
+        <OfflineIndicator />
+      </>
     );
   }
 
@@ -668,24 +706,30 @@ export default function App() {
     }
     if (patientAuthStatus !== 'authenticated') {
       return (
-        <LandingPortalView
-          settings={settings}
-          onSelectAdminLogin={() => navigateTo('admin-login')}
-          onSelectStaffLogin={() => navigateTo('staff-login')}
-          onSelectPatientLogin={() => navigateTo('patient-login')}
-          onSelectDoctorLogin={() => navigateTo('doctor-login')}
-        />
+        <>
+          <LandingPortalView
+            settings={settings}
+            onSelectAdminLogin={() => navigateTo('admin-login')}
+            onSelectStaffLogin={() => navigateTo('staff-login')}
+            onSelectPatientLogin={() => navigateTo('patient-login')}
+            onSelectDoctorLogin={() => navigateTo('doctor-login')}
+          />
+          <OfflineIndicator />
+        </>
       );
     }
     return (
-      <PatientPortalView
-        settings={settings}
-        publicBaseUrl={systemInfo.publicBaseUrl}
-        mode="dashboard"
-        onAuthenticated={handlePatientAuthenticated}
-        onSignedOut={handlePatientSignedOut}
-        onBackToHome={() => navigateTo('landing')}
-      />
+      <>
+        <PatientPortalView
+          settings={settings}
+          publicBaseUrl={systemInfo.publicBaseUrl}
+          mode="dashboard"
+          onAuthenticated={handlePatientAuthenticated}
+          onSignedOut={handlePatientSignedOut}
+          onBackToHome={() => navigateTo('landing')}
+        />
+        <OfflineIndicator />
+      </>
     );
   }
 
@@ -700,24 +744,30 @@ export default function App() {
     }
     if (doctorAuthStatus !== 'authenticated') {
       return (
-        <LandingPortalView
-          settings={settings}
-          onSelectAdminLogin={() => navigateTo('admin-login')}
-          onSelectStaffLogin={() => navigateTo('staff-login')}
-          onSelectPatientLogin={() => navigateTo('patient-login')}
-          onSelectDoctorLogin={() => navigateTo('doctor-login')}
-        />
+        <>
+          <LandingPortalView
+            settings={settings}
+            onSelectAdminLogin={() => navigateTo('admin-login')}
+            onSelectStaffLogin={() => navigateTo('staff-login')}
+            onSelectPatientLogin={() => navigateTo('patient-login')}
+            onSelectDoctorLogin={() => navigateTo('doctor-login')}
+          />
+          <OfflineIndicator />
+        </>
       );
     }
     return (
-      <DoctorPortalView
-        settings={settings}
-        publicBaseUrl={systemInfo.publicBaseUrl}
-        mode="dashboard"
-        onAuthenticated={handleDoctorAuthenticated}
-        onSignedOut={handleDoctorSignedOut}
-        onBackToHome={() => navigateTo('landing')}
-      />
+      <>
+        <DoctorPortalView
+          settings={settings}
+          publicBaseUrl={systemInfo.publicBaseUrl}
+          mode="dashboard"
+          onAuthenticated={handleDoctorAuthenticated}
+          onSignedOut={handleDoctorSignedOut}
+          onBackToHome={() => navigateTo('landing')}
+        />
+        <OfflineIndicator />
+      </>
     );
   }
 
@@ -737,13 +787,16 @@ export default function App() {
 
   if (!isAuthorizedForRoute) {
     return (
-      <LandingPortalView
-        settings={settings}
-        onSelectAdminLogin={() => navigateTo('admin-login')}
-        onSelectStaffLogin={() => navigateTo('staff-login')}
-        onSelectPatientLogin={() => navigateTo('patient-login')}
-        onSelectDoctorLogin={() => navigateTo('doctor-login')}
-      />
+      <>
+        <LandingPortalView
+          settings={settings}
+          onSelectAdminLogin={() => navigateTo('admin-login')}
+          onSelectStaffLogin={() => navigateTo('staff-login')}
+          onSelectPatientLogin={() => navigateTo('patient-login')}
+          onSelectDoctorLogin={() => navigateTo('doctor-login')}
+        />
+        <OfflineIndicator />
+      </>
     );
   }
 
@@ -923,6 +976,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0">
+            <OfflineSyncBadge variant="light" />
             <TopBarTimerSummary />
             <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 border border-slate-200 rounded-lg whitespace-nowrap shrink-0">
               {isAdmin ? (

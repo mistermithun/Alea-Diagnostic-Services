@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { CreditCard, History, Printer, Search, ShieldCheck } from 'lucide-react';
 import { apiFetch, formatBDT, formatDateTime } from '../lib/api.ts';
+import { OFFLINE_SYNCED_EVENT } from '../lib/offlineEngine.ts';
 import type { FullInvoice, InvoiceSummary } from '../types.ts';
 import { AdminAdjustBillModal } from './AdminAdjustBillModal.tsx';
 
@@ -39,6 +40,13 @@ export const DueLedgerView: React.FC<DueLedgerViewProps> = ({ isAdmin = false, o
 
   useEffect(() => {
     loadDueInvoices();
+    const onOfflineSynced = () => {
+      void loadDueInvoices();
+    };
+    window.addEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    return () => {
+      window.removeEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    };
   }, [loadDueInvoices]);
 
   const selectForPayment = async (invoiceId: number) => {

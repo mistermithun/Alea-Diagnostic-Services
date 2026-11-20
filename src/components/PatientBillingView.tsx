@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, CreditCard, Edit3, FileText, Plus, Printer, Search, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import { apiFetch, formatAge, formatBDT, formatDateTime } from '../lib/api.ts';
 import { broadcastPatientsUpdated } from '../lib/liveSync.ts';
+import { OFFLINE_SYNCED_EVENT } from '../lib/offlineEngine.ts';
 import type { DiagnosticTest, Doctor, InvoiceSummary, LabSettings, PatientProfile, TestCategory } from '../types.ts';
 import { AdminAdjustBillModal } from './AdminAdjustBillModal.tsx';
 import { DeletePatientConfirmModal } from './DeletePatientConfirmModal.tsx';
@@ -115,6 +116,19 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
       loadInvoices();
     }
   }, [subTab, loadInvoices]);
+
+  useEffect(() => {
+    const onOfflineSynced = () => {
+      void loadReferenceData();
+      if (subTab === 'list') {
+        void loadInvoices();
+      }
+    };
+    window.addEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    return () => {
+      window.removeEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    };
+  }, [subTab, loadReferenceData, loadInvoices]);
 
   const selectedTests = useMemo(
     () => tests.filter((t) => selectedTestIds.includes(t.id)),

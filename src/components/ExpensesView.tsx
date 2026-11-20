@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { apiFetch, formatBDT, getMonthStartISO, getTodayISO } from '../lib/api.ts';
+import { OFFLINE_SYNCED_EVENT } from '../lib/offlineEngine.ts';
 import type { ExpenseItem } from '../types.ts';
 
 const EXPENSE_CATEGORIES = [
@@ -42,6 +43,13 @@ export const ExpensesView: React.FC = () => {
 
   useEffect(() => {
     loadExpenses();
+    const onOfflineSynced = () => {
+      void loadExpenses();
+    };
+    window.addEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    return () => {
+      window.removeEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    };
   }, [loadExpenses]);
 
   const handleAdd = async (e: React.FormEvent) => {

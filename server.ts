@@ -83,6 +83,89 @@ function registerRoutes(app: express.Express, store: LimsStore, port: number) {
   const requirePatient = makeRequirePatient(getSecret);
   const requireDoctor = makeRequireDoctor(getSecret);
 
+  const idempotencyStore = new Map<string, { status: number; body: unknown; expiresAt: number }>();
+  const idempotencyInFlight = new Map<string, Promise<{ status: number; body: unknown }>>();
+
+  app.use('/api', (req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      next();
+      return;
+    }
+    const rawId = req.headers['x-offline-mutation-id'];
+    const mutationId = typeof rawId === 'string' ? rawId.trim() : '';
+    if (!mutationId) {
+      next();
+      return;
+    }
+
+    const now = Date.now();
+    if (idempotencyStore.size > 1500) {
+      for (const [k, entry] of idempotencyStore.entries()) {
+        if (entry.expiresAt <= now) {
+          idempotencyStore.delete(k);
+        }
+      }
+    }
+
+    const cacheKey = `${req.method}:${req.path}:${mutationId}`;
+    const existing = idempotencyStore.get(cacheKey);
+    if (existing && existing.expiresAt > now) {
+      res.status(existing.status).json(existing.body);
+      return;
+    }
+
+    const inFlight = idempotencyInFlight.get(cacheKey);
+    if (inFlight) {
+      inFlight
+        .then((result) => {
+          if (!res.headersSent) {
+            res.status(result.status).json(result.body);
+          }
+        })
+        .catch(() => next());
+      return;
+    }
+
+    let resolveInFlight!: (val: { status: number; body: unknown }) => void;
+    let rejectInFlight!: (err: unknown) => void;
+    const promise = new Promise<{ status: number; body: unknown }>((resolve, reject) => {
+      resolveInFlight = resolve;
+      rejectInFlight = reject;
+    });
+    idempotencyInFlight.set(cacheKey, promise);
+
+    const origJson = res.json.bind(res);
+    let settled = false;
+    res.json = ((body: unknown) => {
+      if (!settled) {
+        settled = true;
+        const statusCode = res.statusCode || 200;
+        if (statusCode >= 200 && statusCode < 300) {
+          idempotencyStore.set(cacheKey, {
+            status: statusCode,
+            body,
+            expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+          });
+          resolveInFlight({ status: statusCode, body });
+        } else {
+          rejectInFlight(new Error(`HTTP ${statusCode}`));
+        }
+        idempotencyInFlight.delete(cacheKey);
+      }
+      return origJson(body);
+    }) as typeof res.json;
+
+    res.on('close', () => {
+      if (!settled) {
+        settled = true;
+        idempotencyInFlight.delete(cacheKey);
+        rejectInFlight(new Error('Request closed before completion'));
+      }
+    });
+
+    next();
+  });
+
   const isAdminRequest = (req: Request): boolean => {
     const token = extractTokenFromRequest(req);
     return verifyAdminToken(token, getSecret()) !== null;

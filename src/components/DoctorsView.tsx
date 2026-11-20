@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Banknote, Check, Copy, Edit2, Eye, EyeOff, FileSpreadsheet, KeyRound, Plus, Printer, RefreshCw, Trash2, X } from 'lucide-react';
 import { apiFetch, formatBDT, formatDateTime, getMonthStartISO, getTodayISO } from '../lib/api.ts';
+import { OFFLINE_SYNCED_EVENT } from '../lib/offlineEngine.ts';
 import type { Doctor, DoctorStatementResponse, LabSettings } from '../types.ts';
 
 interface DoctorsViewProps {
@@ -44,6 +45,13 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout
 
   useEffect(() => {
     loadDoctors();
+    const onOfflineSynced = () => {
+      void loadDoctors();
+    };
+    window.addEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    return () => {
+      window.removeEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    };
   }, [loadDoctors]);
 
   const resetForm = () => {

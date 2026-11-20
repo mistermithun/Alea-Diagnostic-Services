@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ArrowDown, ArrowUp, Edit2, Plus, Search, Trash2, X } from 'lucide-react';
 import { apiFetch, formatBDT } from '../lib/api.ts';
+import { OFFLINE_SYNCED_EVENT } from '../lib/offlineEngine.ts';
 import type { DiagnosticTest, TestCategory } from '../types.ts';
 
 interface EditableParam {
@@ -74,6 +75,13 @@ export const TestCatalogView: React.FC = () => {
 
   useEffect(() => {
     loadCatalog();
+    const onOfflineSynced = () => {
+      void loadCatalog();
+    };
+    window.addEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    return () => {
+      window.removeEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    };
   }, [loadCatalog]);
 
   const handleAddCategory = async (e: React.FormEvent) => {

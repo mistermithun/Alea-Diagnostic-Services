@@ -9,6 +9,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { apiFetch, formatBDT, getMonthStartISO, getTodayISO } from '../lib/api.ts';
+import { OFFLINE_SYNCED_EVENT } from '../lib/offlineEngine.ts';
 import { BrandLogo } from './BrandLogo.tsx';
 import type {
   BalanceLedgerResponse,
@@ -117,6 +118,13 @@ export const BalanceLedgerView: React.FC<BalanceLedgerViewProps> = ({ settings, 
 
   useEffect(() => {
     loadLedger();
+    const onOfflineSynced = () => {
+      void loadLedger();
+    };
+    window.addEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    return () => {
+      window.removeEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    };
   }, [loadLedger]);
 
   const displayedRows = useMemo<BalanceLedgerRow[]>(() => {

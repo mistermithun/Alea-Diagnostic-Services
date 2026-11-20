@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, evaluateClientFlag, formatAge, formatDateTime } from '../lib/api.ts';
 import { broadcastPatientsUpdated } from '../lib/liveSync.ts';
+import { OFFLINE_SYNCED_EVENT } from '../lib/offlineEngine.ts';
 import { deduplicateTestResults } from '../lib/reportLayout.ts';
 import type { FullInvoice, LabQueueItem, LabSettings, TestResultRow } from '../types.ts';
 import { SampleTimerControl } from './SampleTimerControl.tsx';
@@ -298,6 +299,13 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
 
   useEffect(() => {
     loadQueue();
+    const onOfflineSynced = () => {
+      void loadQueue();
+    };
+    window.addEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    return () => {
+      window.removeEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    };
   }, [loadQueue]);
 
   // Group individual queue items into ONE queue entry per patient/invoice

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Download, Share, WifiOff, X } from 'lucide-react';
+import { useSyncStatus } from '../lib/offlineEngine.ts';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -61,23 +62,7 @@ export function usePWAInstall() {
 }
 
 export function useOnlineStatus() {
-  const [isOnline, setIsOnline] = useState(
-    typeof navigator !== 'undefined' ? navigator.onLine : true
-  );
-
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
-
+  const { isOnline } = useSyncStatus();
   return isOnline;
 }
 

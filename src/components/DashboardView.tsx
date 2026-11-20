@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch, formatAge, formatBDT, formatDateTime, getTodayISO } from '../lib/api.ts';
+import { OFFLINE_SYNCED_EVENT } from '../lib/offlineEngine.ts';
 import type {
   AdminDashboardData,
   InvoiceSummary,
@@ -225,6 +226,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   useEffect(() => {
     loadData();
+    const onOfflineSynced = () => {
+      void loadData();
+    };
+    window.addEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    return () => {
+      window.removeEventListener(OFFLINE_SYNCED_EVENT, onOfflineSynced);
+    };
   }, [loadData]);
 
   const groupedSampleQueue = useMemo<StaffOverviewPatientGroup[]>(() => {

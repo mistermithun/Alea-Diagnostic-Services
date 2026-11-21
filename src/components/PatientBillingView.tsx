@@ -402,18 +402,18 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-200">
+    <div className="space-y-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1.5 border-b border-slate-200">
         <div>
-          <h1 className="text-lg sm:text-xl font-bold text-brand-navy tracking-tight leading-tight">
+          <h1 className="text-base sm:text-lg font-bold text-brand-navy tracking-tight leading-tight">
             Patient Registration & Billing
           </h1>
-          <p className="text-xs text-slate-600">
+          <p className="text-[11px] text-slate-600">
             Register patients, select tests, apply authorized discounts, and print receipts.
           </p>
         </div>
 
-        <div className="flex items-center gap-1 p-0.5 bg-slate-200/70 rounded-lg self-start">
+        <div className="flex items-center gap-1 p-0.5 bg-slate-200/70 rounded-lg self-start sm:self-auto">
           <button
             type="button"
             onClick={() => setSubTab('new')}
@@ -436,9 +436,9 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
       </div>
 
       {subTab === 'new' ? (
-        <form onSubmit={(e) => handleSubmit(e, true)} className="grid grid-cols-1 xl:grid-cols-12 gap-3.5 items-start">
+        <form onSubmit={(e) => handleSubmit(e, true)} className="grid grid-cols-1 xl:grid-cols-12 gap-3 items-start">
           {/* Left Column: Patient Demographics & Test Selector */}
-          <div className="xl:col-span-8 space-y-3.5">
+          <div className="xl:col-span-8 space-y-2.5">
             {/* Patient Information */}
             <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -717,9 +717,9 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
             </div>
           </div>
 
-          {/* Right Column: Billing Summary & Payment */}
-          <div className="xl:col-span-4 bg-white border border-slate-200 rounded-xl p-3.5 space-y-2.5 sticky top-16">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+          {/* Right Column: Billing Summary & Payment (Fits viewport with stationary totals & buttons) */}
+          <div className="xl:col-span-4 bg-white border border-slate-200 rounded-xl p-3 flex flex-col gap-2 xl:sticky xl:top-14 xl:max-h-[calc(100vh-4.25rem)]">
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 shrink-0">
               <h2 className="text-xs font-bold uppercase tracking-wide text-slate-900">
                 03. Billing & Payment Summary
               </h2>
@@ -728,35 +728,37 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
               </span>
             </div>
 
-            {selectedTests.length === 0 ? (
-              <p className="text-[11px] text-slate-500 py-2 text-center">
-                Select tests from the catalog to calculate the bill.
-              </p>
-            ) : (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-semibold text-slate-700">
-                    Added Tests ({selectedTests.length})
-                  </span>
-                  {selectedTests.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedTestIds([])}
-                      className="text-[11px] font-medium text-red-600 hover:text-red-700 hover:underline cursor-pointer"
-                    >
-                      Clear All
-                    </button>
-                  )}
-                </div>
-                <div className="divide-y divide-slate-200 max-h-36 overflow-y-auto border border-slate-200 rounded-lg">
-                  {selectedTests.map((t) => (
+            {/* Fixed-Height Internal Scrollbox for Added Tests */}
+            <div className="space-y-1 shrink-0">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-semibold text-slate-700">
+                  Added Tests ({selectedTests.length})
+                </span>
+                {selectedTests.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTestIds([])}
+                    className="text-[11px] font-medium text-red-600 hover:text-red-700 hover:underline cursor-pointer"
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
+
+              <div className="h-[104px] overflow-y-auto border border-slate-200 rounded-lg bg-slate-50/50 divide-y divide-slate-200">
+                {selectedTests.length === 0 ? (
+                  <div className="h-full flex items-center justify-center px-3 text-center text-[11px] text-slate-400">
+                    Select tests from the catalog to calculate the bill.
+                  </div>
+                ) : (
+                  selectedTests.map((t) => (
                     <div
                       key={t.id}
-                      className="px-2.5 py-1.5 flex items-center justify-between gap-2 text-[11px] bg-white hover:bg-slate-50/80"
+                      className="px-2.5 py-1 flex items-center justify-between gap-2 text-[11px] bg-white hover:bg-slate-50/80"
                     >
                       <div className="min-w-0">
-                        <div className="font-semibold text-slate-800 truncate">{t.name}</div>
-                        <div className="text-[10px] text-slate-500 truncate">
+                        <div className="font-semibold text-slate-800 truncate leading-tight">{t.name}</div>
+                        <div className="text-[10px] text-slate-500 truncate leading-tight">
                           <span className="font-mono">{t.code}</span> · {t.category_name}
                         </div>
                       </div>
@@ -769,26 +771,27 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                           onClick={() => toggleTest(t.id)}
                           title={`Delete ${t.name}`}
                           aria-label={`Delete ${t.name}`}
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10.5px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100 transition-colors cursor-pointer"
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100 transition-colors cursor-pointer"
                         >
                           <Trash2 className="w-2.5 h-2.5" />
                           <span>Delete</span>
                         </button>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  ))
+                )}
               </div>
-            )}
+            </div>
 
-            <div className="pt-2 border-t border-slate-200 space-y-2 text-xs">
+            {/* Stationary Totals, Discounts & Payment Controls */}
+            <div className="pt-1.5 border-t border-slate-200 space-y-1.5 text-xs overflow-y-auto min-h-0 pr-0.5">
               <div className="flex justify-between items-center">
                 <span className="text-slate-600">Subtotal ({selectedTests.length} tests)</span>
                 <span className="font-mono tabular-nums font-bold text-slate-900">{formatBDT(subtotal)}</span>
               </div>
 
               {/* Sequential Discounts: 1. Doctor Less (%) -> 2. Discount (৳ Flat) */}
-              <div className="space-y-1.5 bg-slate-50/70 border border-slate-200 rounded-lg p-2.5">
+              <div className="space-y-1 bg-slate-50/70 border border-slate-200 rounded-lg p-2">
                 <div className="grid grid-cols-2 gap-2">
                   {/* Field 1: Doctor Less (%) */}
                   <div className="space-y-0.5">
@@ -815,7 +818,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                         value={doctorLessPercent}
                         onChange={(e) => setDoctorLessPercent(e.target.value)}
                         placeholder="0"
-                        className="w-full pl-2.5 pr-6 py-1 text-xs font-mono tabular-nums bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-600"
+                        className="w-full pl-2 pr-6 py-1 text-xs font-mono tabular-nums bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-600"
                       />
                       <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[11px] font-semibold text-slate-500">
                         %
@@ -871,12 +874,12 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                   </span>
                 </div>
                 {subtotal > 0 && netTotal === 0 && (
-                  <p className="text-[11px] font-medium text-teal-700">
+                  <p className="text-[10.5px] font-medium text-teal-700">
                     100% Complimentary / Free Testing applied (Net Payable: ৳0).
                   </p>
                 )}
                 {exceedsStaffCap && (
-                  <p className="text-[11px] font-medium text-red-600">
+                  <p className="text-[10.5px] font-medium text-red-600">
                     Exceeds Staff discount limit ({maxStaffPct}%). Admin approval required.
                   </p>
                 )}
@@ -889,7 +892,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
 
               {/* Admin-Only Patient/Test Doctor Commission Setup */}
               {isAdmin && selectedDoctorId && (
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-2 space-y-1.5 text-xs">
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 space-y-1 text-xs">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[11px] font-semibold text-slate-800">Doctor Commission (Admin)</span>
                     <span className="text-[11px] font-mono font-bold text-teal-700">
@@ -961,7 +964,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                   )}
 
                   {commissionMode === 'custom_per_test' && (
-                    <div className="space-y-1 max-h-28 overflow-y-auto pr-0.5">
+                    <div className="space-y-1 max-h-24 overflow-y-auto pr-0.5">
                       {selectedTests.length === 0 ? (
                         <div className="text-[11px] text-slate-500">Select tests first to set per-test rates.</div>
                       ) : (
@@ -973,7 +976,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                           return (
                             <div
                               key={t.id}
-                              className="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded px-2 py-1"
+                              className="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded px-2 py-0.5"
                             >
                               <span className="truncate text-[11px] font-medium text-slate-700" title={t.name}>
                                 {t.name}
@@ -1062,12 +1065,12 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                       setPaidTouched(true);
                       setPaidAmount(e.target.value);
                     }}
-                    className="col-span-2 px-2.5 py-1.5 text-xs font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-600"
+                    className="col-span-2 px-2.5 py-1 text-xs font-mono tabular-nums border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-600"
                   />
                   <select
                     value={paymentMethod}
                     onChange={(e) => setPaymentMethod(e.target.value)}
-                    className="px-2 py-1.5 text-xs border border-slate-300 rounded-md bg-white"
+                    className="px-2 py-1 text-xs border border-slate-300 rounded-md bg-white"
                     aria-label="Payment method"
                   >
                     <option value="Cash">Cash</option>
@@ -1077,7 +1080,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                   </select>
                 </div>
                 {netTotal > 0 && effectivePaid === 0 && (
-                  <p className="text-[10.5px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                  <p className="text-[10.5px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-0.5">
                     Credit / Unpaid Entry: ৳0 paid, {formatBDT(netTotal)} due.
                   </p>
                 )}
@@ -1103,21 +1106,21 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
             </div>
 
             {error && (
-              <div className="p-2 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg">
+              <div className="p-2 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg shrink-0">
                 {error}
               </div>
             )}
             {successMsg && (
-              <div className="p-2 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg">
+              <div className="p-2 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg shrink-0">
                 {successMsg}
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 pt-1 border-t border-slate-100 shrink-0">
               <button
                 type="submit"
                 disabled={submitting || selectedTests.length === 0}
-                className="sm:col-span-2 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark disabled:opacity-50 transition-colors whitespace-nowrap cursor-pointer"
+                className="sm:col-span-2 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark disabled:opacity-50 transition-colors whitespace-nowrap cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" />
                 {submitting ? 'Generating...' : 'Save & Print Receipt'}
@@ -1126,7 +1129,7 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                 type="button"
                 disabled={submitting || selectedTests.length === 0}
                 onClick={(e) => handleSubmit(e, false)}
-                className="sm:col-span-1 inline-flex items-center justify-center gap-1 px-2.5 py-2 text-xs font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors whitespace-nowrap cursor-pointer"
+                className="sm:col-span-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors whitespace-nowrap cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Save Only

@@ -1143,7 +1143,7 @@ export default function App() {
 
         {/* Active Module Viewport */}
         <main
-          className={`flex-1 p-3 sm:p-4 lg:px-5 lg:py-4 w-full mx-auto ${
+          className={`flex-1 p-2.5 sm:p-3.5 lg:px-5 lg:pt-2.5 lg:pb-4 w-full mx-auto ${
             isStaffSidebarHidden ? 'max-w-none' : 'max-w-[1440px]'
           } ${
             resolvedTab === 'payouts' || resolvedTab === 'doctors'

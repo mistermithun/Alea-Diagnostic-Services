@@ -281,51 +281,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [staffData]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3.5">
       {/* Header & Quick Actions */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-brand-navy tracking-tight">
+          <h1 className="text-lg sm:text-xl font-bold text-brand-navy tracking-tight">
             {isAdmin ? 'Admin Financial & Lab Overview' : 'Reception & Lab Operations'}
           </h1>
-          <p className="text-sm text-slate-600 mt-0.5">
+          <p className="text-xs text-slate-600 mt-0.5">
             {settings.lab_name} · {settings.lab_address}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => onNavigate('billing')}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark transition-colors whitespace-nowrap shrink-0"
           >
-            <UserPlus className="w-4 h-4" />
+            <UserPlus className="w-3.5 h-3.5" />
             New Patient Entry
           </button>
           <button
             type="button"
             onClick={() => onNavigate('dues')}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-brand-navy bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand-navy bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
           >
-            <CreditCard className="w-4 h-4 text-brand-cyan" />
+            <CreditCard className="w-3.5 h-3.5 text-brand-cyan" />
             Due Collection
           </button>
           {isAdmin ? (
             <button
               type="button"
               onClick={() => setShowDailyClosing((v) => !v)}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-cyan rounded-lg hover:bg-brand-cyan-dark transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-cyan rounded-lg hover:bg-brand-cyan-dark transition-colors whitespace-nowrap shrink-0"
             >
-              <FileText className="w-4 h-4" />
+              <FileText className="w-3.5 h-3.5" />
               Daily Closing
             </button>
           ) : (
             <button
               type="button"
               onClick={() => onNavigate('lab')}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-cyan rounded-lg hover:bg-brand-cyan-dark transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-cyan rounded-lg hover:bg-brand-cyan-dark transition-colors whitespace-nowrap shrink-0"
             >
-              <FlaskConical className="w-4 h-4" />
+              <FlaskConical className="w-3.5 h-3.5" />
               Lab Result Entry
             </button>
           )}
@@ -334,24 +334,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Admin Date Filter Bar */}
       {isAdmin && (
-        <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-              <Calendar className="w-4 h-4 text-slate-500" />
+        <div className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
+              <Calendar className="w-3.5 h-3.5 text-slate-500" />
               <span>Period</span>
             </div>
             <input
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
-              className="px-3 py-1.5 text-sm font-mono tabular-nums border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+              className="px-2.5 py-1 text-xs font-mono tabular-nums border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
             />
-            <span className="text-slate-400 text-sm">to</span>
+            <span className="text-slate-400 text-xs">to</span>
             <input
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
-              className="px-3 py-1.5 text-sm font-mono tabular-nums border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+              className="px-2.5 py-1 text-xs font-mono tabular-nums border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
             />
             <button
               type="button"
@@ -360,7 +360,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 setFromDate(today);
                 setToDate(today);
               }}
-              className="px-3 py-1.5 text-xs font-medium text-teal-700 bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 transition-colors whitespace-nowrap shrink-0"
+              className="px-2.5 py-1 text-xs font-medium text-teal-700 bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 transition-colors whitespace-nowrap shrink-0"
             >
               Today
             </button>
@@ -368,7 +368,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button
             type="button"
             onClick={loadData}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -388,10 +388,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Daily Closing Summary Sheet (Admin) */}
       {isAdmin && showDailyClosing && adminData && (
-        <div className="bg-white border border-slate-300 rounded-xl p-6 print-sheet">
-          <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-4 mb-4">
+        <div className="bg-white border border-slate-300 rounded-xl p-4 print-sheet">
+          <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-2.5 mb-3">
             <div>
-              <h2 className="text-lg font-bold text-slate-900">
+              <h2 className="text-base font-bold text-slate-900">
                 Daily Closing Statement · {settings.lab_name}
               </h2>
               <p className="text-xs text-slate-600 mt-0.5">
@@ -409,7 +409,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
             <div>
               <div className="text-xs text-slate-500">Gross Billed</div>
               <div className="text-base font-bold font-mono tabular-nums text-slate-900 mt-0.5">
@@ -442,7 +442,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          <div className="mt-4 pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-4 text-sm">
+          <div className="mt-3 pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs sm:text-sm">
             <div className="text-slate-600">
               Doctor Commission Payable:{' '}
               <span className="font-mono font-semibold tabular-nums text-slate-900">
@@ -462,23 +462,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* ADMIN KPI GRID */}
       {isAdmin && adminData && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <div className="text-xs font-medium text-slate-500">Total Patients</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-1.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5">
+              <div className="text-[11px] font-medium text-slate-500">Total Patients</div>
+              <div className="text-xl font-bold font-mono tabular-nums text-slate-900 mt-0.5">
                 {adminData.metrics.patientsCount}
               </div>
-              <div className="text-xs text-slate-500 mt-2">
+              <div className="text-[11px] text-slate-500 mt-1">
                 {adminData.metrics.readyReportsInRange} reports finalized in range
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <div className="text-xs font-medium text-slate-500">Total Revenue (Net Billed)</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-1.5">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5">
+              <div className="text-[11px] font-medium text-slate-500">Total Revenue (Net Billed)</div>
+              <div className="text-xl font-bold font-mono tabular-nums text-slate-900 mt-0.5">
                 {formatBDT(adminData.metrics.netRevenue)}
               </div>
-              <div className="text-xs text-slate-500 mt-2 font-mono tabular-nums">
+              <div className="text-[11px] text-slate-500 mt-1 font-mono tabular-nums">
                 Net Billed{' '}
                 {formatBDT(
                   adminData.metrics.totalNetBilled ??
@@ -489,45 +489,45 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <div className="text-xs font-medium text-slate-500">Total Discounts (Less)</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-amber-700 mt-1.5">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5">
+              <div className="text-[11px] font-medium text-slate-500">Total Discounts (Less)</div>
+              <div className="text-xl font-bold font-mono tabular-nums text-amber-700 mt-0.5">
                 {formatBDT(adminData.metrics.totalDiscount)}
               </div>
-              <div className="text-xs text-slate-500 mt-2">
+              <div className="text-[11px] text-slate-500 mt-1">
                 {adminData.metrics.totalBilled > 0
                   ? `${((adminData.metrics.totalDiscount / adminData.metrics.totalBilled) * 100).toFixed(1)}% of gross billing`
                   : '0% of gross billing'}
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <div className="text-xs font-medium text-slate-500">Doctor Commissions Payable</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-1.5">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5">
+              <div className="text-[11px] font-medium text-slate-500">Doctor Commissions Payable</div>
+              <div className="text-xl font-bold font-mono tabular-nums text-slate-900 mt-0.5">
                 {formatBDT(adminData.metrics.doctorCommissionPayable)}
               </div>
-              <div className="text-xs text-slate-500 mt-2 font-mono tabular-nums">
+              <div className="text-[11px] text-slate-500 mt-1 font-mono tabular-nums">
                 Unpaid in period {formatBDT(adminData.metrics.unpaidCommissionInRange ?? 0)} · Master Pool{' '}
                 {formatBDT(adminData.metrics.masterUnpaidCommissionPool ?? 0)}
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <div className="text-xs font-medium text-slate-500">Net Collection (Cash Received)</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-teal-700 mt-1.5">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5">
+              <div className="text-[11px] font-medium text-slate-500">Net Collection (Cash Received)</div>
+              <div className="text-xl font-bold font-mono tabular-nums text-teal-700 mt-0.5">
                 {formatBDT(adminData.metrics.netCollection)}
               </div>
-              <div className="text-xs text-slate-500 mt-2 font-mono tabular-nums">
+              <div className="text-[11px] text-slate-500 mt-1 font-mono tabular-nums">
                 Includes {formatBDT(adminData.metrics.dueRecovered)} due recovered · All-time due {formatBDT(adminData.metrics.allTimeDue)}
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <div className="text-xs font-medium text-slate-500">Pending Reports (All Active)</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-brand-red mt-1.5">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5">
+              <div className="text-[11px] font-medium text-slate-500">Pending Reports (All Active)</div>
+              <div className="text-xl font-bold font-mono tabular-nums text-brand-red mt-0.5">
                 {adminData.metrics.pendingReports}
               </div>
-              <div className="mt-2">
+              <div className="mt-1">
                 <button
                   type="button"
                   onClick={() => onNavigate('lab')}
@@ -808,8 +808,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Department Breakdown */}
-          <div className="bg-white border border-slate-200 rounded-xl p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
               <h2 className="text-sm font-semibold text-slate-900">Department Test Volume</h2>
               <div className="text-xs text-slate-600">
                 Expenses in period:{' '}
@@ -819,17 +819,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             </div>
             {adminData.departmentBreakdown.length === 0 ? (
-              <p className="text-xs text-slate-500 py-6 text-center">No tests billed in selected period.</p>
+              <p className="text-xs text-slate-500 py-4 text-center">No tests billed in selected period.</p>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                 {adminData.departmentBreakdown.map((d) => (
                   <div
                     key={d.category}
-                    className="p-3 border border-slate-200 rounded-lg flex items-center justify-between gap-3 text-sm"
+                    className="px-3 py-2 border border-slate-200 rounded-lg flex items-center justify-between gap-3 text-xs"
                   >
                     <div>
                       <div className="font-medium text-slate-800">{d.category}</div>
-                      <div className="text-xs text-slate-500 font-mono tabular-nums">{d.testCount} tests</div>
+                      <div className="text-[11px] text-slate-500 font-mono tabular-nums">{d.testCount} tests</div>
                     </div>
                     <div className="font-mono tabular-nums font-semibold text-slate-900">
                       {formatBDT(d.grossAmount)}
@@ -845,39 +845,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* STAFF / RECEPTION OPERATIONS DASHBOARD */}
       {!isAdmin && staffData && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <div className="text-xs font-medium text-slate-500">Today&apos;s Registered Patients</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-1.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5">
+              <div className="text-[11px] font-medium text-slate-500">Today&apos;s Registered Patients</div>
+              <div className="text-xl font-bold font-mono tabular-nums text-slate-900 mt-0.5">
                 {staffData.todayPatients}
               </div>
-              <div className="text-xs text-slate-500 mt-2">Active reception intake</div>
+              <div className="text-[11px] text-slate-500 mt-1">Active reception intake</div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <div className="text-xs font-medium text-slate-500">Pending Lab Tests</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-amber-700 mt-1.5">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5">
+              <div className="text-[11px] font-medium text-slate-500">Pending Lab Tests</div>
+              <div className="text-xl font-bold font-mono tabular-nums text-amber-700 mt-0.5">
                 {staffData.pendingTestsCount}
               </div>
-              <div className="text-xs text-slate-500 mt-2">
+              <div className="text-[11px] text-slate-500 mt-1">
                 {staffData.sampleCollectedCount} collected · {staffData.processingCount} processing
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <div className="text-xs font-medium text-slate-500">Ready Reports Today</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-emerald-700 mt-1.5">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5">
+              <div className="text-[11px] font-medium text-slate-500">Ready Reports Today</div>
+              <div className="text-xl font-bold font-mono tabular-nums text-emerald-700 mt-0.5">
                 {staffData.readyReportsCount}
               </div>
-              <div className="text-xs text-slate-500 mt-2">Verified & ready for delivery</div>
+              <div className="text-[11px] text-slate-500 mt-1">Verified & ready for delivery</div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <div className="text-xs font-medium text-slate-500">Invoices With Pending Due</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-red-700 mt-1.5">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5">
+              <div className="text-[11px] font-medium text-slate-500">Invoices With Pending Due</div>
+              <div className="text-xl font-bold font-mono tabular-nums text-red-700 mt-0.5">
                 {staffData.dueInvoicesCount}
               </div>
-              <div className="mt-2">
+              <div className="mt-1">
                 <button
                   type="button"
                   onClick={() => onNavigate('dues')}
@@ -889,8 +889,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-5 overflow-x-auto">
-            <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4 overflow-x-auto">
+            <div className="flex items-center justify-between gap-3 mb-2.5">
               <div>
                 <h2 className="text-sm font-semibold text-slate-900">
                   Active Sample &amp; Lab Queue ({groupedSampleQueue.length}{' '}
@@ -909,21 +909,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 Enter Lab Results
               </button>
             </div>
-            <table className="w-full text-sm border-collapse">
+            <table className="w-full text-xs sm:text-[13px] border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                  <th className="py-2 pr-3 font-medium">Invoice / ID</th>
-                  <th className="py-2 pr-3 font-medium">Patient</th>
-                  <th className="py-2 pr-3 font-medium">Ordered Tests</th>
-                  <th className="py-2 pr-3 font-medium">Sample Timer</th>
-                  <th className="py-2 pr-3 font-medium">Collected</th>
-                  <th className="py-2 font-medium text-right">Status</th>
+                <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wider text-slate-500">
+                  <th className="py-1.5 pr-2.5 font-semibold">Invoice / ID</th>
+                  <th className="py-1.5 pr-2.5 font-semibold">Patient</th>
+                  <th className="py-1.5 pr-2.5 font-semibold">Ordered Tests</th>
+                  <th className="py-1.5 pr-2.5 font-semibold">Sample Timer</th>
+                  <th className="py-1.5 pr-2.5 font-semibold">Collected</th>
+                  <th className="py-1.5 font-semibold text-right">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {groupedSampleQueue.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-sm text-slate-500">
+                    <td colSpan={6} className="py-6 text-center text-xs text-slate-500">
                       No active sample queue entries yet.
                     </td>
                   </tr>
@@ -932,34 +932,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     const allReady = group.ready_count === group.total_tests && group.total_tests > 0;
                     return (
                       <tr key={group.invoice_id} className="hover:bg-slate-50 align-top">
-                        <td className="py-3 pr-3 font-mono tabular-nums text-xs whitespace-nowrap">
+                        <td className="py-2 pr-2.5 font-mono tabular-nums text-xs whitespace-nowrap">
                           <div className="font-semibold text-slate-900">{group.invoice_no}</div>
-                          <div className="text-slate-500">{group.patient_uid}</div>
+                          <div className="text-[11px] text-slate-500">{group.patient_uid}</div>
                         </td>
-                        <td className="py-3 pr-3">
+                        <td className="py-2 pr-2.5">
                           <div className="font-semibold text-slate-900">{group.patient_name}</div>
-                          <div className="text-xs text-slate-500">
+                          <div className="text-[11px] text-slate-500">
                             {formatAge(group.age_years, group.age_months, group.age_days)} · {group.gender}
                             {group.doctor_name ? ` · ${group.doctor_name}` : ''}
                           </div>
                         </td>
-                        <td className="py-3 pr-3">
-                          <div className="flex flex-wrap gap-1.5">
+                        <td className="py-2 pr-2.5">
+                          <div className="flex flex-wrap gap-1">
                             {group.tests.map((t) => (
                               <span
                                 key={t.id}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md bg-white border border-slate-200 text-slate-700"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10.5px] font-medium rounded bg-white border border-slate-200 text-slate-700"
                               >
                                 <span className={`w-1.5 h-1.5 rounded-full ${getTestStatusDotClass(t.status)}`} />
                                 <span className="truncate max-w-[160px]">{t.test_name}</span>
                               </span>
                             ))}
                           </div>
-                          <div className="text-[11px] text-slate-500 mt-1">
+                          <div className="text-[11px] text-slate-500 mt-0.5">
                             {group.total_tests} {group.total_tests === 1 ? 'test' : 'tests'}
                           </div>
                         </td>
-                        <td className="py-3 pr-3">
+                        <td className="py-2 pr-2.5">
                           <SampleTimerControl
                             compact
                             alignRight={false}
@@ -970,10 +970,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             tests={group.tests}
                           />
                         </td>
-                        <td className="py-3 pr-3 font-mono tabular-nums text-xs text-slate-600 whitespace-nowrap">
+                        <td className="py-2 pr-2.5 font-mono tabular-nums text-[11px] text-slate-600 whitespace-nowrap">
                           {formatDateTime(group.latest_collected_at)}
                         </td>
-                        <td className="py-3 text-right text-xs font-semibold whitespace-nowrap">
+                        <td className="py-2 text-right text-xs font-semibold whitespace-nowrap">
                           <span
                             className={
                               allReady

@@ -893,25 +893,25 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+    <div className="space-y-3.5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-brand-navy tracking-tight">Lab Result Entry & Reporting</h1>
-          <p className="text-sm text-slate-600 mt-0.5">
+          <h1 className="text-lg sm:text-xl font-bold text-brand-navy tracking-tight">Lab Result Entry & Reporting</h1>
+          <p className="text-xs text-slate-600 mt-0.5">
             One unified workspace per patient with seamless test sub-tabs, auto calculations, and smart combined A4 printing.
           </p>
         </div>
       </div>
 
       {/* Filters & Search */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <div className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
         <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg">
           {STATUS_TABS.map((tab) => (
             <button
               key={tab}
               type="button"
               onClick={() => setStatusFilter(tab)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+              className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                 statusFilter === tab ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -921,23 +921,23 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
         </div>
 
         <div className="relative w-full lg:w-72">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search patient, invoice, test..."
-            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
         {/* Left: Unified Patient Queue (1 card per patient/invoice) */}
         <div className="xl:col-span-5 bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+          <div className="px-3.5 py-2.5 border-b border-slate-200 flex items-center justify-between">
             <div>
-              <span className="text-sm font-semibold text-slate-900">
+              <span className="text-xs sm:text-sm font-semibold text-slate-900">
                 Patient Queue ({patientGroups.length})
               </span>
               <span className="ml-2 text-xs text-slate-500">
@@ -947,9 +947,9 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
             {loading && <span className="text-xs text-slate-500">Loading...</span>}
           </div>
 
-          <div className="divide-y divide-slate-200 max-h-[660px] overflow-y-auto">
+          <div className="divide-y divide-slate-200 max-h-[680px] overflow-y-auto">
             {patientGroups.length === 0 ? (
-              <div className="p-8 text-center text-sm text-slate-500">
+              <div className="p-6 text-center text-xs text-slate-500">
                 No patients match the current filter.
               </div>
             ) : (
@@ -968,29 +968,29 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                         openPatientWorkspace(group);
                       }
                     }}
-                    className={`w-full text-left p-4 transition-colors flex items-start justify-between gap-3 cursor-pointer ${
+                    className={`w-full text-left px-3.5 py-2.5 transition-colors flex items-start justify-between gap-2.5 cursor-pointer ${
                       isSelected ? 'bg-teal-50/80' : 'hover:bg-slate-50'
                     }`}
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 text-xs font-mono tabular-nums text-slate-500">
+                      <div className="flex items-center gap-2 text-[11px] font-mono tabular-nums text-slate-500">
                         <span className="font-semibold text-slate-800">{group.invoice_no}</span>
                         <span aria-hidden="true">·</span>
                         <span>{group.patient_uid}</span>
                       </div>
-                      <div className="text-sm font-semibold text-slate-900 mt-0.5 truncate">
+                      <div className="text-xs sm:text-sm font-semibold text-slate-900 mt-0.5 truncate">
                         {group.patient_name}{' '}
-                        <span className="text-xs font-normal text-slate-600">
+                        <span className="text-[11px] font-normal text-slate-600">
                           ({formatAge(group.age_years, group.age_months, group.age_days)} · {group.gender})
                         </span>
                       </div>
 
                       {/* Compact Test Sub-list Preview */}
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      <div className="mt-1 flex flex-wrap gap-1">
                         {group.tests.map((t) => (
                           <span
                             key={t.id}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md bg-white border border-slate-200 text-slate-700"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10.5px] font-medium rounded bg-white border border-slate-200 text-slate-700"
                           >
                             <span className={`w-1.5 h-1.5 rounded-full ${getStatusDotClass(t.status)}`} />
                             <span className="truncate max-w-[140px]">{t.test_name}</span>
@@ -998,7 +998,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                         ))}
                       </div>
 
-                      <div className="text-[11px] text-slate-500 mt-1.5">
+                      <div className="text-[11px] text-slate-500 mt-1">
                         {group.tests.length} {group.tests.length === 1 ? 'test' : 'tests'} · {group.totalFilled}/
                         {group.totalParams} params entered
                         {group.totalAbnormal > 0 && (
@@ -1008,7 +1008,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                         )}
                       </div>
 
-                      <div className="mt-2">
+                      <div className="mt-1.5">
                         <SampleTimerControl
                           compact
                           alignRight={false}
@@ -1037,7 +1037,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                           ? 'All Ready'
                           : `${group.readyCount}/${group.tests.length} Ready`}
                       </span>
-                      <div className="text-[11px] font-mono tabular-nums text-slate-400 mt-1">
+                      <div className="text-[11px] font-mono tabular-nums text-slate-400 mt-0.5">
                         {formatDateTime(group.latestCollectedAt).split(',')[0]}
                       </div>
                     </div>
@@ -1049,25 +1049,25 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
         </div>
 
         {/* Right: Single Patient Tab Workspace with Test Sub-Tabs */}
-        <div className="xl:col-span-7 bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4">
+        <div className="xl:col-span-7 bg-white border border-slate-200 rounded-xl p-3 sm:p-3.5">
           {!patientHeader ? (
-            <div className="py-16 text-center space-y-2">
-              <FlaskConical className="w-8 h-8 text-slate-400 mx-auto" />
+            <div className="py-10 text-center space-y-2">
+              <FlaskConical className="w-7 h-7 text-slate-400 mx-auto" />
               <h3 className="text-sm font-semibold text-slate-800">Select a Patient From the Queue</h3>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
                 Click any patient on the left to open their unified report workspace and switch seamlessly between their ordered tests using sub-tabs.
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {/* Unified Patient Header */}
-              <div className="pb-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+              <div className="pb-2.5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-start justify-between gap-2.5">
                 <div className="min-w-0">
-                  <div className="text-xs font-mono tabular-nums text-slate-500">
+                  <div className="text-[11px] font-mono tabular-nums text-slate-500">
                     {patientHeader.invoice_no} · {patientHeader.patient_uid}
                     {selectedItem?.sample_type ? ` · Specimen: ${selectedItem.sample_type}` : ''}
                   </div>
-                  <h2 className="text-lg font-bold text-slate-900 mt-0.5 truncate">
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 mt-0.5 truncate">
                     {patientHeader.patient_name}{' '}
                     <span className="text-xs font-medium text-slate-600">
                       ({formatAge(patientHeader.age_years, patientHeader.age_months, patientHeader.age_days)} ·{' '}
@@ -1096,17 +1096,17 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                     type="button"
                     disabled={saving}
                     onClick={handleHeaderPrintCombined}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 disabled:opacity-50 whitespace-nowrap shrink-0"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 disabled:opacity-50 whitespace-nowrap shrink-0"
                   >
-                    <FileText className="w-4 h-4" />
+                    <FileText className="w-3.5 h-3.5" />
                     Print Combined A4 Report
                   </button>
                 </div>
               </div>
 
               {/* Sub-Tabs Strip for All Tests Ordered for This Patient */}
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-1 mb-1.5">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5">
+                <div className="text-[10.5px] font-semibold uppercase tracking-wider text-slate-500 px-1 mb-1">
                   Patient Tests ({subTests.length}) — Switch Sub-Tab to Enter Results
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -1121,13 +1121,13 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                         key={t.id}
                         type="button"
                         onClick={() => loadSubTestEditor(t.id)}
-                        className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors ${
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md border transition-colors ${
                           isActive
                             ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
                             : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                         }`}
                       >
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${getStatusDotClass(effectiveStatus)}`} />
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${getStatusDotClass(effectiveStatus)}`} />
                         <span>{t.test_name}</span>
                         <span
                           className={`text-[10px] font-normal ${
@@ -1320,9 +1320,9 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                   )}
 
                   {/* Workflow Status & Save Controls */}
-                  <div className="pt-3 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="pt-2.5 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Workflow Status</label>
+                      <label className="block text-[11px] font-medium text-slate-700 mb-0.5">Workflow Status</label>
                       <select
                         value={nextStatus}
                         onChange={(e) =>
@@ -1332,7 +1332,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                             dirty: true,
                           }))
                         }
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600 bg-white"
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600 bg-white"
                       >
                         <option value="Sample Collected">Sample Collected</option>
                         <option value="Processing">Processing</option>
@@ -1350,7 +1350,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                      <label className="block text-[11px] font-medium text-slate-700 mb-0.5">
                         Prepared / Tested By (Technologist)
                       </label>
                       <input
@@ -1363,13 +1363,13 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                             dirty: true,
                           }))
                         }
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-600"
                       />
                     </div>
 
-                    <div className="sm:col-span-2 p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                    <div className="sm:col-span-2 p-2.5 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <label className="text-xs font-medium text-slate-700">
+                        <label className="text-[11px] font-medium text-slate-700">
                           Consultant / Pathologist Signature (Optional — leave blank for manual signing)
                         </label>
                         <div className="flex items-center gap-1.5">
@@ -1384,7 +1384,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                                   dirty: true,
                                 }))
                               }
-                              className="px-2 py-1 text-[11px] font-medium text-teal-800 bg-teal-50 border border-teal-200 rounded hover:bg-teal-100"
+                              className="px-2 py-0.5 text-[11px] font-medium text-teal-800 bg-teal-50 border border-teal-200 rounded hover:bg-teal-100"
                             >
                               Use Lab Pathologist
                             </button>
@@ -1399,13 +1399,13 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                                 dirty: true,
                               }))
                             }
-                            className="px-2 py-1 text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-100"
+                            className="px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-100"
                           >
                             Leave Blank (Manual Sign)
                           </button>
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <input
                           type="text"
                           value={consultantName === '__BLANK__' ? '' : consultantName}
@@ -1417,7 +1417,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                             }))
                           }
                           placeholder="Blank (No Consultant Assigned — Manual Signature Line)"
-                          className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-600"
+                          className="w-full px-2.5 py-1 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-600"
                         />
                         <input
                           type="text"
@@ -1431,31 +1431,31 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                           }
                           placeholder="Full Designation (e.g. MBBS, M.Phil / FCPS)"
                           disabled={consultantName === '__BLANK__'}
-                          className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-100"
+                          className="w-full px-2.5 py-1 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-100"
                         />
                       </div>
                     </div>
                   </div>
 
                   {error && (
-                    <div className="p-3 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="p-2.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg">
                       {error}
                     </div>
                   )}
                   {message && (
-                    <div className="p-3 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg">
+                    <div className="p-2.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg">
                       {message}
                     </div>
                   )}
 
-                  <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2 pt-1.5">
                     <button
                       type="button"
                       disabled={saving}
                       onClick={() => handleSave(undefined, 'none')}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-slate-800 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap shrink-0"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-800 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap shrink-0"
                     >
-                      <Save className="w-4 h-4" />
+                      <Save className="w-3.5 h-3.5" />
                       Save Draft
                     </button>
 
@@ -1464,10 +1464,10 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                         type="button"
                         disabled={saving || (differentialSummary.hasDifferential && !differentialSummary.isValid100)}
                         onClick={() => handleSave('Ready', 'next')}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-teal-900 bg-teal-50 border border-teal-300 rounded-lg hover:bg-teal-100 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-teal-900 bg-teal-50 border border-teal-300 rounded-lg hover:bg-teal-100 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
                       >
                         Save Ready &amp; Next Test
-                        <ChevronRight className="w-4 h-4" />
+                        <ChevronRight className="w-3.5 h-3.5" />
                       </button>
                     )}
 
@@ -1475,9 +1475,9 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                       type="button"
                       disabled={saving || (differentialSummary.hasDifferential && !differentialSummary.isValid100)}
                       onClick={() => handleSave('Ready', 'none')}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-cyan rounded-lg hover:bg-brand-cyan-dark disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-cyan rounded-lg hover:bg-brand-cyan-dark disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
                     >
-                      <CheckCircle2 className="w-4 h-4" />
+                      <CheckCircle2 className="w-3.5 h-3.5" />
                       Mark Ready
                     </button>
 
@@ -1485,9 +1485,9 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                       type="button"
                       disabled={saving || (differentialSummary.hasDifferential && !differentialSummary.isValid100)}
                       onClick={() => handleSave('Ready', 'print')}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-brand-navy rounded-lg hover:bg-brand-navy-dark disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
                     >
-                      <FileText className="w-4 h-4" />
+                      <FileText className="w-3.5 h-3.5" />
                       Finalize &amp; Print Combined Report
                     </button>
                   </div>

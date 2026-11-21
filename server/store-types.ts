@@ -54,6 +54,8 @@ export interface CreateInvoicePayload {
   testIds: number[];
   discountType?: 'percent' | 'flat';
   discountValue?: number;
+  doctorLessPercent?: number;
+  flatDiscountAmount?: number;
   paidAmount?: number;
   paymentMethod?: string;
   notes?: string;
@@ -83,6 +85,8 @@ export interface UpdateInvoicePayload {
   removeTestIds?: number[];
   discountType?: 'percent' | 'flat';
   discountValue?: number;
+  doctorLessPercent?: number;
+  flatDiscountAmount?: number;
   adjustmentAmount?: number;
   adjustmentReason?: string;
   refundExcess?: boolean;

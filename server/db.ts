@@ -113,6 +113,9 @@ export function initDatabase() {
       discount_type TEXT NOT NULL DEFAULT 'flat',
       discount_value REAL NOT NULL DEFAULT 0,
       discount_amount REAL NOT NULL DEFAULT 0,
+      doctor_less_percent REAL NOT NULL DEFAULT 0,
+      doctor_less_amount REAL NOT NULL DEFAULT 0,
+      flat_discount_amount REAL NOT NULL DEFAULT 0,
       net_total REAL NOT NULL,
       paid_amount REAL NOT NULL DEFAULT 0,
       due_amount REAL NOT NULL DEFAULT 0,
@@ -307,6 +310,24 @@ function migrateBillingAndDiscountEnhancements() {
   }
   if (!invCols.has('initial_payment_method')) {
     db.exec(`ALTER TABLE invoices ADD COLUMN initial_payment_method TEXT DEFAULT 'Cash'`);
+  }
+  const addedDoctorLessPct = !invCols.has('doctor_less_percent');
+  if (addedDoctorLessPct) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN doctor_less_percent REAL NOT NULL DEFAULT 0`);
+  }
+  if (!invCols.has('doctor_less_amount')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN doctor_less_amount REAL NOT NULL DEFAULT 0`);
+  }
+  if (!invCols.has('flat_discount_amount')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN flat_discount_amount REAL NOT NULL DEFAULT 0`);
+  }
+  if (addedDoctorLessPct) {
+    db.exec(`
+      UPDATE invoices
+      SET doctor_less_percent = CASE WHEN discount_type = 'percent' THEN discount_value ELSE 0 END,
+          doctor_less_amount = CASE WHEN discount_type = 'percent' THEN discount_amount ELSE 0 END,
+          flat_discount_amount = CASE WHEN discount_type = 'flat' THEN discount_amount ELSE 0 END
+    `);
   }
 
   const dpCols = new Set(

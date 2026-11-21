@@ -40,6 +40,10 @@ import {
   type ReagentMatchCandidate,
   selectFefoReagentBatchesForTest,
 } from '../shared/reagentMatcher.ts';
+import {
+  computeSequentialDiscounts,
+  resolveInvoiceDiscountBreakdown,
+} from '../shared/discountMath.ts';
 
 function normalizeMappedReagents(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -1502,7 +1506,7 @@ export class SqliteLimsStore implements LimsStore {
     const rows = db
       .prepare(
         `SELECT i.id, i.invoice_no, i.patient_id, i.doctor_id, i.subtotal, i.discount_type, i.discount_value,
-                i.discount_amount,
+                i.discount_amount, i.doctor_less_percent, i.doctor_less_amount, i.flat_discount_amount,
                 CASE WHEN i.discount_pct > 0 OR i.discount_amount = 0 THEN i.discount_pct
                      WHEN i.subtotal > 0 THEN ROUND((i.discount_amount / i.subtotal) * 100, 2)
                      ELSE 0 END as discount_pct,
@@ -1552,10 +1556,16 @@ export class SqliteLimsStore implements LimsStore {
       }
     }
 
-    return rows.map((r) => ({
-      ...r,
-      test_items: itemsByInv.get(r.id) || [],
-    }));
+    return rows.map((r) => {
+      const breakdown = resolveInvoiceDiscountBreakdown(r as Record<string, unknown>);
+      return {
+        ...r,
+        doctor_less_percent: breakdown.doctorLessPercent,
+        doctor_less_amount: breakdown.doctorLessAmount,
+        flat_discount_amount: breakdown.flatDiscountAmount,
+        test_items: itemsByInv.get(r.id) || [],
+      };
+    });
   }
 
   async searchPatients(q: string): Promise<unknown[]> {
@@ -1581,7 +1591,7 @@ export class SqliteLimsStore implements LimsStore {
     const invoice = db
       .prepare(
         `SELECT i.id, i.invoice_no, i.patient_id, i.doctor_id, i.subtotal, i.discount_type, i.discount_value,
-                i.discount_amount,
+                i.discount_amount, i.doctor_less_percent, i.doctor_less_amount, i.flat_discount_amount,
                 CASE WHEN i.discount_pct > 0 OR i.discount_amount = 0 THEN i.discount_pct
                      WHEN i.subtotal > 0 THEN ROUND((i.discount_amount / i.subtotal) * 100, 2)
                      ELSE 0 END as discount_pct,
@@ -1606,6 +1616,11 @@ export class SqliteLimsStore implements LimsStore {
       .get(todayStr, invoiceId) as Record<string, unknown> | undefined;
 
     if (!invoice) return null;
+
+    const breakdown = resolveInvoiceDiscountBreakdown(invoice as Record<string, unknown>);
+    invoice.doctor_less_percent = breakdown.doctorLessPercent;
+    invoice.doctor_less_amount = breakdown.doctorLessAmount;
+    invoice.flat_discount_amount = breakdown.flatDiscountAmount;
 
     if (!invoice.patient_qr_token) {
       const pid = Number(invoice.patient_id);
@@ -1763,10 +1778,19 @@ export class SqliteLimsStore implements LimsStore {
     if (selectedTests.length === 0) throw new StoreError(400, 'Selected tests were not found.');
 
     const subtotal = selectedTests.reduce((sum, t) => sum + Number(t.price), 0);
-    const dType = payload.discountType === 'percent' ? 'percent' : 'flat';
-    const dVal = Math.max(0, Number(payload.discountValue || 0));
-    let discountAmount = dType === 'percent' ? (subtotal * dVal) / 100 : dVal;
-    discountAmount = Math.min(subtotal, Math.round(discountAmount * 100) / 100);
+    const disc = computeSequentialDiscounts({
+      subtotal,
+      doctorLessPercent: payload.doctorLessPercent,
+      flatDiscountAmount: payload.flatDiscountAmount,
+      legacyDiscountType: payload.discountType,
+      legacyDiscountValue: payload.discountValue,
+    });
+    const dType = disc.legacyDiscountType;
+    const dVal = disc.legacyDiscountValue;
+    const discountAmount = disc.discountAmount;
+    const doctorLessPercent = disc.doctorLessPercent;
+    const doctorLessAmount = disc.doctorLessAmount;
+    const flatDiscountAmount = disc.flatDiscountAmount;
 
     const rawCap = sqliteGetSetting('max_staff_discount_pct');
     const maxStaffPct =
@@ -1779,8 +1803,8 @@ export class SqliteLimsStore implements LimsStore {
       );
     }
 
-    const netTotal = Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100);
-    const discountPct = subtotal > 0 ? roundCurrency((discountAmount / subtotal) * 100) : 0;
+    const netTotal = disc.netBeforeAdjustment;
+    const discountPct = disc.discountPct;
     const paid = Math.min(netTotal, Math.max(0, Math.round(Number(payload.paidAmount || 0) * 100) / 100));
     const due = Math.max(0, Math.round((netTotal - paid) * 100) / 100);
     const paymentStatus = due <= 0 ? 'Paid' : paid > 0 ? 'Partial' : 'Due';
@@ -1871,11 +1895,12 @@ export class SqliteLimsStore implements LimsStore {
         .prepare(
           `INSERT INTO invoices (
             invoice_no, patient_id, doctor_id, subtotal, discount_type, discount_value, discount_amount, discount_pct,
+            doctor_less_percent, doctor_less_amount, flat_discount_amount,
             net_total, paid_amount, due_amount, payment_status,
             initial_payment_method,
             commission_pct, commission_amount, commission_type, commission_value, commission_paid,
             notes, created_by, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
         )
         .run(
           invoiceNo,
@@ -1886,6 +1911,9 @@ export class SqliteLimsStore implements LimsStore {
           dVal,
           discountAmount,
           discountPct,
+          doctorLessPercent,
+          doctorLessAmount,
+          flatDiscountAmount,
           netTotal,
           paid,
           due,
@@ -1987,6 +2015,11 @@ export class SqliteLimsStore implements LimsStore {
           doctor_id: number | null;
           discount_type: 'percent' | 'flat';
           discount_value: number;
+          discount_amount: number;
+          doctor_less_percent?: number;
+          doctor_less_amount?: number;
+          flat_discount_amount?: number;
+          subtotal: number;
           commission_type?: string;
           commission_value?: number;
           commission_pct: number;
@@ -2070,21 +2103,56 @@ export class SqliteLimsStore implements LimsStore {
       keptExistingRows.reduce((sum, r) => sum + Number(r.price), 0) +
       testsToAdd.reduce((sum, t) => sum + Number(t.price), 0);
 
-    const dType =
-      payload.discountType === 'percent' || payload.discountType === 'flat'
-        ? payload.discountType
-        : existingInv.discount_type;
-    const dVal =
-      payload.discountValue !== undefined && payload.discountValue !== null
-        ? Math.max(0, Number(payload.discountValue || 0))
-        : Number(existingInv.discount_value || 0);
+    const existingBreakdown = resolveInvoiceDiscountBreakdown(existingInv);
+    const hasSplitUpdate =
+      payload.doctorLessPercent !== undefined || payload.flatDiscountAmount !== undefined;
+    const hasLegacyUpdate =
+      !hasSplitUpdate && (payload.discountType !== undefined || payload.discountValue !== undefined);
 
-    let discountAmount = dType === 'percent' ? (newSubtotal * dVal) / 100 : dVal;
-    discountAmount = Math.min(newSubtotal, Math.round(discountAmount * 100) / 100);
+    const disc = hasSplitUpdate
+      ? computeSequentialDiscounts({
+          subtotal: newSubtotal,
+          doctorLessPercent:
+            payload.doctorLessPercent !== undefined
+              ? payload.doctorLessPercent
+              : existingBreakdown.doctorLessPercent,
+          flatDiscountAmount:
+            payload.flatDiscountAmount !== undefined
+              ? payload.flatDiscountAmount
+              : existingBreakdown.flatDiscountAmount,
+        })
+      : hasLegacyUpdate
+      ? computeSequentialDiscounts({
+          subtotal: newSubtotal,
+          legacyDiscountType:
+            payload.discountType === 'percent' || payload.discountType === 'flat'
+              ? payload.discountType
+              : existingInv.discount_type,
+          legacyDiscountValue:
+            payload.discountValue !== undefined && payload.discountValue !== null
+              ? Number(payload.discountValue || 0)
+              : Number(existingInv.discount_value || 0),
+        })
+      : computeSequentialDiscounts({
+          subtotal: newSubtotal,
+          doctorLessPercent: existingBreakdown.doctorLessPercent,
+          flatDiscountAmount: existingBreakdown.flatDiscountAmount,
+        });
 
-    const discountChanged =
-      (payload.discountType !== undefined && payload.discountType !== existingInv.discount_type) ||
-      (payload.discountValue !== undefined && Number(payload.discountValue) !== Number(existingInv.discount_value));
+    const dType = disc.legacyDiscountType;
+    const dVal = disc.legacyDiscountValue;
+    const discountAmount = disc.discountAmount;
+    const doctorLessPercent = disc.doctorLessPercent;
+    const doctorLessAmount = disc.doctorLessAmount;
+    const flatDiscountAmount = disc.flatDiscountAmount;
+
+    const discountChanged = hasSplitUpdate
+      ? (payload.doctorLessPercent !== undefined &&
+          Number(payload.doctorLessPercent) !== existingBreakdown.doctorLessPercent) ||
+        (payload.flatDiscountAmount !== undefined &&
+          Number(payload.flatDiscountAmount) !== existingBreakdown.flatDiscountAmount)
+      : (payload.discountType !== undefined && payload.discountType !== existingInv.discount_type) ||
+        (payload.discountValue !== undefined && Number(payload.discountValue) !== Number(existingInv.discount_value));
 
     if (discountChanged) {
       const rawCap = sqliteGetSetting('max_staff_discount_pct');
@@ -2104,8 +2172,8 @@ export class SqliteLimsStore implements LimsStore {
       payload.isAdmin && payload.adjustmentAmount !== undefined && payload.adjustmentAmount !== null
         ? roundCurrency(Number(payload.adjustmentAmount || 0))
         : existingAdjAmt;
-    const netTotal = Math.max(0, Math.round((newSubtotal - discountAmount - nextAdjustmentAmount) * 100) / 100);
-    const discountPct = newSubtotal > 0 ? roundCurrency((discountAmount / newSubtotal) * 100) : 0;
+    const netTotal = Math.max(0, Math.round((disc.netBeforeAdjustment - nextAdjustmentAmount) * 100) / 100);
+    const discountPct = disc.discountPct;
     const nextDoctorId = payload.doctorId !== undefined ? payload.doctorId : existingInv.doctor_id;
     let docCommissionPct = 0;
     if (nextDoctorId) {
@@ -2394,6 +2462,7 @@ export class SqliteLimsStore implements LimsStore {
       db.prepare(
         `UPDATE invoices
          SET doctor_id = ?, subtotal = ?, discount_type = ?, discount_value = ?, discount_amount = ?, discount_pct = ?,
+             doctor_less_percent = ?, doctor_less_amount = ?, flat_discount_amount = ?,
              adjustment_amount = ?, adjustment_reason = ?, adjusted_by = ?, adjusted_at = ?,
              net_total = ?, paid_amount = ?, due_amount = ?, payment_status = ?,
              commission_pct = ?, commission_amount = ?, commission_type = ?, commission_value = ?, notes = ?
@@ -2405,6 +2474,9 @@ export class SqliteLimsStore implements LimsStore {
         dVal,
         discountAmount,
         discountPct,
+        doctorLessPercent,
+        doctorLessAmount,
+        flatDiscountAmount,
         nextAdjustmentAmount,
         payload.isAdmin && payload.adjustmentReason !== undefined
           ? payload.adjustmentReason.trim()

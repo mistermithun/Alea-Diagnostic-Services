@@ -8,6 +8,7 @@ import {
   formatDateTime,
   resolvePublicBaseUrl,
 } from '../lib/api.ts';
+import { resolveInvoiceDiscountBreakdown } from '../../shared/discountMath.ts';
 import type { FullInvoice, LabSettings } from '../types.ts';
 import { BrandLogo } from './BrandLogo.tsx';
 
@@ -50,6 +51,9 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
   if (!data) return null;
 
   const { invoice, tests, duePayments } = data;
+  const discountBreakdown = resolveInvoiceDiscountBreakdown(invoice);
+  const hasSeparateDiscounts =
+    discountBreakdown.doctorLessAmount > 0 || discountBreakdown.flatDiscountAmount > 0;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 overflow-y-auto p-4 sm:p-6 flex flex-col items-center print:block print:static print:inset-auto print:h-auto print:min-h-0 print:overflow-visible print:p-0 print:bg-white">
@@ -261,12 +265,35 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
                 <span className="text-slate-600">Subtotal</span>
                 <span className="font-mono tabular-nums">{formatBDT(invoice.subtotal)}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-600">
-                  Less / Discount {invoice.discount_type === 'percent' && invoice.discount_value > 0 ? `(${invoice.discount_value}%)` : ''}
-                </span>
-                <span className="font-mono tabular-nums">- {formatBDT(invoice.discount_amount)}</span>
-              </div>
+              {hasSeparateDiscounts ? (
+                <>
+                  {discountBreakdown.doctorLessAmount > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">
+                        Doctor Less ({discountBreakdown.doctorLessPercent}%)
+                      </span>
+                      <span className="font-mono tabular-nums">
+                        - {formatBDT(discountBreakdown.doctorLessAmount)}
+                      </span>
+                    </div>
+                  )}
+                  {discountBreakdown.flatDiscountAmount > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Discount (Flat)</span>
+                      <span className="font-mono tabular-nums">
+                        - {formatBDT(discountBreakdown.flatDiscountAmount)}
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex justify-between">
+                  <span className="text-slate-600">
+                    Less / Discount {invoice.discount_type === 'percent' && invoice.discount_value > 0 ? `(${invoice.discount_value}%)` : ''}
+                  </span>
+                  <span className="font-mono tabular-nums">- {formatBDT(invoice.discount_amount)}</span>
+                </div>
+              )}
               {Number(invoice.adjustment_amount || 0) !== 0 && (
                 <div className="flex justify-between text-amber-800">
                   <span>Bill Adjustment</span>
@@ -354,10 +381,27 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
               <span>Subtotal:</span>
               <span className="tabular-nums">{formatBDT(invoice.subtotal)}</span>
             </div>
-            <div className="flex justify-between">
-              <span>Discount:</span>
-              <span className="tabular-nums">- {formatBDT(invoice.discount_amount)}</span>
-            </div>
+            {hasSeparateDiscounts ? (
+              <>
+                {discountBreakdown.doctorLessAmount > 0 && (
+                  <div className="flex justify-between">
+                    <span>Dr Less ({discountBreakdown.doctorLessPercent}%):</span>
+                    <span className="tabular-nums">- {formatBDT(discountBreakdown.doctorLessAmount)}</span>
+                  </div>
+                )}
+                {discountBreakdown.flatDiscountAmount > 0 && (
+                  <div className="flex justify-between">
+                    <span>Discount (Flat):</span>
+                    <span className="tabular-nums">- {formatBDT(discountBreakdown.flatDiscountAmount)}</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex justify-between">
+                <span>Discount:</span>
+                <span className="tabular-nums">- {formatBDT(invoice.discount_amount)}</span>
+              </div>
+            )}
             {Number(invoice.adjustment_amount || 0) !== 0 && (
               <div className="flex justify-between">
                 <span>Adjustment:</span>

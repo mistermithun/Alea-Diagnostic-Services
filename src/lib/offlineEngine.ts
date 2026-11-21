@@ -34,6 +34,10 @@ import {
 import { broadcastPatientsUpdated } from './liveSync.ts';
 import { selectFefoReagentBatchesForTest } from '../../shared/reagentMatcher.ts';
 import {
+  computeSequentialDiscounts,
+  resolveInvoiceDiscountBreakdown,
+} from '../../shared/discountMath.ts';
+import {
   enqueueSyncMutation,
   getAllExpensesLocal,
   getAllInvoicesLocal,
@@ -1128,6 +1132,8 @@ async function applyAndQueueOfflineMutation<T>(
       testIds: number[];
       discountType?: 'percent' | 'flat';
       discountValue?: number;
+      doctorLessPercent?: number;
+      flatDiscountAmount?: number;
       paidAmount?: number;
       paymentMethod?: string;
       notes?: string;
@@ -1152,14 +1158,18 @@ async function applyAndQueueOfflineMutation<T>(
     }
 
     const subtotal = roundCurrency(selectedTests.reduce((s, t) => s + Number(t.price || 0), 0));
-    const dType = payload.discountType === 'flat' ? 'flat' : 'percent';
-    const dVal = Math.max(0, Number(payload.discountValue || 0));
-    const discountAmount = Math.min(
+    const disc = computeSequentialDiscounts({
       subtotal,
-      roundCurrency(dType === 'flat' ? dVal : (subtotal * dVal) / 100)
-    );
-    const discountPct = subtotal > 0 ? roundCurrency((discountAmount / subtotal) * 100) : 0;
-    const netTotal = Math.max(0, roundCurrency(subtotal - discountAmount));
+      doctorLessPercent: payload.doctorLessPercent,
+      flatDiscountAmount: payload.flatDiscountAmount,
+      legacyDiscountType: payload.discountType,
+      legacyDiscountValue: payload.discountValue,
+    });
+    const dType = disc.legacyDiscountType;
+    const dVal = disc.legacyDiscountValue;
+    const discountAmount = disc.discountAmount;
+    const discountPct = disc.discountPct;
+    const netTotal = disc.netBeforeAdjustment;
     const paid = Math.min(netTotal, Math.max(0, roundCurrency(Number(payload.paidAmount || 0))));
     const due = Math.max(0, roundCurrency(netTotal - paid));
     const paymentStatus: 'Paid' | 'Partial' | 'Due' =
@@ -1314,6 +1324,9 @@ async function applyAndQueueOfflineMutation<T>(
       discount_value: dVal,
       discount_amount: discountAmount,
       discount_pct: discountPct,
+      doctor_less_percent: disc.doctorLessPercent,
+      doctor_less_amount: disc.doctorLessAmount,
+      flat_discount_amount: disc.flatDiscountAmount,
       net_total: netTotal,
       paid_amount: paid,
       due_amount: due,
@@ -1420,6 +1433,8 @@ async function applyAndQueueOfflineMutation<T>(
       removeInvoiceTestIds?: number[];
       discountType?: 'percent' | 'flat';
       discountValue?: number;
+      doctorLessPercent?: number;
+      flatDiscountAmount?: number;
       additionalPayment?: number;
       paymentMethod?: string;
       notes?: string;
@@ -1550,18 +1565,41 @@ async function applyAndQueueOfflineMutation<T>(
     }
 
     const subtotal = roundCurrency(nextTests.reduce((s, t) => s + Number(t.price || 0), 0));
-    const dType = payload.discountType || inv.discount_type;
-    const dVal =
-      payload.discountValue !== undefined ? Math.max(0, Number(payload.discountValue || 0)) : inv.discount_value;
-    const discountAmount = Math.min(
-      subtotal,
-      roundCurrency(dType === 'flat' ? dVal : (subtotal * dVal) / 100)
-    );
+    const existingBreakdown = resolveInvoiceDiscountBreakdown(inv);
+    const hasSplitUpdate =
+      payload.doctorLessPercent !== undefined || payload.flatDiscountAmount !== undefined;
+    const hasLegacyUpdate =
+      !hasSplitUpdate && (payload.discountType !== undefined || payload.discountValue !== undefined);
+    const disc = hasSplitUpdate
+      ? computeSequentialDiscounts({
+          subtotal,
+          doctorLessPercent:
+            payload.doctorLessPercent !== undefined
+              ? payload.doctorLessPercent
+              : existingBreakdown.doctorLessPercent,
+          flatDiscountAmount:
+            payload.flatDiscountAmount !== undefined
+              ? payload.flatDiscountAmount
+              : existingBreakdown.flatDiscountAmount,
+        })
+      : hasLegacyUpdate
+      ? computeSequentialDiscounts({
+          subtotal,
+          legacyDiscountType: payload.discountType || inv.discount_type,
+          legacyDiscountValue:
+            payload.discountValue !== undefined ? Number(payload.discountValue || 0) : inv.discount_value,
+        })
+      : computeSequentialDiscounts({
+          subtotal,
+          doctorLessPercent: existingBreakdown.doctorLessPercent,
+          flatDiscountAmount: existingBreakdown.flatDiscountAmount,
+        });
+
     const adjAmt =
       payload.adjustmentAmount !== undefined
         ? Number(payload.adjustmentAmount || 0)
         : Number(inv.adjustment_amount || 0);
-    const netTotal = Math.max(0, roundCurrency(subtotal - discountAmount - adjAmt));
+    const netTotal = Math.max(0, roundCurrency(disc.netBeforeAdjustment - adjAmt));
     const extraPay = Math.max(0, Number(payload.additionalPayment || 0));
     let paidAmount = roundCurrency(Number(inv.paid_amount || 0) + extraPay);
     if (payload.refundExcess && paidAmount > netTotal) {
@@ -1570,10 +1608,13 @@ async function applyAndQueueOfflineMutation<T>(
     const dueAmount = Math.max(0, roundCurrency(netTotal - paidAmount));
 
     inv.subtotal = subtotal;
-    inv.discount_type = dType;
-    inv.discount_value = dVal;
-    inv.discount_amount = discountAmount;
-    inv.discount_pct = subtotal > 0 ? roundCurrency((discountAmount / subtotal) * 100) : 0;
+    inv.discount_type = disc.legacyDiscountType;
+    inv.discount_value = disc.legacyDiscountValue;
+    inv.discount_amount = disc.discountAmount;
+    inv.discount_pct = disc.discountPct;
+    inv.doctor_less_percent = disc.doctorLessPercent;
+    inv.doctor_less_amount = disc.doctorLessAmount;
+    inv.flat_discount_amount = disc.flatDiscountAmount;
     inv.adjustment_amount = adjAmt;
     inv.net_total = netTotal;
     inv.paid_amount = paidAmount;
@@ -1774,13 +1815,21 @@ async function applyAndQueueOfflineMutation<T>(
     const nextTests = full.tests.filter((t) => t.id !== invoiceTestId);
     const inv = { ...full.invoice };
     const subtotal = roundCurrency(nextTests.reduce((s, t) => s + Number(t.price || 0), 0));
-    const discountAmount = Math.min(
+    const existingBreakdown = resolveInvoiceDiscountBreakdown(inv);
+    const disc = computeSequentialDiscounts({
       subtotal,
-      roundCurrency(inv.discount_type === 'flat' ? inv.discount_value : (subtotal * inv.discount_value) / 100)
-    );
-    const netTotal = Math.max(0, roundCurrency(subtotal - discountAmount - Number(inv.adjustment_amount || 0)));
+      doctorLessPercent: existingBreakdown.doctorLessPercent,
+      flatDiscountAmount: existingBreakdown.flatDiscountAmount,
+    });
+    const netTotal = Math.max(0, roundCurrency(disc.netBeforeAdjustment - Number(inv.adjustment_amount || 0)));
     inv.subtotal = subtotal;
-    inv.discount_amount = discountAmount;
+    inv.discount_type = disc.legacyDiscountType;
+    inv.discount_value = disc.legacyDiscountValue;
+    inv.discount_amount = disc.discountAmount;
+    inv.discount_pct = disc.discountPct;
+    inv.doctor_less_percent = disc.doctorLessPercent;
+    inv.doctor_less_amount = disc.doctorLessAmount;
+    inv.flat_discount_amount = disc.flatDiscountAmount;
     inv.net_total = netTotal;
     inv.due_amount = Math.max(0, roundCurrency(netTotal - Number(inv.paid_amount || 0)));
     inv.payment_status = inv.due_amount <= 0 ? 'Paid' : inv.paid_amount > 0 ? 'Partial' : 'Due';

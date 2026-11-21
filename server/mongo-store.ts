@@ -38,6 +38,10 @@ import {
   getCanonicalReagentKey,
   selectFefoReagentBatchesForTest,
 } from '../shared/reagentMatcher.ts';
+import {
+  computeSequentialDiscounts,
+  resolveInvoiceDiscountBreakdown,
+} from '../shared/discountMath.ts';
 
 interface CounterDoc {
   _id: string;
@@ -144,6 +148,9 @@ interface InvoiceDoc {
   discount_value: number;
   discount_amount: number;
   discount_pct?: number;
+  doctor_less_percent?: number;
+  doctor_less_amount?: number;
+  flat_discount_amount?: number;
   net_total: number;
   paid_amount: number;
   due_amount: number;
@@ -2715,6 +2722,7 @@ export class MongoLimsStore implements LimsStore {
       const p = patMap.get(i.patient_id);
       const d = i.doctor_id ? docMap.get(i.doctor_id) : undefined;
       const stats = testStats.get(i.id) || { total: 0, ready: 0, items: [] };
+      const breakdown = resolveInvoiceDiscountBreakdown(i);
       const out: Record<string, unknown> = {
         id: i.id,
         invoice_no: i.invoice_no,
@@ -2730,6 +2738,9 @@ export class MongoLimsStore implements LimsStore {
             : i.subtotal > 0
             ? roundCurrency((i.discount_amount / i.subtotal) * 100)
             : 0,
+        doctor_less_percent: breakdown.doctorLessPercent,
+        doctor_less_amount: breakdown.doctorLessAmount,
+        flat_discount_amount: breakdown.flatDiscountAmount,
         net_total: i.net_total,
         paid_amount: i.paid_amount,
         due_amount: i.due_amount,
@@ -2845,6 +2856,7 @@ export class MongoLimsStore implements LimsStore {
     }
 
     const todayStr = getTodayDateStr();
+    const breakdown = resolveInvoiceDiscountBreakdown(inv);
     const invoiceOut: Record<string, unknown> = {
       id: inv.id,
       invoice_no: inv.invoice_no,
@@ -2860,6 +2872,9 @@ export class MongoLimsStore implements LimsStore {
           : inv.subtotal > 0
           ? roundCurrency((inv.discount_amount / inv.subtotal) * 100)
           : 0,
+      doctor_less_percent: breakdown.doctorLessPercent,
+      doctor_less_amount: breakdown.doctorLessAmount,
+      flat_discount_amount: breakdown.flatDiscountAmount,
       net_total: inv.net_total,
       paid_amount: inv.paid_amount,
       due_amount: inv.due_amount,
@@ -3015,10 +3030,19 @@ export class MongoLimsStore implements LimsStore {
     const catMap = new Map(cats.map((c) => [c.id, c.name]));
 
     const subtotal = selectedTestDocs.reduce((sum, t) => sum + Number(t.price), 0);
-    const dType = payload.discountType === 'percent' ? 'percent' : 'flat';
-    const dVal = Math.max(0, Number(payload.discountValue || 0));
-    let discountAmount = dType === 'percent' ? (subtotal * dVal) / 100 : dVal;
-    discountAmount = Math.min(subtotal, Math.round(discountAmount * 100) / 100);
+    const disc = computeSequentialDiscounts({
+      subtotal,
+      doctorLessPercent: payload.doctorLessPercent,
+      flatDiscountAmount: payload.flatDiscountAmount,
+      legacyDiscountType: payload.discountType,
+      legacyDiscountValue: payload.discountValue,
+    });
+    const dType = disc.legacyDiscountType;
+    const dVal = disc.legacyDiscountValue;
+    const discountAmount = disc.discountAmount;
+    const doctorLessPercent = disc.doctorLessPercent;
+    const doctorLessAmount = disc.doctorLessAmount;
+    const flatDiscountAmount = disc.flatDiscountAmount;
 
     const rawCap = await this.getSetting('max_staff_discount_pct');
     const maxStaffPct =
@@ -3031,8 +3055,8 @@ export class MongoLimsStore implements LimsStore {
       );
     }
 
-    const netTotal = Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100);
-    const discountPct = subtotal > 0 ? roundCurrency((discountAmount / subtotal) * 100) : 0;
+    const netTotal = disc.netBeforeAdjustment;
+    const discountPct = disc.discountPct;
     const paid = Math.min(netTotal, Math.max(0, Math.round(Number(payload.paidAmount || 0) * 100) / 100));
     const due = Math.max(0, Math.round((netTotal - paid) * 100) / 100);
     const paymentStatus = due <= 0 ? 'Paid' : paid > 0 ? 'Partial' : 'Due';
@@ -3116,6 +3140,9 @@ export class MongoLimsStore implements LimsStore {
       discount_value: dVal,
       discount_amount: discountAmount,
       discount_pct: discountPct,
+      doctor_less_percent: doctorLessPercent,
+      doctor_less_amount: doctorLessAmount,
+      flat_discount_amount: flatDiscountAmount,
       net_total: netTotal,
       paid_amount: paid,
       due_amount: due,
@@ -3251,21 +3278,56 @@ export class MongoLimsStore implements LimsStore {
       keptExistingInvTests.reduce((sum, r) => sum + Number(r.price), 0) +
       testsToAdd.reduce((sum, t) => sum + Number(t.price), 0);
 
-    const dType =
-      payload.discountType === 'percent' || payload.discountType === 'flat'
-        ? payload.discountType
-        : existingInv.discount_type;
-    const dVal =
-      payload.discountValue !== undefined && payload.discountValue !== null
-        ? Math.max(0, Number(payload.discountValue || 0))
-        : Number(existingInv.discount_value || 0);
+    const existingBreakdown = resolveInvoiceDiscountBreakdown(existingInv);
+    const hasSplitUpdate =
+      payload.doctorLessPercent !== undefined || payload.flatDiscountAmount !== undefined;
+    const hasLegacyUpdate =
+      !hasSplitUpdate && (payload.discountType !== undefined || payload.discountValue !== undefined);
 
-    let discountAmount = dType === 'percent' ? (newSubtotal * dVal) / 100 : dVal;
-    discountAmount = Math.min(newSubtotal, Math.round(discountAmount * 100) / 100);
+    const disc = hasSplitUpdate
+      ? computeSequentialDiscounts({
+          subtotal: newSubtotal,
+          doctorLessPercent:
+            payload.doctorLessPercent !== undefined
+              ? payload.doctorLessPercent
+              : existingBreakdown.doctorLessPercent,
+          flatDiscountAmount:
+            payload.flatDiscountAmount !== undefined
+              ? payload.flatDiscountAmount
+              : existingBreakdown.flatDiscountAmount,
+        })
+      : hasLegacyUpdate
+      ? computeSequentialDiscounts({
+          subtotal: newSubtotal,
+          legacyDiscountType:
+            payload.discountType === 'percent' || payload.discountType === 'flat'
+              ? payload.discountType
+              : existingInv.discount_type,
+          legacyDiscountValue:
+            payload.discountValue !== undefined && payload.discountValue !== null
+              ? Number(payload.discountValue || 0)
+              : Number(existingInv.discount_value || 0),
+        })
+      : computeSequentialDiscounts({
+          subtotal: newSubtotal,
+          doctorLessPercent: existingBreakdown.doctorLessPercent,
+          flatDiscountAmount: existingBreakdown.flatDiscountAmount,
+        });
 
-    const discountChanged =
-      (payload.discountType !== undefined && payload.discountType !== existingInv.discount_type) ||
-      (payload.discountValue !== undefined && Number(payload.discountValue) !== Number(existingInv.discount_value));
+    const dType = disc.legacyDiscountType;
+    const dVal = disc.legacyDiscountValue;
+    const discountAmount = disc.discountAmount;
+    const doctorLessPercent = disc.doctorLessPercent;
+    const doctorLessAmount = disc.doctorLessAmount;
+    const flatDiscountAmount = disc.flatDiscountAmount;
+
+    const discountChanged = hasSplitUpdate
+      ? (payload.doctorLessPercent !== undefined &&
+          Number(payload.doctorLessPercent) !== existingBreakdown.doctorLessPercent) ||
+        (payload.flatDiscountAmount !== undefined &&
+          Number(payload.flatDiscountAmount) !== existingBreakdown.flatDiscountAmount)
+      : (payload.discountType !== undefined && payload.discountType !== existingInv.discount_type) ||
+        (payload.discountValue !== undefined && Number(payload.discountValue) !== Number(existingInv.discount_value));
 
     if (discountChanged) {
       const rawCap = await this.getSetting('max_staff_discount_pct');
@@ -3285,8 +3347,8 @@ export class MongoLimsStore implements LimsStore {
       payload.isAdmin && payload.adjustmentAmount !== undefined && payload.adjustmentAmount !== null
         ? roundCurrency(Number(payload.adjustmentAmount || 0))
         : existingAdjAmt;
-    const netTotal = Math.max(0, Math.round((newSubtotal - discountAmount - nextAdjustmentAmount) * 100) / 100);
-    const discountPct = newSubtotal > 0 ? roundCurrency((discountAmount / newSubtotal) * 100) : 0;
+    const netTotal = Math.max(0, Math.round((disc.netBeforeAdjustment - nextAdjustmentAmount) * 100) / 100);
+    const discountPct = disc.discountPct;
     const nextDoctorId = payload.doctorId !== undefined ? payload.doctorId : existingInv.doctor_id;
     let docCommissionPct = 0;
     if (nextDoctorId) {
@@ -3551,6 +3613,9 @@ export class MongoLimsStore implements LimsStore {
           discount_value: dVal,
           discount_amount: discountAmount,
           discount_pct: discountPct,
+          doctor_less_percent: doctorLessPercent,
+          doctor_less_amount: doctorLessAmount,
+          flat_discount_amount: flatDiscountAmount,
           adjustment_amount: nextAdjustmentAmount,
           adjustment_reason:
             payload.isAdmin && payload.adjustmentReason !== undefined

@@ -127,6 +127,9 @@ export interface InvoiceSummary {
   discount_value: number;
   discount_amount: number;
   discount_pct?: number;
+  doctor_less_percent?: number;
+  doctor_less_amount?: number;
+  flat_discount_amount?: number;
   net_total: number;
   paid_amount: number;
   due_amount: number;

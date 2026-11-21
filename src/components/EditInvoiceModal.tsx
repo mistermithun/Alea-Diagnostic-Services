@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Lock, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import { apiFetch, formatBDT, formatDateTime } from '../lib/api.ts';
 import { broadcastPatientsUpdated } from '../lib/liveSync.ts';
+import { computeSequentialDiscounts, resolveInvoiceDiscountBreakdown } from '../../shared/discountMath.ts';
 import type {
   DiagnosticTest,
   Doctor,
@@ -55,8 +56,8 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   const [removedInvoiceTestIds, setRemovedInvoiceTestIds] = useState<number[]>([]);
 
   // Billing adjustments
-  const [discountType, setDiscountType] = useState<'flat' | 'percent'>('flat');
-  const [discountValue, setDiscountValue] = useState('0');
+  const [doctorLessPercent, setDoctorLessPercent] = useState('0');
+  const [flatDiscountAmount, setFlatDiscountAmount] = useState('0');
   const [additionalPayment, setAdditionalPayment] = useState('0');
   const [adjustmentAmount, setAdjustmentAmount] = useState('0');
   const [adjustmentReason, setAdjustmentReason] = useState('');
@@ -88,8 +89,9 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
         setAddress(res.invoice.patient_address || '');
         setDoctorId(res.invoice.doctor_id);
         setNotes(res.invoice.notes || '');
-        setDiscountType(res.invoice.discount_type || 'flat');
-        setDiscountValue(String(res.invoice.discount_value ?? 0));
+        const breakdown = resolveInvoiceDiscountBreakdown(res.invoice);
+        setDoctorLessPercent(String(breakdown.doctorLessPercent));
+        setFlatDiscountAmount(String(breakdown.flatDiscountAmount));
         setAdditionalPayment('0');
         setAdjustmentAmount(String(res.invoice.adjustment_amount ?? 0));
         setAdjustmentReason(res.invoice.adjustment_reason || '');
@@ -184,18 +186,28 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   );
   const newSubtotal = existingSubtotal + addedSubtotal;
 
-  const newDiscountAmount = useMemo(() => {
-    const val = Math.max(0, Number(discountValue || 0));
-    const amt = discountType === 'percent' ? (newSubtotal * val) / 100 : val;
-    return Math.min(newSubtotal, Math.round(amt * 100) / 100);
-  }, [newSubtotal, discountType, discountValue]);
+  const discountBreakdown = useMemo(
+    () =>
+      computeSequentialDiscounts({
+        subtotal: newSubtotal,
+        doctorLessPercent: Number(doctorLessPercent || 0),
+        flatDiscountAmount: Number(flatDiscountAmount || 0),
+      }),
+    [newSubtotal, doctorLessPercent, flatDiscountAmount]
+  );
+
+  const newDoctorLessAmt = discountBreakdown.doctorLessAmount;
+  const appliedDoctorLessPct = discountBreakdown.doctorLessPercent;
+  const afterDoctorLess = discountBreakdown.afterDoctorLess;
+  const newFlatDiscountAmt = discountBreakdown.flatDiscountAmount;
+  const newDiscountAmount = discountBreakdown.discountAmount;
 
   const activeAdjAmt = isAdmin
     ? Number(adjustmentAmount || 0)
     : Number(fullData?.invoice.adjustment_amount || 0);
   const newNetTotal = Math.max(
     0,
-    Math.round((newSubtotal - newDiscountAmount - (Number.isFinite(activeAdjAmt) ? activeAdjAmt : 0)) * 100) / 100
+    Math.round((discountBreakdown.netBeforeAdjustment - (Number.isFinite(activeAdjAmt) ? activeAdjAmt : 0)) * 100) / 100
   );
   const alreadyPaid = Number(fullData?.invoice.paid_amount || 0);
   const maxExtraPay = Math.max(0, Math.round((newNetTotal - alreadyPaid) * 100) / 100);
@@ -211,11 +223,15 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     rawMaxStaff !== undefined && rawMaxStaff !== '' && Number.isFinite(Number(rawMaxStaff))
       ? Math.min(100, Math.max(0, Number(rawMaxStaff)))
       : 100;
+  const originalBreakdown = useMemo(
+    () => resolveInvoiceDiscountBreakdown(fullData?.invoice),
+    [fullData]
+  );
   const discountChanged =
     fullData !== null &&
-    (discountType !== fullData.invoice.discount_type ||
-      Number(discountValue || 0) !== Number(fullData.invoice.discount_value || 0));
-  const effectivePct = newSubtotal > 0 ? Math.round(((newDiscountAmount / newSubtotal) * 100) * 100) / 100 : 0;
+    (appliedDoctorLessPct !== originalBreakdown.doctorLessPercent ||
+      newFlatDiscountAmt !== originalBreakdown.flatDiscountAmount);
+  const effectivePct = discountBreakdown.discountPct;
   const exceedsStaffCap = !isAdmin && discountChanged && effectivePct > maxStaffPct + 0.01;
 
   const combinedTestsForComm = useMemo(() => {
@@ -338,8 +354,10 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
           doctorId,
           addTestIds: addedTestIds,
           removeInvoiceTestIds: removedInvoiceTestIds,
-          discountType,
-          discountValue: Number(discountValue || 0),
+          doctorLessPercent: appliedDoctorLessPct,
+          flatDiscountAmount: newFlatDiscountAmt,
+          discountType: discountBreakdown.legacyDiscountType,
+          discountValue: discountBreakdown.legacyDiscountValue,
           additionalPayment: appliedExtraPay,
           notes: notes.trim(),
           ...(isAdmin
@@ -756,39 +774,61 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3">
               <h3 className="text-sm font-semibold text-slate-900">04. Updated Billing Summary</h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div>
-                  <div className="flex items-center justify-between gap-1 mb-1">
-                    <label className="block font-medium text-slate-700">Less / Discount</label>
-                    {(isAdmin || maxStaffPct >= 100) && newSubtotal > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDiscountType('percent');
-                          setDiscountValue('100');
-                        }}
-                        className="px-1.5 py-0.5 text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded hover:bg-teal-100"
-                      >
-                        100% Free
-                      </button>
-                    )}
+                <div className="space-y-2">
+                  <div>
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <label className="block font-medium text-slate-700">Doctor Less (%)</label>
+                      <span className="font-mono tabular-nums font-semibold text-amber-700">
+                        -{formatBDT(newDoctorLessAmt)} ({appliedDoctorLessPct}%)
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="any"
+                        value={doctorLessPercent}
+                        onChange={(e) => setDoctorLessPercent(e.target.value)}
+                        className="w-full pl-2.5 pr-7 py-1.5 text-xs font-mono tabular-nums border border-slate-300 rounded-md bg-white"
+                      />
+                      <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[11px] font-semibold text-slate-500">
+                        %
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <select
-                      value={discountType}
-                      onChange={(e) => setDiscountType(e.target.value as 'flat' | 'percent')}
-                      className="px-2 py-1.5 text-xs border border-slate-300 rounded-md bg-white"
-                    >
-                      <option value="flat">৳ Flat</option>
-                      <option value="percent">% Pct</option>
-                    </select>
-                    <input
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={discountValue}
-                      onChange={(e) => setDiscountValue(e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-xs font-mono tabular-nums border border-slate-300 rounded-md bg-white"
-                    />
+                  <div>
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <label className="block font-medium text-slate-700">Discount (৳ Flat)</label>
+                      <div className="flex items-center gap-1.5">
+                        {(isAdmin || maxStaffPct >= 100) && newSubtotal > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setFlatDiscountAmount(String(afterDoctorLess))}
+                            className="px-1.5 py-0.5 text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded hover:bg-teal-100 cursor-pointer"
+                          >
+                            100% Free
+                          </button>
+                        )}
+                        <span className="font-mono tabular-nums font-semibold text-amber-700">
+                          -{formatBDT(newFlatDiscountAmt)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="relative">
+                      <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-[11px] font-semibold text-slate-500">
+                        ৳
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={afterDoctorLess}
+                        step="any"
+                        value={flatDiscountAmount}
+                        onChange={(e) => setFlatDiscountAmount(e.target.value)}
+                        className="w-full pl-6 pr-2.5 py-1.5 text-xs font-mono tabular-nums border border-slate-300 rounded-md bg-white"
+                      />
+                    </div>
                   </div>
                   {exceedsStaffCap && (
                     <p className="text-[11px] text-red-600 mt-1 font-medium">
@@ -822,8 +862,24 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                       {formatBDT(newSubtotal)}
                     </span>
                   </div>
+                  {newDoctorLessAmt > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Doctor Less ({appliedDoctorLessPct}%):</span>
+                      <span className="font-mono tabular-nums font-semibold text-amber-700">
+                        -{formatBDT(newDoctorLessAmt)}
+                      </span>
+                    </div>
+                  )}
+                  {newFlatDiscountAmt > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Discount (Flat):</span>
+                      <span className="font-mono tabular-nums font-semibold text-amber-700">
+                        -{formatBDT(newFlatDiscountAmt)}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
-                    <span className="text-slate-600">Discount ({effectivePct}%):</span>
+                    <span className="text-slate-600">Total Discount ({effectivePct}%):</span>
                     <span className="font-mono tabular-nums font-semibold text-amber-700">
                       -{formatBDT(newDiscountAmount)}
                     </span>

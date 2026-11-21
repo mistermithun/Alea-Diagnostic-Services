@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -247,6 +247,11 @@ function getStatusTextClass(status: LabQueueItem['status']): string {
   }
 }
 
+function compareNaturalTestOrder(a: { id: number }, b: { id: number }): number {
+  if (a.id < 0 && b.id < 0) return b.id - a.id;
+  return a.id - b.id;
+}
+
 export const LabResultsView: React.FC<LabResultsViewProps> = ({
   settings,
   onOpenReport,
@@ -282,6 +287,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const latestOpenInvoiceRef = useRef<number | null>(null);
 
   const loadQueue = useCallback(async () => {
     setLoading(true);
@@ -344,7 +350,11 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
         grp.latestCollectedAt = q.collected_at;
       }
     }
-    return Array.from(map.values());
+    const groups = Array.from(map.values());
+    for (const grp of groups) {
+      grp.tests.sort(compareNaturalTestOrder);
+    }
+    return groups;
   }, [queue]);
 
   const buildInitialDraft = useCallback(
@@ -381,9 +391,11 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
   );
 
   const loadSubTestEditor = useCallback(
-    async (invoiceTestId: number, forceRefresh = false) => {
+    async (invoiceTestId: number, forceRefresh = false, preserveMessage = false) => {
       setActiveSubTestId(invoiceTestId);
-      setMessage('');
+      if (!preserveMessage) {
+        setMessage('');
+      }
       setError('');
 
       if (!forceRefresh && draftsByTestId[invoiceTestId]) {
@@ -410,6 +422,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
   );
 
   const openPatientWorkspace = async (group: PatientQueueGroup) => {
+    latestOpenInvoiceRef.current = group.invoice_id;
     setMessage('');
     setError('');
     setActiveInvoiceId(group.invoice_id);
@@ -428,34 +441,38 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
 
     try {
       const fullInv = await apiFetch<FullInvoice>(`/api/invoices/${group.invoice_id}`);
+      if (latestOpenInvoiceRef.current !== group.invoice_id) return;
+
       const queueLookup = new Map(group.tests.map((t) => [t.id, t]));
-      const mergedSubTests: LabQueueItem[] = fullInv.tests.map((t) => {
-        const fromQueue = queueLookup.get(t.id);
-        return {
-          ...t,
-          invoice_no: fullInv.invoice.invoice_no,
-          invoice_date: fullInv.invoice.created_at,
-          patient_uid: fullInv.invoice.patient_uid,
-          patient_name: fullInv.invoice.patient_name,
-          age_years: fullInv.invoice.age_years,
-          age_months: fullInv.invoice.age_months,
-          age_days: fullInv.invoice.age_days,
-          gender: fullInv.invoice.gender,
-          patient_mobile: fullInv.invoice.patient_mobile,
-          doctor_name: fullInv.invoice.doctor_name,
-          total_params: fromQueue?.total_params ?? t.results?.length ?? 0,
-          filled_params:
-            fromQueue?.filled_params ??
-            (t.results ? t.results.filter((r) => (r.result_value || '').trim() !== '').length : 0),
-          abnormal_count:
-            fromQueue?.abnormal_count ??
-            (t.results
-              ? t.results.filter(
-                  (r) => (r.result_value || '').trim() !== '' && r.flag && r.flag !== 'Normal'
-                ).length
-              : 0),
-        };
-      });
+      const mergedSubTests: LabQueueItem[] = [...fullInv.tests]
+        .sort(compareNaturalTestOrder)
+        .map((t) => {
+          const fromQueue = queueLookup.get(t.id);
+          return {
+            ...t,
+            invoice_no: fullInv.invoice.invoice_no,
+            invoice_date: fullInv.invoice.created_at,
+            patient_uid: fullInv.invoice.patient_uid,
+            patient_name: fullInv.invoice.patient_name,
+            age_years: fullInv.invoice.age_years,
+            age_months: fullInv.invoice.age_months,
+            age_days: fullInv.invoice.age_days,
+            gender: fullInv.invoice.gender,
+            patient_mobile: fullInv.invoice.patient_mobile,
+            doctor_name: fullInv.invoice.doctor_name,
+            total_params: fromQueue?.total_params ?? t.results?.length ?? 0,
+            filled_params:
+              fromQueue?.filled_params ??
+              (t.results ? t.results.filter((r) => (r.result_value || '').trim() !== '').length : 0),
+            abnormal_count:
+              fromQueue?.abnormal_count ??
+              (t.results
+                ? t.results.filter(
+                    (r) => (r.result_value || '').trim() !== '' && r.flag && r.flag !== 'Normal'
+                  ).length
+                : 0),
+          };
+        });
 
       setPatientHeader({
         invoice_id: fullInv.invoice.id,
@@ -473,11 +490,8 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
       setSubTests(mergedSubTests);
       setDraftsByTestId({});
 
-      // Pick first pending/matching test from the clicked queue group
-      const defaultTest =
-        group.tests[0] ||
-        mergedSubTests.find((t) => t.status !== 'Ready') ||
-        mergedSubTests[0];
+      // Always default to the FIRST test in the patient's ordered test list (natural order)
+      const defaultTest = mergedSubTests[0] || group.tests[0];
       if (defaultTest) {
         setActiveSubTestId(defaultTest.id);
         setLoadingSubTest(true);
@@ -485,17 +499,22 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
           const res = await apiFetch<{ item: LabQueueItem; results: TestResultRow[] }>(
             `/api/lab-tests/${defaultTest.id}`
           );
+          if (latestOpenInvoiceRef.current !== group.invoice_id) return;
           const draft = buildInitialDraft(res.item, res.results);
           setDraftsByTestId({ [defaultTest.id]: draft });
         } finally {
-          setLoadingSubTest(false);
+          if (latestOpenInvoiceRef.current === group.invoice_id) {
+            setLoadingSubTest(false);
+          }
         }
       }
     } catch (err) {
-      // Fallback to tests already in the queue group if invoice lookup fails
-      setSubTests(group.tests);
-      if (group.tests[0]) {
-        await loadSubTestEditor(group.tests[0].id, true);
+      if (latestOpenInvoiceRef.current !== group.invoice_id) return;
+      // Fallback to tests already in the queue group (sorted in natural order)
+      const orderedFallback = [...group.tests].sort(compareNaturalTestOrder);
+      setSubTests(orderedFallback);
+      if (orderedFallback[0]) {
+        await loadSubTestEditor(orderedFallback[0].id, true);
       }
       if (err instanceof Error) {
         setError(err.message);
@@ -508,36 +527,39 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
     let cancelled = false;
 
     const loadTargetedPatient = async () => {
+      latestOpenInvoiceRef.current = targetPatient.invoiceId;
       setMessage('');
       setError('');
       setActiveInvoiceId(targetPatient.invoiceId);
       setLoadingSubTest(true);
       try {
         const fullInv = await apiFetch<FullInvoice>(`/api/invoices/${targetPatient.invoiceId}`);
-        if (cancelled) return;
+        if (cancelled || latestOpenInvoiceRef.current !== targetPatient.invoiceId) return;
 
-        const mergedSubTests: LabQueueItem[] = fullInv.tests.map((t) => ({
-          ...t,
-          invoice_no: fullInv.invoice.invoice_no,
-          invoice_date: fullInv.invoice.created_at,
-          patient_uid: fullInv.invoice.patient_uid,
-          patient_name: fullInv.invoice.patient_name,
-          age_years: fullInv.invoice.age_years,
-          age_months: fullInv.invoice.age_months,
-          age_days: fullInv.invoice.age_days,
-          gender: fullInv.invoice.gender,
-          patient_mobile: fullInv.invoice.patient_mobile,
-          doctor_name: fullInv.invoice.doctor_name,
-          total_params: t.results?.length ?? 0,
-          filled_params: t.results
-            ? t.results.filter((r) => (r.result_value || '').trim() !== '').length
-            : 0,
-          abnormal_count: t.results
-            ? t.results.filter(
-                (r) => (r.result_value || '').trim() !== '' && r.flag && r.flag !== 'Normal'
-              ).length
-            : 0,
-        }));
+        const mergedSubTests: LabQueueItem[] = [...fullInv.tests]
+          .sort(compareNaturalTestOrder)
+          .map((t) => ({
+            ...t,
+            invoice_no: fullInv.invoice.invoice_no,
+            invoice_date: fullInv.invoice.created_at,
+            patient_uid: fullInv.invoice.patient_uid,
+            patient_name: fullInv.invoice.patient_name,
+            age_years: fullInv.invoice.age_years,
+            age_months: fullInv.invoice.age_months,
+            age_days: fullInv.invoice.age_days,
+            gender: fullInv.invoice.gender,
+            patient_mobile: fullInv.invoice.patient_mobile,
+            doctor_name: fullInv.invoice.doctor_name,
+            total_params: t.results?.length ?? 0,
+            filled_params: t.results
+              ? t.results.filter((r) => (r.result_value || '').trim() !== '').length
+              : 0,
+            abnormal_count: t.results
+              ? t.results.filter(
+                  (r) => (r.result_value || '').trim() !== '' && r.flag && r.flag !== 'Normal'
+                ).length
+              : 0,
+          }));
 
         setPatientHeader({
           invoice_id: fullInv.invoice.id,
@@ -560,7 +582,6 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
           (normalizedTarget
             ? mergedSubTests.find((t) => t.test_name.toLowerCase() === normalizedTarget)
             : undefined) ||
-          mergedSubTests.find((t) => t.status !== 'Ready') ||
           mergedSubTests[0];
 
         if (chosenTest) {
@@ -568,7 +589,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
           const res = await apiFetch<{ item: LabQueueItem; results: TestResultRow[] }>(
             `/api/lab-tests/${chosenTest.id}`
           );
-          if (cancelled) return;
+          if (cancelled || latestOpenInvoiceRef.current !== targetPatient.invoiceId) return;
           const draft = buildInitialDraft(res.item, res.results);
           setDraftsByTestId({ [chosenTest.id]: draft });
         }
@@ -796,15 +817,19 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
         )
       );
 
-      setMessage(`Saved ${selectedItem.test_name} (${res.item.status}).`);
       broadcastPatientsUpdated();
       await loadQueue();
 
       if (actionAfter === 'print') {
-        // Open unified combined A4 report for the entire patient invoice
+        setMessage(`Saved ${selectedItem.test_name} (${res.item.status}).`);
         onOpenReport(selectedItem.invoice_id);
       } else if (actionAfter === 'next' && nextSubTest) {
-        await loadSubTestEditor(nextSubTest.id);
+        setMessage(
+          `Saved ${selectedItem.test_name} (${res.item.status}) — moved to ${nextSubTest.test_name}.`
+        );
+        await loadSubTestEditor(nextSubTest.id, false, true);
+      } else {
+        setMessage(`Saved ${selectedItem.test_name} (${res.item.status}).`);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save results.');
@@ -1133,7 +1158,7 @@ export const LabResultsView: React.FC<LabResultsViewProps> = ({
                   <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-teal-50/60 border border-teal-200/80 rounded-lg">
                     <div>
                       <span className="text-xs font-semibold text-teal-900">
-                        Active Test: {selectedItem.test_name}
+                        Active Test{subTests.length > 1 && activeTestIndex >= 0 ? ` (${activeTestIndex + 1}/${subTests.length})` : ''}: {selectedItem.test_name}
                       </span>
                       <span className="ml-2 text-[11px] text-teal-700">
                         ({selectedItem.category_name} · {selectedItem.sample_type})

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, formatAge, formatBDT, formatDateTime, getTodayISO } from '../lib/api.ts';
 import { OFFLINE_SYNCED_EVENT } from '../lib/offlineEngine.ts';
+import { resolveInvoiceDiscountBreakdown } from '../../shared/discountMath.ts';
 import type {
   AdminDashboardData,
   InvoiceSummary,
@@ -539,8 +540,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Patient Invoices Table — Filtered Strictly by Selected Period Date Range */}
-          <div className="bg-white border border-slate-200 rounded-xl p-5 overflow-x-auto">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4 overflow-x-auto">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div>
                 <h2 className="text-sm font-semibold text-slate-900">
                   Patient Invoices ({adminData.recentInvoices.length})
@@ -565,23 +566,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </button>
             </div>
 
-            <table className="w-full text-sm border-collapse">
+            <table className="w-full text-xs border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                  <th className="py-2.5 pr-3 font-medium whitespace-nowrap">Invoice / Patient Info</th>
-                  <th className="py-2.5 pr-3 font-medium whitespace-nowrap">Referred By</th>
-                  <th className="py-2.5 pr-3 font-medium">Ordered Tests</th>
-                  <th className="py-2.5 pr-3 font-medium text-right whitespace-nowrap">Net Bill</th>
-                  <th className="py-2.5 pr-3 font-medium text-right whitespace-nowrap">Paid Amount</th>
-                  <th className="py-2.5 pr-3 font-medium text-right whitespace-nowrap">Due Amount</th>
-                  <th className="py-2.5 pr-3 font-medium text-right whitespace-nowrap">Doctor Commission</th>
-                  <th className="py-2.5 font-medium text-right whitespace-nowrap">Actions</th>
+                <tr className="border-b border-slate-200 text-left text-[11px] leading-tight text-slate-500">
+                  <th className="py-2 px-1.5 pl-0 font-semibold">Invoice / Patient Info</th>
+                  <th className="py-2 px-1.5 font-semibold">Referred By</th>
+                  <th className="py-2 px-1.5 font-semibold">Ordered Tests</th>
+                  <th className="py-2 px-1.5 font-semibold text-right">Doctor Less</th>
+                  <th className="py-2 px-1.5 font-semibold text-right">Net Bill</th>
+                  <th className="py-2 px-1.5 font-semibold text-right">Paid Amount</th>
+                  <th className="py-2 px-1.5 font-semibold text-right">Due Amount</th>
+                  <th className="py-2 px-1.5 font-semibold text-right">Doctor Commission</th>
+                  <th className="py-2 px-1.5 pr-0 font-semibold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {adminData.recentInvoices.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-10 text-center text-sm text-slate-500">
+                    <td colSpan={9} className="py-10 text-center text-sm text-slate-500">
                       No patient invoices found for the selected period ({adminData.from} to {adminData.to}).
                     </td>
                   </tr>
@@ -596,48 +598,59 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         : inv.commission_type === 'flat'
                         ? `Flat`
                         : `${inv.commission_pct ?? 0}%`;
+                    const discountBd = resolveInvoiceDiscountBreakdown(inv);
+                    const hasDoctorLess =
+                      discountBd.doctorLessPercent > 0 || discountBd.doctorLessAmount > 0;
 
                     return (
                       <tr key={inv.id} className="hover:bg-slate-50 align-top">
-                        {/* 1. Invoice / Patient Info */}
-                        <td className="py-2.5 pr-3 whitespace-nowrap">
-                          <div className="font-mono tabular-nums text-xs font-semibold text-slate-900">
+                        {/* 1. Invoice / Patient Info (Compact stacked layout) */}
+                        <td className="py-2 px-1.5 pl-0 max-w-[155px]">
+                          <div className="font-mono tabular-nums text-[11px] font-bold text-slate-900 leading-tight">
                             {inv.invoice_no}
                           </div>
-                          <div className="font-medium text-slate-900 mt-0.5">{inv.patient_name}</div>
-                          <div className="text-xs text-slate-500 font-mono tabular-nums">
-                            {inv.patient_uid}
+                          <div className="text-[11px] leading-snug text-slate-700 mt-0.5 break-words">
+                            <span className="font-semibold text-slate-900">{inv.patient_name}</span>
+                            <span className="text-slate-400 mx-1">/</span>
+                            <span className="font-mono tabular-nums text-[10px] text-slate-500">
+                              {inv.patient_uid}
+                            </span>
                           </div>
                         </td>
 
                         {/* 2. Referred By */}
-                        <td className="py-2.5 pr-3">
-                          <div className="font-medium text-slate-900">
+                        <td className="py-2 px-1.5 max-w-[125px]">
+                          <div className="font-medium text-slate-900 truncate" title={inv.doctor_name || 'Self'}>
                             {inv.doctor_name || 'Self'}
                           </div>
                           {inv.doctor_degree && (
-                            <div className="text-xs text-slate-500 max-w-[180px] truncate">
+                            <div
+                              className="text-[10px] text-slate-500 truncate mt-0.5"
+                              title={inv.doctor_degree}
+                            >
                               {inv.doctor_degree}
                             </div>
                           )}
                         </td>
 
                         {/* 3. Ordered Tests */}
-                        <td className="py-2.5 pr-3">
+                        <td className="py-2 px-1.5 max-w-[190px]">
                           {inv.test_items && inv.test_items.length > 0 ? (
-                            <div className="space-y-1">
+                            <div className="space-y-0.5">
                               <div className="flex flex-wrap gap-1">
                                 {inv.test_items.map((t) => (
                                   <span
                                     key={t.id}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md bg-white border border-slate-200 text-slate-700"
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-white border border-slate-200 text-slate-700"
                                   >
-                                    <span className={`w-1.5 h-1.5 rounded-full ${getTestStatusDotClass(t.status)}`} />
-                                    <span className="truncate max-w-[140px]">{t.test_name}</span>
+                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${getTestStatusDotClass(t.status)}`} />
+                                    <span className="truncate max-w-[95px]" title={t.test_name}>
+                                      {t.test_name}
+                                    </span>
                                   </span>
                                 ))}
                               </div>
-                              <div className="text-[11px] font-mono tabular-nums text-slate-500">
+                              <div className="text-[10px] font-mono tabular-nums text-slate-500">
                                 {inv.ready_tests ?? 0}/{inv.total_tests ?? inv.test_items.length} Ready
                               </div>
                             </div>
@@ -646,11 +659,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           )}
                         </td>
 
-                        {/* 4. Net Bill */}
-                        <td className="py-2.5 pr-3 text-right font-mono tabular-nums font-medium text-slate-900 whitespace-nowrap">
+                        {/* 4. Doctor Less */}
+                        <td className="py-2 px-1.5 text-right font-mono tabular-nums whitespace-nowrap">
+                          {hasDoctorLess ? (
+                            <div>
+                              <div className="font-semibold text-amber-700">
+                                {discountBd.doctorLessPercent}%
+                              </div>
+                              <div className="text-[10px] text-slate-600">
+                                {formatBDT(discountBd.doctorLessAmount)}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
+
+                        {/* 5. Net Bill */}
+                        <td className="py-2 px-1.5 text-right font-mono tabular-nums font-semibold text-slate-900 whitespace-nowrap">
                           <div>{formatBDT(inv.net_total)}</div>
+                          {discountBd.flatDiscountAmount > 0 && (
+                            <div className="text-[10px] font-normal text-amber-700">
+                              Flat: -{formatBDT(discountBd.flatDiscountAmount)}
+                            </div>
+                          )}
                           {Number(inv.adjustment_amount || 0) !== 0 && (
-                            <div className="text-[11px] font-semibold text-amber-700">
+                            <div className="text-[10px] font-semibold text-amber-700">
                               Adj:{' '}
                               {Number(inv.adjustment_amount) > 0
                                 ? `-${formatBDT(inv.adjustment_amount)}`
@@ -659,13 +693,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           )}
                         </td>
 
-                        {/* 5. Paid Amount */}
-                        <td className="py-2.5 pr-3 text-right font-mono tabular-nums font-medium text-teal-700 whitespace-nowrap">
+                        {/* 6. Paid Amount */}
+                        <td className="py-2 px-1.5 text-right font-mono tabular-nums font-semibold text-teal-700 whitespace-nowrap">
                           {formatBDT(inv.paid_amount)}
                         </td>
 
-                        {/* 6. Due Amount */}
-                        <td className="py-2.5 pr-3 text-right font-mono tabular-nums font-medium whitespace-nowrap">
+                        {/* 7. Due Amount */}
+                        <td className="py-2 px-1.5 text-right font-mono tabular-nums font-semibold whitespace-nowrap">
                           {inv.due_amount > 0 ? (
                             <span className="text-red-700">{formatBDT(inv.due_amount)}</span>
                           ) : (
@@ -673,14 +707,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           )}
                         </td>
 
-                        {/* 7. Doctor Commission (interactive disburse / manage) */}
-                        <td className="py-2.5 pr-3 text-right whitespace-nowrap">
+                        {/* 8. Doctor Commission (interactive disburse / manage) */}
+                        <td className="py-2 px-1.5 text-right whitespace-nowrap">
                           {hasDoctor ? (
-                            <div className="inline-flex flex-col items-end gap-1">
+                            <div className="inline-flex flex-col items-end gap-0.5">
                               <div className="font-mono tabular-nums font-semibold text-slate-900">
                                 {formatBDT(commAmt)}
                               </div>
-                              <div className="text-[11px] text-slate-500 font-mono tabular-nums">
+                              <div className="text-[10px] text-slate-500 font-mono tabular-nums">
                                 {commRateLabel} ·{' '}
                                 <span
                                   className={
@@ -695,20 +729,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => openCommissionModal(inv, 'disburse')}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 whitespace-nowrap cursor-pointer"
+                                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 whitespace-nowrap cursor-pointer"
                                     title="Disburse doctor commission and update master pool"
                                   >
-                                    <Banknote className="w-3 h-3" />
+                                    <Banknote className="w-2.5 h-2.5" />
                                     Disburse
                                   </button>
                                 )}
                                 <button
                                   type="button"
                                   onClick={() => openCommissionModal(inv, 'manage')}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-50 whitespace-nowrap cursor-pointer"
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-50 whitespace-nowrap cursor-pointer"
                                   title="Manage or adjust commission for this patient invoice"
                                 >
-                                  <SlidersHorizontal className="w-3 h-3" />
+                                  <SlidersHorizontal className="w-2.5 h-2.5" />
                                   Manage
                                 </button>
                               </div>
@@ -718,14 +752,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           )}
                         </td>
 
-                        {/* 8. Actions */}
-                        <td className="py-2.5 text-right">
-                          <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                        {/* 9. Actions */}
+                        <td className="py-2 px-1.5 pr-0 text-right">
+                          <div className="inline-flex flex-wrap items-center justify-end gap-1 max-w-[136px]">
                             {inv.due_amount > 0 && (
                               <button
                                 type="button"
                                 onClick={() => setDuePaymentInvoiceId(inv.id)}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 whitespace-nowrap shrink-0 cursor-pointer"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 whitespace-nowrap shrink-0 cursor-pointer"
                               >
                                 <CreditCard className="w-3 h-3" />
                                 Pay Due
@@ -736,7 +770,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 type="button"
                                 onClick={() => setAdjustBillInvoiceId(inv.id)}
                                 title="Adjust or reduce net bill (Admin only)"
-                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-md hover:bg-amber-100 whitespace-nowrap shrink-0 cursor-pointer"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 whitespace-nowrap shrink-0 cursor-pointer"
                               >
                                 <ShieldCheck className="w-3 h-3" />
                                 Adjust Bill
@@ -745,7 +779,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             <button
                               type="button"
                               onClick={() => onOpenReceipt(inv.id)}
-                              className="text-xs font-medium text-teal-700 hover:text-teal-900 whitespace-nowrap cursor-pointer"
+                              className="px-1.5 py-0.5 text-[11px] font-semibold text-teal-700 bg-teal-50/70 border border-teal-200 rounded hover:bg-teal-100 whitespace-nowrap shrink-0 cursor-pointer"
                             >
                               Print
                             </button>
@@ -757,7 +791,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                   setDeletingInvoice(inv);
                                 }}
                                 title="Delete patient record (Admin only)"
-                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-medium text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                               >
                                 <Trash2 className="w-3 h-3" />
                                 Delete

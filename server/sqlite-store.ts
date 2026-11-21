@@ -1068,7 +1068,8 @@ export class SqliteLimsStore implements LimsStore {
     const invRows = db
       .prepare(
         `SELECT i.id, i.invoice_no, i.created_at, i.subtotal, i.discount_type, i.discount_value,
-                i.discount_amount, i.discount_pct, i.net_total, i.paid_amount, i.due_amount,
+                i.discount_amount, i.discount_pct, i.doctor_less_percent, i.doctor_less_amount, i.flat_discount_amount,
+                i.net_total, i.paid_amount, i.due_amount,
                 i.commission_type, i.commission_value, i.commission_pct, i.commission_amount,
                 i.commission_paid, i.commission_paid_at,
                 p.patient_uid, p.name as patient_name
@@ -1086,6 +1087,9 @@ export class SqliteLimsStore implements LimsStore {
       discount_value: number;
       discount_amount: number;
       discount_pct: number;
+      doctor_less_percent?: number;
+      doctor_less_amount?: number;
+      flat_discount_amount?: number;
       net_total: number;
       paid_amount: number;
       due_amount: number;
@@ -1125,6 +1129,7 @@ export class SqliteLimsStore implements LimsStore {
           : 0;
       const commType = i.commission_type || 'percent';
       const commVal = Number(i.commission_value ?? i.commission_pct ?? 0);
+      const breakdown = resolveInvoiceDiscountBreakdown(i);
 
       return {
         id: i.id,
@@ -1135,6 +1140,9 @@ export class SqliteLimsStore implements LimsStore {
         discount_value: i.discount_value,
         discount_pct: discountPct,
         discount_amount: i.discount_amount,
+        doctor_less_percent: breakdown.doctorLessPercent,
+        doctor_less_amount: breakdown.doctorLessAmount,
+        flat_discount_amount: breakdown.flatDiscountAmount,
         net_total: i.net_total,
         paid_amount: i.paid_amount,
         due_amount: i.due_amount,
@@ -1175,6 +1183,8 @@ export class SqliteLimsStore implements LimsStore {
       (acc, r) => {
         acc.totalPatients += 1;
         acc.totalGross = roundCurrency(acc.totalGross + r.subtotal);
+        acc.totalDoctorLess = roundCurrency(acc.totalDoctorLess + Number(r.doctor_less_amount || 0));
+        acc.totalFlatDiscount = roundCurrency(acc.totalFlatDiscount + Number(r.flat_discount_amount || 0));
         acc.totalDiscount = roundCurrency(acc.totalDiscount + r.discount_amount);
         acc.totalNet = roundCurrency(acc.totalNet + r.net_total);
         acc.totalPaid = roundCurrency(acc.totalPaid + r.paid_amount);
@@ -1191,6 +1201,8 @@ export class SqliteLimsStore implements LimsStore {
       {
         totalPatients: 0,
         totalGross: 0,
+        totalDoctorLess: 0,
+        totalFlatDiscount: 0,
         totalDiscount: 0,
         totalNet: 0,
         totalPaid: 0,
@@ -3885,6 +3897,7 @@ export class SqliteLimsStore implements LimsStore {
       .prepare(
         `SELECT i.id as invoice_id, i.invoice_no, i.created_at,
                 i.subtotal, i.discount_type, i.discount_value, i.discount_amount, i.discount_pct,
+                i.doctor_less_percent, i.doctor_less_amount, i.flat_discount_amount,
                 i.net_total, i.paid_amount, i.due_amount, i.payment_status,
                 i.commission_type, i.commission_value, i.commission_pct, i.commission_amount,
                 i.commission_paid, i.commission_paid_at,
@@ -3904,6 +3917,9 @@ export class SqliteLimsStore implements LimsStore {
       discount_value: number;
       discount_amount: number;
       discount_pct: number;
+      doctor_less_percent?: number;
+      doctor_less_amount?: number;
+      flat_discount_amount?: number;
       net_total: number;
       paid_amount: number;
       due_amount: number;
@@ -3936,6 +3952,8 @@ export class SqliteLimsStore implements LimsStore {
     let readyReportsCount = 0;
     let pendingReportsCount = 0;
     let totalChargedGross = 0;
+    let totalDoctorLess = 0;
+    let totalFlatDiscount = 0;
     let totalDiscount = 0;
     let totalNetCharged = 0;
     let totalCommission = 0;
@@ -3965,6 +3983,7 @@ export class SqliteLimsStore implements LimsStore {
           : r.subtotal > 0
           ? roundCurrency((r.discount_amount / r.subtotal) * 100)
           : 0;
+      const breakdown = resolveInvoiceDiscountBreakdown(r);
 
       if (totalTests > 0 && readyTests === totalTests) {
         readyReportsCount += 1;
@@ -3972,6 +3991,8 @@ export class SqliteLimsStore implements LimsStore {
         pendingReportsCount += 1;
       }
       totalChargedGross = roundCurrency(totalChargedGross + Number(r.subtotal || 0));
+      totalDoctorLess = roundCurrency(totalDoctorLess + breakdown.doctorLessAmount);
+      totalFlatDiscount = roundCurrency(totalFlatDiscount + breakdown.flatDiscountAmount);
       totalDiscount = roundCurrency(totalDiscount + Number(r.discount_amount || 0));
       totalNetCharged = roundCurrency(totalNetCharged + Number(r.net_total || 0));
       totalCommission = roundCurrency(totalCommission + Number(r.commission_amount || 0));
@@ -3997,6 +4018,9 @@ export class SqliteLimsStore implements LimsStore {
         discount_value: r.discount_value,
         discount_pct: discountPct,
         discount_amount: r.discount_amount,
+        doctor_less_percent: breakdown.doctorLessPercent,
+        doctor_less_amount: breakdown.doctorLessAmount,
+        flat_discount_amount: breakdown.flatDiscountAmount,
         net_total: r.net_total,
         paid_amount: r.paid_amount,
         due_amount: r.due_amount,
@@ -4022,6 +4046,8 @@ export class SqliteLimsStore implements LimsStore {
         readyReportsCount,
         pendingReportsCount,
         totalChargedGross,
+        totalDoctorLess,
+        totalFlatDiscount,
         totalDiscount,
         totalNetCharged,
         totalCommission,

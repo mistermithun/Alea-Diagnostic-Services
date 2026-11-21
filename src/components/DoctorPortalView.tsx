@@ -36,6 +36,7 @@ import {
   resolveReportSignatures,
 } from '../lib/reportLayout.ts';
 import { exportDiagnosticReportPdf } from '../lib/reportPdf.ts';
+import { resolveInvoiceDiscountBreakdown } from '../../shared/discountMath.ts';
 import type {
   DoctorPortalDashboardResponse,
   DoctorPortalPatientVisit,
@@ -616,7 +617,32 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
             <div className="text-xl sm:text-2xl font-bold font-mono tabular-nums text-amber-700 mt-1">
               {formatBDT(summary.totalDiscount)}
             </div>
-            <div className="text-[11px] text-slate-500 mt-1">Across last 30 days</div>
+            {(() => {
+              const totalDrLess =
+                summary.totalDoctorLess ??
+                Math.round(
+                  patients.reduce(
+                    (s, p) => s + resolveInvoiceDiscountBreakdown(p).doctorLessAmount,
+                    0
+                  ) * 100
+                ) / 100;
+              const totalFlat =
+                summary.totalFlatDiscount ??
+                Math.round(
+                  patients.reduce(
+                    (s, p) => s + resolveInvoiceDiscountBreakdown(p).flatDiscountAmount,
+                    0
+                  ) * 100
+                ) / 100;
+              if (totalDrLess > 0 || totalFlat > 0) {
+                return (
+                  <div className="text-[11px] font-mono tabular-nums text-slate-500 mt-1">
+                    Dr Less: {formatBDT(totalDrLess)} · Flat: {formatBDT(totalFlat)}
+                  </div>
+                );
+              }
+              return <div className="text-[11px] text-slate-500 mt-1">Across last 30 days</div>;
+            })()}
           </div>
 
           <div className="bg-white border border-slate-200 rounded-2xl p-4">
@@ -826,14 +852,16 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                         <div className="flex items-center justify-between sm:flex-col sm:items-start sm:justify-center bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2">
                           <div>
                             <div className="text-[11px] font-medium text-slate-600">Total Charge</div>
-                            <div className="text-[10px] text-slate-400 sm:hidden">Gross bill before discount</div>
+                            <div className="text-[10px] text-slate-400 sm:hidden">
+                              Net: {formatBDT(visit.net_total)}
+                            </div>
                           </div>
                           <div className="text-right sm:text-left">
                             <div className="font-mono tabular-nums font-bold text-slate-900 text-sm sm:mt-0.5">
                               {formatBDT(visit.subtotal)}
                             </div>
-                            <div className="hidden sm:block text-[11px] text-slate-500 mt-0.5">
-                              Gross bill
+                            <div className="hidden sm:block text-[11px] font-mono tabular-nums text-slate-500 mt-0.5">
+                              Net: {formatBDT(visit.net_total)}
                             </div>
                           </div>
                         </div>
@@ -860,27 +888,43 @@ export const DoctorPortalView: React.FC<DoctorPortalViewProps> = ({
                           </div>
                         </div>
 
-                        {/* 3. Discount */}
-                        <div className="flex items-center justify-between sm:flex-col sm:items-start sm:justify-center bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2">
-                          <div>
-                            <div className="text-[11px] font-medium text-slate-600">Discount</div>
-                            <div className="text-[10px] text-slate-400 sm:hidden">
-                              {visit.discount_pct > 0 ? `${visit.discount_pct}% off` : 'No discount'}
+                        {/* 3. Discount (Doctor Less + Flat Discount) */}
+                        {(() => {
+                          const bd = resolveInvoiceDiscountBreakdown(visit);
+                          const hasDrLess = bd.doctorLessPercent > 0 || bd.doctorLessAmount > 0;
+                          const hasFlat = bd.flatDiscountAmount > 0;
+                          return (
+                            <div className="flex items-center justify-between sm:flex-col sm:items-start sm:justify-center bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2">
+                              <div>
+                                <div className="text-[11px] font-medium text-slate-600">Discount</div>
+                                {(hasDrLess || hasFlat) ? (
+                                  <div className="text-[10px] font-mono tabular-nums text-slate-500 sm:hidden">
+                                    {hasDrLess && <div>Dr Less: {bd.doctorLessPercent}% ({formatBDT(bd.doctorLessAmount)})</div>}
+                                    {hasFlat && <div>Flat: {formatBDT(bd.flatDiscountAmount)}</div>}
+                                  </div>
+                                ) : (
+                                  <div className="text-[10px] text-slate-400 sm:hidden">No discount</div>
+                                )}
+                              </div>
+                              <div className="text-right sm:text-left">
+                                <div
+                                  className={`font-mono tabular-nums font-bold text-sm sm:mt-0.5 ${
+                                    visit.discount_amount > 0 ? 'text-amber-700' : 'text-slate-500'
+                                  }`}
+                                >
+                                  {formatBDT(visit.discount_amount)}
+                                </div>
+                                <div className="hidden sm:block text-[10px] font-mono tabular-nums text-slate-500 mt-0.5 space-y-0.5">
+                                  {hasDrLess && (
+                                    <div>Dr Less: {bd.doctorLessPercent}% ({formatBDT(bd.doctorLessAmount)})</div>
+                                  )}
+                                  {hasFlat && <div>Flat: {formatBDT(bd.flatDiscountAmount)}</div>}
+                                  {!hasDrLess && !hasFlat && <div>No discount</div>}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                          <div className="text-right sm:text-left">
-                            <div
-                              className={`font-mono tabular-nums font-bold text-sm sm:mt-0.5 ${
-                                visit.discount_amount > 0 ? 'text-amber-700' : 'text-slate-500'
-                              }`}
-                            >
-                              {formatBDT(visit.discount_amount)}
-                            </div>
-                            <div className="hidden sm:block text-[11px] font-mono tabular-nums text-slate-500 mt-0.5">
-                              {visit.discount_pct > 0 ? `${visit.discount_pct}% off` : 'No discount'}
-                            </div>
-                          </div>
-                        </div>
+                          );
+                        })()}
 
                         {/* 4. Due Amount */}
                         <div className="flex items-center justify-between sm:flex-col sm:items-start sm:justify-center bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2">

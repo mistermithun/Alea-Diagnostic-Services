@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Banknote, Check, Copy, Edit2, Eye, EyeOff, FileSpreadsheet, KeyRound, Plus, Printer, RefreshCw, Trash2, X } from 'lucide-react';
 import { apiFetch, formatBDT, formatDateTime, getMonthStartISO, getTodayISO } from '../lib/api.ts';
 import { OFFLINE_SYNCED_EVENT } from '../lib/offlineEngine.ts';
+import { resolveInvoiceDiscountBreakdown } from '../../shared/discountMath.ts';
 import type { Doctor, DoctorStatementResponse, LabSettings } from '../types.ts';
 
 interface DoctorsViewProps {
@@ -570,15 +571,16 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout
             </div>
 
             <div className="overflow-x-auto print-table-wrap mt-3 print:mt-1.5 print:overflow-visible">
-              <table className="w-full text-xs print:text-[10px] border-collapse">
+              <table className="w-full text-xs print:text-[9.5px] border-collapse">
                 <thead>
                   <tr className="border-b border-slate-300 text-left text-slate-600">
                     <th className="py-2 pr-2 print:py-1 print:pr-1 font-semibold">Date / Inv</th>
                     <th className="py-2 pr-2 print:py-1 print:pr-1 font-semibold">Patient</th>
                     <th className="py-2 pr-2 print:py-1 print:pr-1 font-semibold">Tests Performed</th>
                     <th className="py-2 pr-2 print:py-1 print:pr-1 font-semibold text-right">Gross</th>
-                    <th className="py-2 pr-2 print:py-1 print:pr-1 font-semibold text-right">Less</th>
-                    <th className="py-2 pr-2 print:py-1 print:pr-1 font-semibold text-right">Net Bill</th>
+                    <th className="py-2 pr-2 print:py-1 print:pr-1 font-semibold text-right">Doctor Less</th>
+                    <th className="py-2 pr-2 print:py-1 print:pr-1 font-semibold text-right">Flat Disc.</th>
+                    <th className="py-2 pr-2 print:py-1 print:pr-1 font-semibold text-right">Net / Collected</th>
                     <th className="py-2 pr-2 print:py-1 print:pr-1 font-semibold text-right">Rate</th>
                     <th className="py-2 print:py-1 font-semibold text-right">Commission</th>
                   </tr>
@@ -586,69 +588,121 @@ export const DoctorsView: React.FC<DoctorsViewProps> = ({ settings, onOpenPayout
                 <tbody className="divide-y divide-slate-200">
                   {statement.referrals.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-slate-500">
+                      <td colSpan={9} className="py-8 text-center text-slate-500">
                         No patient referrals in this date range.
                       </td>
                     </tr>
                   ) : (
-                    statement.referrals.map((r) => (
-                      <tr key={r.id}>
-                        <td className="py-2 pr-2 print:py-1 print:pr-1 font-mono tabular-nums align-top whitespace-nowrap">
-                          <div className="font-semibold">{r.invoice_no}</div>
-                          <div className="text-[10px] print:text-[9px] text-slate-500">
-                            {formatDateTime(r.created_at).split(',')[0]}
-                          </div>
-                        </td>
-                        <td className="py-2 pr-2 print:py-1 print:pr-1 align-top">
-                          <div className="font-medium">{r.patient_name}</div>
-                          <div className="text-[10px] print:text-[9px] font-mono text-slate-500">{r.patient_uid}</div>
-                        </td>
-                        <td className="py-2 pr-2 print:py-1 print:pr-1 text-slate-600 max-w-[210px] print:max-w-[190px] align-top">
-                          <div className="test-names-clamp-2" title={r.test_names}>
-                            {r.test_names}
-                          </div>
-                        </td>
-                        <td className="py-2 pr-2 print:py-1 print:pr-1 text-right font-mono tabular-nums align-top whitespace-nowrap">
-                          {formatBDT(r.subtotal)}
-                        </td>
-                        <td className="py-2 pr-2 print:py-1 print:pr-1 text-right font-mono tabular-nums align-top whitespace-nowrap">
-                          {r.discount_amount > 0 ? (
-                            <span>
-                              -{formatBDT(r.discount_amount)} ({r.discount_pct}%)
-                            </span>
-                          ) : (
-                            '0%'
-                          )}
-                        </td>
-                        <td className="py-2 pr-2 print:py-1 print:pr-1 text-right font-mono tabular-nums font-medium align-top whitespace-nowrap">
-                          {formatBDT(r.net_total)}
-                        </td>
-                        <td className="py-2 pr-2 print:py-1 print:pr-1 text-right font-mono tabular-nums text-slate-600 align-top whitespace-nowrap">
-                          {r.commission_type === 'flat'
-                            ? `${formatBDT(r.commission_value)} Flat`
-                            : r.commission_type === 'per_test'
-                            ? `Per-Test (${r.commission_pct}%)`
-                            : `${r.commission_pct}%`}
-                        </td>
-                        <td className="py-2 print:py-1 text-right font-mono tabular-nums font-bold text-teal-800 align-top whitespace-nowrap">
-                          {formatBDT(r.commission_amount)}
-                        </td>
-                      </tr>
-                    ))
+                    statement.referrals.map((r) => {
+                      const bd = resolveInvoiceDiscountBreakdown(r);
+                      const hasDoctorLess = bd.doctorLessPercent > 0 || bd.doctorLessAmount > 0;
+                      const hasFlatDiscount = bd.flatDiscountAmount > 0;
+                      return (
+                        <tr key={r.id}>
+                          <td className="py-2 pr-2 print:py-1 print:pr-1 font-mono tabular-nums align-top whitespace-nowrap">
+                            <div className="font-semibold">{r.invoice_no}</div>
+                            <div className="text-[10px] print:text-[9px] text-slate-500">
+                              {formatDateTime(r.created_at).split(',')[0]}
+                            </div>
+                          </td>
+                          <td className="py-2 pr-2 print:py-1 print:pr-1 align-top">
+                            <div className="font-medium">{r.patient_name}</div>
+                            <div className="text-[10px] print:text-[9px] font-mono text-slate-500">{r.patient_uid}</div>
+                          </td>
+                          <td className="py-2 pr-2 print:py-1 print:pr-1 text-slate-600 max-w-[185px] print:max-w-[160px] align-top">
+                            <div className="test-names-clamp-2" title={r.test_names}>
+                              {r.test_names}
+                            </div>
+                          </td>
+                          <td className="py-2 pr-2 print:py-1 print:pr-1 text-right font-mono tabular-nums align-top whitespace-nowrap">
+                            {formatBDT(r.subtotal)}
+                          </td>
+                          <td className="py-2 pr-2 print:py-1 print:pr-1 text-right font-mono tabular-nums align-top whitespace-nowrap">
+                            {hasDoctorLess ? (
+                              <span className="text-amber-700 font-medium">
+                                {bd.doctorLessPercent}% ({formatBDT(bd.doctorLessAmount)})
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">0%</span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-2 print:py-1 print:pr-1 text-right font-mono tabular-nums align-top whitespace-nowrap">
+                            {hasFlatDiscount ? (
+                              <span className="text-amber-700 font-medium">
+                                {formatBDT(bd.flatDiscountAmount)}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">৳0</span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-2 print:py-1 print:pr-1 text-right font-mono tabular-nums align-top whitespace-nowrap">
+                            <div className="font-medium text-slate-900">{formatBDT(r.net_total)}</div>
+                            <div className="text-[10px] print:text-[8.5px] text-emerald-700">
+                              Paid: {formatBDT(r.paid_amount)}
+                            </div>
+                          </td>
+                          <td className="py-2 pr-2 print:py-1 print:pr-1 text-right font-mono tabular-nums text-slate-600 align-top whitespace-nowrap">
+                            {r.commission_type === 'flat'
+                              ? `${formatBDT(r.commission_value)} Flat`
+                              : r.commission_type === 'per_test'
+                              ? `Per-Test (${r.commission_pct}%)`
+                              : `${r.commission_pct}%`}
+                          </td>
+                          <td className="py-2 print:py-1 text-right font-mono tabular-nums font-bold text-teal-800 align-top whitespace-nowrap">
+                            {formatBDT(r.commission_amount)}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t border-slate-300 font-bold text-xs print:text-[10.5px]">
-                    <td colSpan={6} className="py-2.5 print:py-1.5">
-                      Grand Total ({statement.totals.totalPatients} Patients)
-                    </td>
-                    <td className="py-2.5 pr-2 print:py-1.5 print:pr-1 text-right text-slate-600 whitespace-nowrap">
-                      Total Payable:
-                    </td>
-                    <td className="py-2.5 print:py-1.5 text-right font-mono tabular-nums text-teal-800 text-sm print:text-xs whitespace-nowrap">
-                      {formatBDT(statement.totals.totalCommission)}
-                    </td>
-                  </tr>
+                  {(() => {
+                    const totalDrLess =
+                      statement.totals.totalDoctorLess ??
+                      Math.round(
+                        statement.referrals.reduce(
+                          (s, r) => s + resolveInvoiceDiscountBreakdown(r).doctorLessAmount,
+                          0
+                        ) * 100
+                      ) / 100;
+                    const totalFlat =
+                      statement.totals.totalFlatDiscount ??
+                      Math.round(
+                        statement.referrals.reduce(
+                          (s, r) => s + resolveInvoiceDiscountBreakdown(r).flatDiscountAmount,
+                          0
+                        ) * 100
+                      ) / 100;
+                    return (
+                      <tr className="border-t border-slate-300 font-bold text-xs print:text-[9.5px]">
+                        <td colSpan={3} className="py-2.5 print:py-1.5">
+                          Grand Total ({statement.totals.totalPatients} Patients)
+                        </td>
+                        <td className="py-2.5 pr-2 print:py-1.5 print:pr-1 text-right font-mono tabular-nums whitespace-nowrap">
+                          {formatBDT(statement.totals.totalGross)}
+                        </td>
+                        <td className="py-2.5 pr-2 print:py-1.5 print:pr-1 text-right font-mono tabular-nums text-amber-800 whitespace-nowrap">
+                          {formatBDT(totalDrLess)}
+                        </td>
+                        <td className="py-2.5 pr-2 print:py-1.5 print:pr-1 text-right font-mono tabular-nums text-amber-800 whitespace-nowrap">
+                          {formatBDT(totalFlat)}
+                        </td>
+                        <td className="py-2.5 pr-2 print:py-1.5 print:pr-1 text-right font-mono tabular-nums whitespace-nowrap">
+                          <div>{formatBDT(statement.totals.totalNet)}</div>
+                          <div className="text-[10px] print:text-[8.5px] font-normal text-emerald-700">
+                            Paid: {formatBDT(statement.totals.totalPaid)}
+                          </div>
+                        </td>
+                        <td className="py-2.5 pr-2 print:py-1.5 print:pr-1 text-right text-slate-600 whitespace-nowrap">
+                          Total Payable:
+                        </td>
+                        <td className="py-2.5 print:py-1.5 text-right font-mono tabular-nums text-teal-800 text-sm print:text-xs whitespace-nowrap">
+                          {formatBDT(statement.totals.totalCommission)}
+                        </td>
+                      </tr>
+                    );
+                  })()}
                 </tfoot>
               </table>
             </div>

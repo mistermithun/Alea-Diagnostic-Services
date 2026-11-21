@@ -2328,6 +2328,7 @@ export class MongoLimsStore implements LimsStore {
           : 0;
       const commType = i.commission_type || 'percent';
       const commVal = typeof i.commission_value === 'number' ? i.commission_value : i.commission_pct;
+      const breakdown = resolveInvoiceDiscountBreakdown(i);
 
       return {
         id: i.id,
@@ -2338,6 +2339,9 @@ export class MongoLimsStore implements LimsStore {
         discount_value: i.discount_value,
         discount_pct: discountPct,
         discount_amount: i.discount_amount,
+        doctor_less_percent: breakdown.doctorLessPercent,
+        doctor_less_amount: breakdown.doctorLessAmount,
+        flat_discount_amount: breakdown.flatDiscountAmount,
         net_total: i.net_total,
         paid_amount: i.paid_amount,
         due_amount: i.due_amount,
@@ -2379,6 +2383,8 @@ export class MongoLimsStore implements LimsStore {
       (acc, r) => {
         acc.totalPatients += 1;
         acc.totalGross = roundCurrency(acc.totalGross + r.subtotal);
+        acc.totalDoctorLess = roundCurrency(acc.totalDoctorLess + Number(r.doctor_less_amount || 0));
+        acc.totalFlatDiscount = roundCurrency(acc.totalFlatDiscount + Number(r.flat_discount_amount || 0));
         acc.totalDiscount = roundCurrency(acc.totalDiscount + r.discount_amount);
         acc.totalNet = roundCurrency(acc.totalNet + r.net_total);
         acc.totalPaid = roundCurrency(acc.totalPaid + r.paid_amount);
@@ -2395,6 +2401,8 @@ export class MongoLimsStore implements LimsStore {
       {
         totalPatients: 0,
         totalGross: 0,
+        totalDoctorLess: 0,
+        totalFlatDiscount: 0,
         totalDiscount: 0,
         totalNet: 0,
         totalPaid: 0,
@@ -4997,6 +5005,8 @@ export class MongoLimsStore implements LimsStore {
     let readyReportsCount = 0;
     let pendingReportsCount = 0;
     let totalChargedGross = 0;
+    let totalDoctorLess = 0;
+    let totalFlatDiscount = 0;
     let totalDiscount = 0;
     let totalNetCharged = 0;
     let totalCommission = 0;
@@ -5017,6 +5027,7 @@ export class MongoLimsStore implements LimsStore {
           : i.subtotal > 0
           ? roundCurrency((i.discount_amount / i.subtotal) * 100)
           : 0;
+      const breakdown = resolveInvoiceDiscountBreakdown(i);
 
       if (totalTests > 0 && readyTests === totalTests) {
         readyReportsCount += 1;
@@ -5024,6 +5035,8 @@ export class MongoLimsStore implements LimsStore {
         pendingReportsCount += 1;
       }
       totalChargedGross = roundCurrency(totalChargedGross + Number(i.subtotal || 0));
+      totalDoctorLess = roundCurrency(totalDoctorLess + breakdown.doctorLessAmount);
+      totalFlatDiscount = roundCurrency(totalFlatDiscount + breakdown.flatDiscountAmount);
       totalDiscount = roundCurrency(totalDiscount + Number(i.discount_amount || 0));
       totalNetCharged = roundCurrency(totalNetCharged + Number(i.net_total || 0));
       totalCommission = roundCurrency(totalCommission + Number(i.commission_amount || 0));
@@ -5049,6 +5062,9 @@ export class MongoLimsStore implements LimsStore {
         discount_value: i.discount_value,
         discount_pct: discountPct,
         discount_amount: i.discount_amount,
+        doctor_less_percent: breakdown.doctorLessPercent,
+        doctor_less_amount: breakdown.doctorLessAmount,
+        flat_discount_amount: breakdown.flatDiscountAmount,
         net_total: i.net_total,
         paid_amount: i.paid_amount,
         due_amount: i.due_amount,
@@ -5083,6 +5099,8 @@ export class MongoLimsStore implements LimsStore {
         readyReportsCount,
         pendingReportsCount,
         totalChargedGross,
+        totalDoctorLess,
+        totalFlatDiscount,
         totalDiscount,
         totalNetCharged,
         totalCommission,

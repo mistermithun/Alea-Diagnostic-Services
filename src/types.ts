@@ -478,6 +478,9 @@ export interface DoctorStatementReferral {
   discount_value: number;
   discount_pct: number;
   discount_amount: number;
+  doctor_less_percent?: number;
+  doctor_less_amount?: number;
+  flat_discount_amount?: number;
   net_total: number;
   paid_amount: number;
   due_amount: number;
@@ -528,6 +531,8 @@ export interface DoctorStatementResponse {
   totals: {
     totalPatients: number;
     totalGross: number;
+    totalDoctorLess?: number;
+    totalFlatDiscount?: number;
     totalDiscount: number;
     totalNet: number;
     totalPaid: number;
@@ -568,6 +573,9 @@ export interface DoctorPortalPatientVisit {
   discount_value: number;
   discount_pct: number;
   discount_amount: number;
+  doctor_less_percent?: number;
+  doctor_less_amount?: number;
+  flat_discount_amount?: number;
   net_total: number;
   paid_amount: number;
   due_amount: number;
@@ -601,6 +609,8 @@ export interface DoctorPortalDashboardResponse {
     readyReportsCount: number;
     pendingReportsCount: number;
     totalChargedGross: number;
+    totalDoctorLess?: number;
+    totalFlatDiscount?: number;
     totalDiscount: number;
     totalNetCharged: number;
     totalCommission: number;

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { History, ShieldCheck, X } from 'lucide-react';
 import { apiFetch, formatBDT, formatDateTime } from '../lib/api.ts';
+import { resolveInvoiceDiscountBreakdown } from '../../shared/discountMath.ts';
 import type { FullInvoice } from '../types.ts';
 
 interface AdminAdjustBillModalProps {
@@ -159,32 +160,47 @@ export const AdminAdjustBillModal: React.FC<AdminAdjustBillModalProps> = ({
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-                <div>
-                  <div className="text-slate-500">Test Subtotal</div>
-                  <div className="font-mono tabular-nums font-semibold text-slate-900 mt-0.5">
-                    {formatBDT(inv.subtotal)}
+              {(() => {
+                const bd = resolveInvoiceDiscountBreakdown(inv);
+                const hasDrLess = bd.doctorLessPercent > 0 || bd.doctorLessAmount > 0;
+                const hasFlat = bd.flatDiscountAmount > 0;
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+                    <div>
+                      <div className="text-slate-500">Test Subtotal</div>
+                      <div className="font-mono tabular-nums font-semibold text-slate-900 mt-0.5">
+                        {formatBDT(inv.subtotal)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500">Discounts</div>
+                      <div className="font-mono tabular-nums font-semibold text-amber-700 mt-0.5">
+                        -{formatBDT(inv.discount_amount)}
+                      </div>
+                      {(hasDrLess || hasFlat) && (
+                        <div className="text-[10px] font-mono tabular-nums text-slate-500 mt-0.5 space-y-0.5">
+                          {hasDrLess && (
+                            <div>Dr Less ({bd.doctorLessPercent}%): -{formatBDT(bd.doctorLessAmount)}</div>
+                          )}
+                          {hasFlat && <div>Flat: -{formatBDT(bd.flatDiscountAmount)}</div>}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-slate-500">Current Net Bill</div>
+                      <div className="font-mono tabular-nums font-bold text-slate-900 mt-0.5">
+                        {formatBDT(inv.net_total)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500">Already Paid</div>
+                      <div className="font-mono tabular-nums font-bold text-emerald-700 mt-0.5">
+                        {formatBDT(inv.paid_amount)}
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <div className="text-slate-500">Discount</div>
-                  <div className="font-mono tabular-nums font-semibold text-amber-700 mt-0.5">
-                    -{formatBDT(inv.discount_amount)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-slate-500">Current Net Bill</div>
-                  <div className="font-mono tabular-nums font-bold text-slate-900 mt-0.5">
-                    {formatBDT(inv.net_total)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-slate-500">Already Paid</div>
-                  <div className="font-mono tabular-nums font-bold text-emerald-700 mt-0.5">
-                    {formatBDT(inv.paid_amount)}
-                  </div>
-                </div>
-              </div>
+                );
+              })()}
 
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">

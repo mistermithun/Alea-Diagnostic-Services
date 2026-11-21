@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { CreditCard, History, Printer, ShieldCheck, X } from 'lucide-react';
 import { apiFetch, formatBDT, formatDateTime } from '../lib/api.ts';
+import { resolveInvoiceDiscountBreakdown } from '../../shared/discountMath.ts';
 import type { FullInvoice } from '../types.ts';
 
 interface DuePaymentModalProps {
@@ -174,6 +175,28 @@ export const DuePaymentModal: React.FC<DuePaymentModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {(() => {
+                const bd = resolveInvoiceDiscountBreakdown(inv);
+                const hasDrLess = bd.doctorLessPercent > 0 || bd.doctorLessAmount > 0;
+                const hasFlat = bd.flatDiscountAmount > 0;
+                if (!hasDrLess && !hasFlat) return null;
+                return (
+                  <div className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-slate-600 font-medium">
+                      Subtotal: <span className="font-mono tabular-nums text-slate-900">{formatBDT(inv.subtotal)}</span>
+                    </span>
+                    <div className="flex flex-wrap items-center gap-3 font-mono tabular-nums text-amber-800">
+                      {hasDrLess && (
+                        <span>
+                          Doctor Less ({bd.doctorLessPercent}%): -{formatBDT(bd.doctorLessAmount)}
+                        </span>
+                      )}
+                      {hasFlat && <span>Flat Discount: -{formatBDT(bd.flatDiscountAmount)}</span>}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {Number(inv.adjustment_amount || 0) !== 0 && (
                 <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-2">

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Banknote,
+  ChevronLeft,
+  ChevronRight,
   CreditCard,
   ExternalLink,
   FlaskConical,
@@ -238,7 +240,26 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [selectedPayoutDoctorId, setSelectedPayoutDoctorId] = useState<number | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [staffSidebarCollapsed, setStaffSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('alea_staff_sidebar_collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [reagentAlertCount, setReagentAlertCount] = useState(0);
+
+  const toggleStaffSidebarCollapsed = useCallback(() => {
+    setStaffSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem('alea_staff_sidebar_collapsed', next ? '1' : '0');
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  }, []);
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo>({
     settings: DEFAULT_SETTINGS,
@@ -881,6 +902,7 @@ export default function App() {
 
   const activeNavMeta = visibleNavItems.find((n) => n.id === activeTab) || visibleNavItems[0];
   const resolvedTab = activeNavMeta.id;
+  const isStaffSidebarHidden = !isAdmin && staffSidebarCollapsed;
 
   return (
     <SampleTimerProvider onOpenLabForPatient={handleOpenLabForPatient}>
@@ -895,13 +917,14 @@ export default function App() {
 
       {/* Left Sidebar Navigation (Strictly scoped to Admin or Staff role) */}
       <aside
-        className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-64 bg-brand-navy-dark border-t-[3px] border-t-brand-red text-slate-100 flex flex-col shrink-0 transition-transform duration-200 lg:translate-x-0 no-print ${
+        className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-64 bg-brand-navy-dark border-t-[3px] border-t-brand-red text-slate-100 shrink-0 overflow-hidden transition-[transform,width] duration-200 ease-in-out lg:translate-x-0 no-print ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        } ${isStaffSidebarHidden ? 'lg:w-0 lg:border-t-0 lg:invisible lg:pointer-events-none' : 'lg:w-64'}`}
       >
-        <div className="px-4 py-4 border-b border-white/10 flex items-start justify-between gap-2.5">
+        <div className="w-64 h-full flex flex-col">
+        <div className="px-4 py-4 border-b border-white/10 flex items-start justify-between gap-2">
           <div className="flex items-start gap-2.5 min-w-0">
-            <BrandLogo surface="dark" className="h-10 w-auto" />
+            <BrandLogo surface="dark" className="h-10 w-auto shrink-0" />
             <div className="min-w-0">
               <div className="text-sm font-bold text-white tracking-tight leading-snug">
                 {settings.lab_name}
@@ -911,6 +934,17 @@ export default function App() {
               </div>
             </div>
           </div>
+          {!isAdmin && (
+            <button
+              type="button"
+              onClick={toggleStaffSidebarCollapsed}
+              title="Collapse sidebar for full-width view"
+              aria-label="Collapse sidebar"
+              className="hidden lg:inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-300 hover:text-white hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setMobileMenuOpen(false)}
@@ -1032,6 +1066,7 @@ export default function App() {
             <span>Sign Out</span>
           </button>
         </div>
+        </div>
       </aside>
 
       {/* Main Content Shell */}
@@ -1039,6 +1074,17 @@ export default function App() {
         {/* Top Bar Contract */}
         <header className="sticky top-0 z-20 bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-4 no-print">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            {isStaffSidebarHidden && (
+              <button
+                type="button"
+                onClick={toggleStaffSidebarCollapsed}
+                title="Show navigation sidebar"
+                aria-label="Show navigation sidebar"
+                className="hidden lg:inline-flex items-center justify-center w-8 h-8 -ml-1 rounded-lg border border-slate-200 bg-slate-50 text-brand-navy hover:bg-slate-100 hover:border-slate-300 transition-colors shrink-0 cursor-pointer"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
@@ -1097,7 +1143,9 @@ export default function App() {
 
         {/* Active Module Viewport */}
         <main
-          className={`flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] w-full mx-auto ${
+          className={`flex-1 p-4 sm:p-6 lg:p-8 w-full mx-auto ${
+            isStaffSidebarHidden ? 'max-w-none' : 'max-w-[1440px]'
+          } ${
             resolvedTab === 'payouts' || resolvedTab === 'doctors'
               ? 'print:p-0 print:m-0 print:max-w-none'
               : ''

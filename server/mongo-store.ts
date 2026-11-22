@@ -3065,7 +3065,7 @@ export class MongoLimsStore implements LimsStore {
 
     const netTotal = disc.netBeforeAdjustment;
     const discountPct = disc.discountPct;
-    const paid = Math.min(netTotal, Math.max(0, Math.round(Number(payload.paidAmount || 0) * 100) / 100));
+    const paid = Math.max(0, Math.round(Number(payload.paidAmount || 0) * 100) / 100);
     const due = Math.max(0, Math.round((netTotal - paid) * 100) / 100);
     const paymentStatus = due <= 0 ? 'Paid' : paid > 0 ? 'Partial' : 'Due';
 

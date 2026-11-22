@@ -1170,7 +1170,7 @@ async function applyAndQueueOfflineMutation<T>(
     const discountAmount = disc.discountAmount;
     const discountPct = disc.discountPct;
     const netTotal = disc.netBeforeAdjustment;
-    const paid = Math.min(netTotal, Math.max(0, roundCurrency(Number(payload.paidAmount || 0))));
+    const paid = Math.max(0, roundCurrency(Number(payload.paidAmount || 0)));
     const due = Math.max(0, roundCurrency(netTotal - paid));
     const paymentStatus: 'Paid' | 'Partial' | 'Due' =
       due <= 0 ? 'Paid' : paid > 0 ? 'Partial' : 'Due';

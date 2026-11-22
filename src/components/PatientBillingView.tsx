@@ -164,15 +164,10 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
       if (selectedTestIds.length === 0 && paidTouched) {
         setPaidTouched(false);
       }
-      return;
     }
-    const parsedPaid = Number(paidAmount || 0);
-    if (Number.isFinite(parsedPaid) && parsedPaid > netTotal) {
-      setPaidAmount(String(netTotal));
-    }
-  }, [netTotal, paidTouched, paidAmount, selectedTestIds.length]);
+  }, [netTotal, paidTouched, selectedTestIds.length]);
 
-  const effectivePaid = Math.min(netTotal, Math.max(0, Number(paidAmount || 0)));
+  const effectivePaid = Math.max(0, Math.round(Number(paidAmount || 0) * 100) / 100);
   const dueAmount = Math.max(0, Math.round((netTotal - effectivePaid) * 100) / 100);
   const rawMaxStaff = settings.max_staff_discount_pct;
   const maxStaffPct =
@@ -1058,7 +1053,6 @@ export const PatientBillingView: React.FC<PatientBillingViewProps> = ({
                   <input
                     type="number"
                     min={0}
-                    max={netTotal}
                     step="any"
                     value={paidAmount}
                     onChange={(e) => {

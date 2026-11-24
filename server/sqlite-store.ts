@@ -3464,14 +3464,73 @@ export class SqliteLimsStore implements LimsStore {
     db.prepare('DELETE FROM reagents WHERE id = ?').run(id);
   }
 
-  private getCumulativeCashBalanceBefore(cutoffDate: string): number {
-    const revRow = db
+  private getDailyLabRevenueMap(
+    whereMode: 'before' | 'range',
+    startDate: string,
+    endDate?: string
+  ): { revMap: Map<string, number>; countMap: Map<string, number> } {
+    const invWhere =
+      whereMode === 'before'
+        ? `substr(i.created_at, 1, 10) < ?`
+        : `substr(i.created_at, 1, 10) BETWEEN ? AND ?`;
+    const dueWhere =
+      whereMode === 'before'
+        ? `substr(collected_at, 1, 10) < ?`
+        : `substr(collected_at, 1, 10) BETWEEN ? AND ?`;
+    const params = whereMode === 'before' ? [startDate] : [startDate, endDate!];
+
+    const invRows = db
       .prepare(
-        `SELECT COALESCE(SUM(net_total - commission_amount), 0) as amt
-         FROM invoices
-         WHERE substr(created_at, 1, 10) < ?`
+        `SELECT substr(i.created_at, 1, 10) as d,
+                COALESCE(SUM(i.paid_amount - COALESCE(dp.dp_sum, 0)), 0) as initialPaid,
+                COALESCE(SUM(i.commission_amount), 0) as comm,
+                COUNT(*) as cnt
+         FROM invoices i
+         LEFT JOIN (SELECT invoice_id, SUM(amount) as dp_sum FROM due_payments GROUP BY invoice_id) dp
+           ON dp.invoice_id = i.id
+         WHERE ${invWhere}
+         GROUP BY substr(i.created_at, 1, 10)`
       )
-      .get(cutoffDate) as { amt: number };
+      .all(...params) as Array<{ d: string; initialPaid: number; comm: number; cnt: number }>;
+
+    const dueRows = db
+      .prepare(
+        `SELECT substr(collected_at, 1, 10) as d,
+                COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as recovered,
+                COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0) as refunded,
+                COUNT(*) as cnt
+         FROM due_payments
+         WHERE ${dueWhere}
+         GROUP BY substr(collected_at, 1, 10)`
+      )
+      .all(...params) as Array<{ d: string; recovered: number; refunded: number; cnt: number }>;
+
+    const invByDate = new Map(invRows.map((r) => [r.d, r]));
+    const dueByDate = new Map(dueRows.map((r) => [r.d, r]));
+    const allDates = new Set<string>([...invByDate.keys(), ...dueByDate.keys()]);
+
+    const revMap = new Map<string, number>();
+    const countMap = new Map<string, number>();
+    for (const d of allDates) {
+      const inv = invByDate.get(d);
+      const due = dueByDate.get(d);
+      const netCollection = roundCurrency(
+        Number(inv?.initialPaid || 0) + Number(due?.recovered || 0) - Number(due?.refunded || 0)
+      );
+      const comm = roundCurrency(Number(inv?.comm || 0));
+      revMap.set(d, Math.max(0, roundCurrency(netCollection - comm)));
+      countMap.set(d, Number(inv?.cnt || 0) + Number(due?.cnt || 0));
+    }
+
+    return { revMap, countMap };
+  }
+
+  private getCumulativeCashBalanceBefore(cutoffDate: string): number {
+    const { revMap } = this.getDailyLabRevenueMap('before', cutoffDate);
+    let revBefore = 0;
+    for (const amt of revMap.values()) {
+      revBefore = roundCurrency(revBefore + amt);
+    }
 
     const otherRow = db
       .prepare(`SELECT COALESCE(SUM(amount), 0) as amt FROM other_revenues WHERE revenue_date < ?`)
@@ -3482,7 +3541,7 @@ export class SqliteLimsStore implements LimsStore {
       .get(cutoffDate) as { amt: number };
 
     return roundCurrency(
-      Number(revRow.amt || 0) +
+      revBefore +
         Number(otherRow.amt || 0) -
         Number(expRow.amt || 0)
     );
@@ -3505,24 +3564,12 @@ export class SqliteLimsStore implements LimsStore {
 
     const priorOpeningBalance = this.getCumulativeCashBalanceBefore(cleanFrom);
 
-    // 1. Lab Test Revenue in [cleanFrom, cleanTo] = Total Revenue (Net Billed - Doctor Commission)
-    const revByDateRows = db
-      .prepare(
-        `SELECT substr(created_at, 1, 10) as d,
-                COALESCE(SUM(net_total - commission_amount), 0) as amt,
-                COUNT(*) as cnt
-         FROM invoices
-         WHERE substr(created_at, 1, 10) BETWEEN ? AND ?
-         GROUP BY substr(created_at, 1, 10)`
-      )
-      .all(cleanFrom, cleanTo) as Array<{ d: string; amt: number; cnt: number }>;
-
-    const labRevMap = new Map<string, number>();
-    const labCountMap = new Map<string, number>();
-    for (const r of revByDateRows) {
-      labRevMap.set(r.d, roundCurrency((labRevMap.get(r.d) || 0) + Number(r.amt || 0)));
-      labCountMap.set(r.d, (labCountMap.get(r.d) || 0) + Number(r.cnt || 0));
-    }
+    // 1. Lab Test Revenue in [cleanFrom, cleanTo] = Total Revenue (Net Collection - Doctor Commission)
+    const { revMap: labRevMap, countMap: labCountMap } = this.getDailyLabRevenueMap(
+      'range',
+      cleanFrom,
+      cleanTo
+    );
 
     // 2. Other Revenues in [cleanFrom, cleanTo]
     const otherRevenues = db
@@ -3644,13 +3691,10 @@ export class SqliteLimsStore implements LimsStore {
     const todayOpeningBalance =
       cleanFrom === today ? priorOpeningBalance : this.getCumulativeCashBalanceBefore(today);
 
-    const todayRevRow = db
-      .prepare(
-        `SELECT COALESCE(SUM(net_total - commission_amount), 0) as amt
-         FROM invoices
-         WHERE substr(created_at, 1, 10) = ?`
-      )
-      .get(today) as { amt: number };
+    const todayLabRevenue =
+      today >= cleanFrom && today <= cleanTo
+        ? roundCurrency(labRevMap.get(today) || 0)
+        : roundCurrency(this.getDailyLabRevenueMap('range', today, today).revMap.get(today) || 0);
     const todayOtherRow = db
       .prepare(`SELECT COALESCE(SUM(amount), 0) as amt FROM other_revenues WHERE revenue_date = ?`)
       .get(today) as { amt: number };
@@ -3658,7 +3702,6 @@ export class SqliteLimsStore implements LimsStore {
       .prepare(`SELECT category, amount FROM expenses WHERE expense_date = ?`)
       .all(today) as Array<{ category: string; amount: number }>;
 
-    const todayLabRevenue = roundCurrency(Number(todayRevRow.amt || 0));
     const todayOtherRevenue = roundCurrency(Number(todayOtherRow.amt || 0));
     const todayTotalInflow = roundCurrency(todayLabRevenue + todayOtherRevenue);
     const todayTotalAvailable = roundCurrency(todayOpeningBalance + todayTotalInflow);

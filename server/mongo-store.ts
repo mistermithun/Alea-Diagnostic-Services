@@ -4529,19 +4529,78 @@ export class MongoLimsStore implements LimsStore {
     await this.reagentsCol.deleteOne({ id });
   }
 
+  private computeDailyLabRevenueMap(
+    invoices: Array<{ id: number; paid_amount?: number; commission_amount?: number; created_at: string }>,
+    allDueForInvoices: Array<{ invoice_id: number; amount?: number }>,
+    dueInPeriod: Array<{ amount?: number; collected_at: string }>
+  ): { revMap: Map<string, number>; countMap: Map<string, number> } {
+    const dpSumByInvoice = new Map<number, number>();
+    for (const dp of allDueForInvoices) {
+      dpSumByInvoice.set(dp.invoice_id, (dpSumByInvoice.get(dp.invoice_id) || 0) + Number(dp.amount || 0));
+    }
+
+    const invByDate = new Map<string, { initialPaid: number; comm: number; cnt: number }>();
+    for (const inv of invoices) {
+      const d = datePart(inv.created_at);
+      const cur = invByDate.get(d) || { initialPaid: 0, comm: 0, cnt: 0 };
+      cur.initialPaid += Number(inv.paid_amount || 0) - (dpSumByInvoice.get(inv.id) || 0);
+      cur.comm += Number(inv.commission_amount || 0);
+      cur.cnt += 1;
+      invByDate.set(d, cur);
+    }
+
+    const dueByDate = new Map<string, { recovered: number; refunded: number; cnt: number }>();
+    for (const dp of dueInPeriod) {
+      const d = datePart(dp.collected_at);
+      const cur = dueByDate.get(d) || { recovered: 0, refunded: 0, cnt: 0 };
+      const amt = Number(dp.amount || 0);
+      if (amt > 0) cur.recovered += amt;
+      else if (amt < 0) cur.refunded += -amt;
+      cur.cnt += 1;
+      dueByDate.set(d, cur);
+    }
+
+    const allDates = new Set<string>([...invByDate.keys(), ...dueByDate.keys()]);
+    const revMap = new Map<string, number>();
+    const countMap = new Map<string, number>();
+    for (const d of allDates) {
+      const inv = invByDate.get(d);
+      const due = dueByDate.get(d);
+      const netCollection = roundCurrency(
+        (inv?.initialPaid || 0) + (due?.recovered || 0) - (due?.refunded || 0)
+      );
+      const comm = roundCurrency(inv?.comm || 0);
+      revMap.set(d, Math.max(0, roundCurrency(netCollection - comm)));
+      countMap.set(d, (inv?.cnt || 0) + (due?.cnt || 0));
+    }
+    return { revMap, countMap };
+  }
+
   private async getCumulativeCashBalanceBefore(cutoffDate: string): Promise<number> {
-    const [invDocs, otherDocsBefore, expDocsBefore] = await Promise.all([
+    const [invDocs, dueDocsBefore, otherDocsBefore, expDocsBefore] = await Promise.all([
       this.invoicesCol
-        .find({ created_at: { $lt: cutoffDate } }, { projection: { _id: 0, net_total: 1, commission_amount: 1 } })
+        .find({ created_at: { $lt: cutoffDate } }, { projection: { _id: 0, id: 1, paid_amount: 1, commission_amount: 1, created_at: 1 } })
+        .toArray(),
+      this.duePaymentsCol
+        .find({ collected_at: { $lt: cutoffDate } }, { projection: { _id: 0, amount: 1, collected_at: 1 } })
         .toArray(),
       this.otherRevenuesCol.find({ revenue_date: { $lt: cutoffDate } }, { projection: { _id: 0, amount: 1 } }).toArray(),
       this.expensesCol.find({ expense_date: { $lt: cutoffDate } }, { projection: { _id: 0, amount: 1 } }).toArray(),
     ]);
 
-    const revBefore = invDocs.reduce(
-      (s, inv) => s + Number(inv.net_total || 0) - Number(inv.commission_amount || 0),
-      0
-    );
+    const invIds = invDocs.map((i) => i.id);
+    const allDueForBeforeInvs =
+      invIds.length > 0
+        ? await this.duePaymentsCol
+            .find({ invoice_id: { $in: invIds } }, { projection: { _id: 0, invoice_id: 1, amount: 1 } })
+            .toArray()
+        : [];
+
+    const { revMap } = this.computeDailyLabRevenueMap(invDocs, allDueForBeforeInvs, dueDocsBefore);
+    let revBefore = 0;
+    for (const amt of revMap.values()) {
+      revBefore = roundCurrency(revBefore + amt);
+    }
     const otherBefore = otherDocsBefore.reduce((s, o) => s + Number(o.amount || 0), 0);
     const expBefore = expDocsBefore.reduce((s, e) => s + Number(e.amount || 0), 0);
 
@@ -4565,41 +4624,59 @@ export class MongoLimsStore implements LimsStore {
 
     const rangeFilter = { $gte: cleanFrom, $lte: `${cleanTo}\uffff` };
     const todayFilter = { $gte: today, $lte: `${today}\uffff` };
+    const todayInsideRange = today >= cleanFrom && today <= cleanTo;
 
     const [
       priorOpeningBalance,
       todayOpeningBalance,
       rangeInvoices,
+      rangeDuePayments,
       otherRevenues,
       expenses,
       todayInvoices,
+      todayDuePayments,
       todayOtherDocs,
       todayExpenseDocs,
     ] = await Promise.all([
       this.getCumulativeCashBalanceBefore(cleanFrom),
       cleanFrom === today ? Promise.resolve(0) : this.getCumulativeCashBalanceBefore(today),
       this.invoicesCol
-        .find({ created_at: rangeFilter }, { projection: { _id: 0, id: 1, net_total: 1, commission_amount: 1, created_at: 1 } })
+        .find({ created_at: rangeFilter }, { projection: { _id: 0, id: 1, paid_amount: 1, commission_amount: 1, created_at: 1 } })
+        .toArray(),
+      this.duePaymentsCol
+        .find({ collected_at: rangeFilter }, { projection: { _id: 0, amount: 1, collected_at: 1 } })
         .toArray(),
       this.otherRevenuesCol.find({ revenue_date: { $gte: cleanFrom, $lte: cleanTo } }, { projection: { _id: 0 } }).sort({ revenue_date: -1, id: -1 }).toArray(),
       this.expensesCol.find({ expense_date: { $gte: cleanFrom, $lte: cleanTo } }, { projection: { _id: 0 } }).sort({ expense_date: -1, id: -1 }).toArray(),
-      this.invoicesCol
-        .find({ created_at: todayFilter }, { projection: { _id: 0, id: 1, net_total: 1, commission_amount: 1 } })
-        .toArray(),
+      todayInsideRange
+        ? Promise.resolve([])
+        : this.invoicesCol
+            .find({ created_at: todayFilter }, { projection: { _id: 0, id: 1, paid_amount: 1, commission_amount: 1, created_at: 1 } })
+            .toArray(),
+      todayInsideRange
+        ? Promise.resolve([])
+        : this.duePaymentsCol
+            .find({ collected_at: todayFilter }, { projection: { _id: 0, amount: 1, collected_at: 1 } })
+            .toArray(),
       this.otherRevenuesCol.find({ revenue_date: today }, { projection: { _id: 0, amount: 1 } }).toArray(),
       this.expensesCol.find({ expense_date: today }, { projection: { _id: 0, category: 1, amount: 1 } }).toArray(),
     ]);
 
     const resolvedTodayOpening = cleanFrom === today ? priorOpeningBalance : todayOpeningBalance;
 
-    const labRevMap = new Map<string, number>();
-    const labCountMap = new Map<string, number>();
-    for (const inv of rangeInvoices) {
-      const d = datePart(inv.created_at);
-      const netRev = Number(inv.net_total || 0) - Number(inv.commission_amount || 0);
-      labRevMap.set(d, roundCurrency((labRevMap.get(d) || 0) + netRev));
-      labCountMap.set(d, (labCountMap.get(d) || 0) + 1);
-    }
+    const allInvIds = Array.from(new Set([...rangeInvoices, ...todayInvoices].map((i) => i.id)));
+    const allDueForInvs =
+      allInvIds.length > 0
+        ? await this.duePaymentsCol
+            .find({ invoice_id: { $in: allInvIds } }, { projection: { _id: 0, invoice_id: 1, amount: 1 } })
+            .toArray()
+        : [];
+
+    const { revMap: labRevMap, countMap: labCountMap } = this.computeDailyLabRevenueMap(
+      rangeInvoices,
+      allDueForInvs,
+      rangeDuePayments
+    );
 
     const otherRevMap = new Map<string, number>();
     const otherCountMap = new Map<string, number>();
@@ -4680,12 +4757,11 @@ export class MongoLimsStore implements LimsStore {
       };
     });
 
-    const todayLabRevenue = roundCurrency(
-      todayInvoices.reduce(
-        (s, inv) => s + Number(inv.net_total || 0) - Number(inv.commission_amount || 0),
-        0
-      )
-    );
+    const todayLabRevenue = todayInsideRange
+      ? roundCurrency(labRevMap.get(today) || 0)
+      : roundCurrency(
+          this.computeDailyLabRevenueMap(todayInvoices, allDueForInvs, todayDuePayments).revMap.get(today) || 0
+        );
     const todayOtherRevenue = roundCurrency(todayOtherDocs.reduce((s, o) => s + Number(o.amount || 0), 0));
     const todayTotalInflow = roundCurrency(todayLabRevenue + todayOtherRevenue);
     const todayTotalAvailable = roundCurrency(resolvedTodayOpening + todayTotalInflow);

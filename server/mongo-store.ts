@@ -1672,7 +1672,6 @@ export class MongoLimsStore implements LimsStore {
     totalNetBilled = roundCurrency(totalNetBilled);
     pendingDueInRange = roundCurrency(pendingDueInRange);
     doctorCommissionPayable = roundCurrency(doctorCommissionPayable);
-    const netRevenue = roundCurrency(totalNetBilled - doctorCommissionPayable);
 
     let dueRecovered = 0;
     let refunded = 0;
@@ -1685,6 +1684,7 @@ export class MongoLimsStore implements LimsStore {
     refunded = roundCurrency(refunded);
     const totalExpenses = roundCurrency(expensesInRange.reduce((s, e) => s + Number(e.amount), 0));
     const netCollection = roundCurrency(initialPaid + dueRecovered - refunded);
+    const netRevenue = Math.max(0, roundCurrency(netCollection - doctorCommissionPayable));
     const netProfit = roundCurrency(netCollection - doctorCommissionPayable - totalExpenses);
     const allTimeDue = roundCurrency(allDueInvoices.reduce((s, i) => s + Number(i.due_amount), 0));
 

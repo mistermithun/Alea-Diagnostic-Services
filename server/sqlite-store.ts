@@ -388,10 +388,10 @@ export class SqliteLimsStore implements LimsStore {
 
     const totalNetBilled = roundCurrency(Number(invoiceAgg.totalNetBilled || 0));
     const doctorCommissionPayable = roundCurrency(Number(invoiceAgg.doctorCommissionPayable || 0));
-    const netRevenue = roundCurrency(totalNetBilled - doctorCommissionPayable);
     const netCollection = roundCurrency(
       initialCashRow.initialPaid + dueRecoveredRow.recovered - dueRecoveredRow.refunded
     );
+    const netRevenue = Math.max(0, roundCurrency(netCollection - doctorCommissionPayable));
     const netProfit = roundCurrency(netCollection - doctorCommissionPayable - expenseRow.totalExpenses);
 
     const departmentBreakdown = db

@@ -423,9 +423,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             </div>
             <div>
-              <div className="text-xs text-slate-500">Total Revenue (Net − Comm.)</div>
+              <div className="text-xs text-slate-500">Total Revenue (Collection − Comm.)</div>
               <div className="text-base font-bold font-mono tabular-nums text-slate-900 mt-0.5">
-                {formatBDT(adminData.metrics.netRevenue)}
+                {formatBDT(
+                  Math.max(
+                    0,
+                    Math.round(
+                      (adminData.metrics.netCollection - adminData.metrics.doctorCommissionPayable) * 100
+                    ) / 100
+                  )
+                )}
               </div>
             </div>
             <div>
@@ -474,17 +481,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             <div className="bg-white border border-slate-200 rounded-xl p-3.5">
-              <div className="text-[11px] font-medium text-slate-500">Total Revenue (Net Billed)</div>
+              <div className="text-[11px] font-medium text-slate-500">Total Revenue (Collection − Comm.)</div>
               <div className="text-xl font-bold font-mono tabular-nums text-slate-900 mt-0.5">
-                {formatBDT(adminData.metrics.netRevenue)}
+                {formatBDT(
+                  Math.max(
+                    0,
+                    Math.round(
+                      (adminData.metrics.netCollection - adminData.metrics.doctorCommissionPayable) * 100
+                    ) / 100
+                  )
+                )}
               </div>
               <div className="text-[11px] text-slate-500 mt-1 font-mono tabular-nums">
-                Net Billed{' '}
-                {formatBDT(
-                  adminData.metrics.totalNetBilled ??
-                    adminData.metrics.netRevenue + adminData.metrics.doctorCommissionPayable
-                )}{' '}
-                − Comm. {formatBDT(adminData.metrics.doctorCommissionPayable)} · Gross{' '}
+                Collection {formatBDT(adminData.metrics.netCollection)} − Comm.{' '}
+                {formatBDT(adminData.metrics.doctorCommissionPayable)} · Gross{' '}
                 {formatBDT(adminData.metrics.totalBilled)}
               </div>
             </div>

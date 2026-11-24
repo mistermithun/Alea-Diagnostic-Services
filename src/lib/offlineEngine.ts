@@ -1048,10 +1048,11 @@ async function serveOfflineGet<T>(url: string): Promise<T> {
     const expInRange = expenses.filter((e) => e.expense_date >= from && e.expense_date <= to);
     const totalBilled = roundCurrency(inRange.reduce((s, i) => s + Number(i.subtotal || 0), 0));
     const totalDiscount = roundCurrency(inRange.reduce((s, i) => s + Number(i.discount_amount || 0), 0));
-    const netRevenue = roundCurrency(inRange.reduce((s, i) => s + Number(i.net_total || 0), 0));
+    const totalNetBilled = roundCurrency(inRange.reduce((s, i) => s + Number(i.net_total || 0), 0));
     const netCollection = roundCurrency(inRange.reduce((s, i) => s + Number(i.paid_amount || 0), 0));
     const pendingDueInRange = roundCurrency(inRange.reduce((s, i) => s + Number(i.due_amount || 0), 0));
     const docComm = roundCurrency(inRange.reduce((s, i) => s + Number(i.commission_amount || 0), 0));
+    const netRevenue = Math.max(0, roundCurrency(netCollection - docComm));
     const totalExpenses = roundCurrency(expInRange.reduce((s, e) => s + Number(e.amount || 0), 0));
     return {
       from,
@@ -1060,7 +1061,7 @@ async function serveOfflineGet<T>(url: string): Promise<T> {
         patientsCount: inRange.length,
         totalBilled,
         totalDiscount,
-        totalNetBilled: netRevenue,
+        totalNetBilled,
         netRevenue,
         netCollection,
         dueRecovered: 0,
@@ -1073,7 +1074,7 @@ async function serveOfflineGet<T>(url: string): Promise<T> {
           .filter((i) => i.commission_paid)
           .reduce((s, i) => s + Number(i.commission_amount || 0), 0),
         totalExpenses,
-        netProfit: roundCurrency(netCollection - totalExpenses),
+        netProfit: roundCurrency(netCollection - docComm - totalExpenses),
         pendingReports: inRange.filter((i) => (i.ready_tests || 0) < (i.total_tests || 0)).length,
         readyReportsInRange: inRange.filter((i) => (i.total_tests || 0) > 0 && (i.ready_tests || 0) >= (i.total_tests || 0)).length,
         allTimeDue: roundCurrency(invoices.reduce((s, i) => s + Number(i.due_amount || 0), 0)),
